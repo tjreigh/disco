@@ -98,8 +98,9 @@ function applyCrackUpdates(board: Board, cleared: GridPos[]): RevealStep {
     }
   }
 
-  // Capture disc refs after the kind upgrade so the animation shows the new appearance.
-  const discs = positions.map(p => board[p.row]![p.col]!);
+  // Animation steps are an event log, so capture values rather than mutable board
+  // references. A later chain may reveal the same disc again before playback starts.
+  const discs = positions.map(p => ({ ...board[p.row]![p.col]! }));
   return { kind: StepKind.Reveal, positions, discs };
 }
 
@@ -131,8 +132,8 @@ function resolveClearSteps(scratch: Board, trace?: PhysicsTrace): PhysicsStep[] 
 
     const mult = CHAIN_MULTIPLIERS[Math.min(chainLevel, CHAIN_MULTIPLIERS.length - 1)] ?? 1;
     const points = clears.length * POINTS_PER_DISC * mult;
-    // Capture disc refs before removeDisc() makes the positions null.
-    const clearedDiscs = clears.map(pos => scratch[pos.row]![pos.col]!);
+    // Capture immutable playback values before removeDisc() makes the positions null.
+    const clearedDiscs = clears.map(pos => ({ ...scratch[pos.row]![pos.col]! }));
     steps.push({ kind: StepKind.Clear, cleared: clears, discs: clearedDiscs, chainLevel, pointsAwarded: points } satisfies ClearStep);
 
     for (const pos of clears) removeDisc(scratch, pos);
@@ -185,7 +186,9 @@ export function computeDropSteps(
   if (row === null) return steps; // column full — game over handled by caller
 
   placeDisc(scratch, row, col, disc);
-  steps.push({ kind: StepKind.Drop, disc, col, toLandRow: row } satisfies DropStep);
+  // The dropped board object may be revealed later in this same synchronous turn.
+  // Preserve how it looked at drop time for animation playback.
+  steps.push({ kind: StepKind.Drop, disc: { ...disc }, col, toLandRow: row } satisfies DropStep);
   trace?.frames.push({ label: `Drop #${disc.id} into r${row + 1}c${col + 1}`, board: deepCloneBoard(scratch) });
   steps.push(...resolveClearSteps(scratch, trace));
 
@@ -217,5 +220,7 @@ export function computePushStep(
   }
   board[GRID_ROWS - 1] = newRow;
 
-  return { step: { kind: StepKind.Push, newRow }, gameOver };
+  // Clear resolution runs immediately after a push and can reveal these discs.
+  // Keep the push event as a snapshot of what actually entered the board.
+  return { step: { kind: StepKind.Push, newRow: newRow.map(disc => ({ ...disc })) }, gameOver };
 }

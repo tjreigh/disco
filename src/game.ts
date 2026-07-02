@@ -35,6 +35,7 @@ export class Game {
       canvas,
       intent => this.handleIntent(intent),
       () => this.state.phase === GamePhase.GameOver,
+      () => this.state.cursorCol,
     );
     // Bind before the first rAF call — rAF invokes the callback without `this`,
     // so without binding, every method call inside loop() would fail.

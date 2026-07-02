@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { computeDropSteps, computePushStep } from './physics.js';
+import { computeClearSteps, computeDropSteps, computePushStep } from './physics.js';
 import { makeEmptyBoard, placeDisc } from './board.js';
 import { makeDisc } from './disc.js';
 import { DiscKind, StepKind, Board, ClearStep, FallStep, RevealStep, DropStep } from './types.js';
@@ -110,6 +110,21 @@ describe('computeDropSteps – cracked discs do not clear', () => {
 // ─── Crack reveal rules ──────────────────────────────────────────────────────
 
 describe('computeDropSteps – crack reveals', () => {
+  test('playback snapshots preserve each state of a disc revealed during its drop', () => {
+    const board = buildBoard([at(6, 0, 2)]);
+    const dropped = makeDisc(7, DiscKind.DoubleCracked);
+
+    const steps = computeDropSteps(board, dropped, 1);
+    const drop = steps.find(s => s.kind === StepKind.Drop) as DropStep;
+    const reveal = steps.find(s => s.kind === StepKind.Reveal) as RevealStep;
+
+    expect(drop.disc.kind).toBe(DiscKind.DoubleCracked);
+    expect(reveal.discs[0]!.kind).toBe(DiscKind.SingleCracked);
+    expect(board[6]![1]!.kind).toBe(DiscKind.SingleCracked);
+    expect(drop.disc).not.toBe(board[6]![1]);
+    expect(reveal.discs[0]).not.toBe(board[6]![1]);
+  });
+
   test('DoubleCracked adjacent to a clear degrades to SingleCracked', () => {
     // Row 6 has 3 discs after drop; val=3 at col 2 clears.
     // DoubleCracked at (6,1) is adjacent and degrades.
@@ -237,6 +252,20 @@ describe('computeDropSteps – chain reactions', () => {
 // ─── computePushStep ─────────────────────────────────────────────────────────
 
 describe('computePushStep', () => {
+  test('push playback is not rewritten by immediate clear resolution', () => {
+    const board = buildBoard([at(6, 0, 2)]);
+    const { step } = computePushStep(
+      board,
+      () => makeDisc(7, DiscKind.DoubleCracked),
+    );
+
+    computeClearSteps(board);
+
+    expect(step.newRow[0]!.kind).toBe(DiscKind.DoubleCracked);
+    expect(board[6]![0]!.kind).toBe(DiscKind.SingleCracked);
+    expect(step.newRow[0]).not.toBe(board[6]![0]);
+  });
+
   test('shifts all rows up by one', () => {
     const board = makeEmptyBoard();
     const disc = makeDisc(4, DiscKind.Numbered);

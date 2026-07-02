@@ -10,10 +10,7 @@ export class InputHandler {
   private canvas: HTMLCanvasElement;
   private onIntent: (intent: InputIntent) => void;
   private isGameOver: () => boolean;
-  // InputHandler tracks its own cursor column so keyboard moves (+1/-1) can be
-  // computed without coupling to GameState. The game's cursorCol stays in sync
-  // because every 'move' intent is forwarded to the game, which updates it too.
-  private cursorCol = 3;
+  private getCursorCol: () => number;
   private touchStartX = 0;
   private touchStartY = 0;
   private touchStartTime = 0;
@@ -25,10 +22,12 @@ export class InputHandler {
     canvas: HTMLCanvasElement,
     onIntent: (intent: InputIntent) => void,
     isGameOver: () => boolean,
+    getCursorCol: () => number,
   ) {
     this.canvas      = canvas;
     this.onIntent    = onIntent;
     this.isGameOver  = isGameOver;
+    this.getCursorCol = getCursorCol;
     this.attach();
   }
 
@@ -50,18 +49,18 @@ export class InputHandler {
         case 'ArrowLeft':
         case 'h':
           e.preventDefault();
-          this.emit({ kind: 'move', col: Math.max(0, this.cursorCol - 1) });
+          this.emit({ kind: 'move', col: Math.max(0, this.getCursorCol() - 1) });
           break;
         case 'ArrowRight':
         case 'l':
           e.preventDefault();
-          this.emit({ kind: 'move', col: Math.min(GRID_COLS - 1, this.cursorCol + 1) });
+          this.emit({ kind: 'move', col: Math.min(GRID_COLS - 1, this.getCursorCol() + 1) });
           break;
         case 'ArrowDown':
         case ' ':
         case 'Enter':
           e.preventDefault();
-          this.emit({ kind: 'drop', col: this.cursorCol });
+          this.emit({ kind: 'drop', col: this.getCursorCol() });
           break;
         case 'r':
         case 'R':
@@ -112,9 +111,6 @@ export class InputHandler {
   }
 
   private emit(intent: InputIntent): void {
-    if (intent.kind === 'move') {
-      this.cursorCol = intent.col;
-    }
     this.onIntent(intent);
   }
 

@@ -49,8 +49,8 @@ export interface DropStep {
 export interface ClearStep {
   kind: StepKind.Clear;
   cleared: GridPos[];
-  // Disc refs captured before the discs are removed from the board, so the
-  // animation system still has them after the board has been mutated.
+  // Disc value snapshots captured before removal so later synchronous physics
+  // cannot rewrite an earlier playback event.
   discs: Disc[];
   chainLevel: number;
   pointsAwarded: number;
@@ -64,8 +64,8 @@ export interface FallStep {
 export interface RevealStep {
   kind: StepKind.Reveal;
   positions: GridPos[];
-  // Disc refs after the kind upgrade (DoubleCracked→SingleCracked→Numbered),
-  // captured so the animation can pulse the already-updated disc appearance.
+  // Disc value snapshots after this specific kind upgrade, captured so a later
+  // upgrade in the same turn cannot rewrite this playback event.
   discs: Disc[];
 }
 

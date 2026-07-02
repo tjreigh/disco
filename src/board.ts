@@ -81,7 +81,9 @@ export function applyGravity(board: Board): FallStep {
       const { disc, origRow } = discs[i]!;
       board[writeRow]![col] = disc;
       if (origRow !== writeRow) {
-        moves.push({ from: { row: origRow, col }, to: { row: writeRow, col }, disc });
+        // FallStep is a playback event. Do not retain a mutable board reference:
+        // a later clear in the same turn may reveal this disc before animation runs.
+        moves.push({ from: { row: origRow, col }, to: { row: writeRow, col }, disc: { ...disc } });
       }
       writeRow--;
     }
