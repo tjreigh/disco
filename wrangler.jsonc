@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "disco",
+  "compatibility_date": "2026-04-23",
+  "assets": {
+    // Only serve files from the build output directory.
+    // This keeps node_modules and source files out of the deployed asset list.
+    "directory": "./public"
+  }
+}

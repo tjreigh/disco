@@ -1,0 +1,18 @@
+{
+  "name": "disco",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc && cp index.html public/index.html",
+    "watch": "tsc --watch",
+    "serve": "npx --yes serve public -l 3000",
+    "dev": "tsc --watch & npx --yes serve public -l 3000",
+    "test": "vitest run",
+    "test:engine": "vitest run src/engine.test.ts",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "vitest": "^4.1.7"
+  }
+}
