@@ -7,6 +7,9 @@ import { AnimationQueue } from './animation.js';
 import { Renderer } from './renderer.js';
 import { InputHandler } from './input.js';
 import { AudioManager } from './audio.js';
+import {
+  GameStats, loadStats, recordCompletedGame, saveStats, updateRecords,
+} from './stats.js';
 
 export class Game {
   private state: GameState;
@@ -22,6 +25,9 @@ export class Game {
   // from. state.board is already in the final post-physics state, so drawing from
   // it would show discs at their final positions before the animations reach them.
   private visualBoard: Board;
+  private stats: GameStats;
+  private longestStreakThisGame = 0;
+  private gameRecorded = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new Renderer(canvas);
@@ -30,6 +36,7 @@ export class Game {
     this.state    = this.engine.state;
     this.debug    = new DebugPanel(this.state);
     this.visualBoard = makeEmptyBoard();
+    this.stats = loadStats();
 
     this.input = new InputHandler(
       canvas,
@@ -76,6 +83,15 @@ export class Game {
     }
 
     const { steps } = result;
+    const longestStreakThisTurn = steps.reduce(
+      (longest, step) => step.kind === StepKind.Clear
+        ? Math.max(longest, step.chainLevel + 1)
+        : longest,
+      0,
+    );
+    this.longestStreakThisGame = Math.max(this.longestStreakThisGame, longestStreakThisTurn);
+    updateRecords(this.stats, this.state.score, this.longestStreakThisGame);
+    saveStats(this.stats);
     this.visualBoard = result.boardBefore;
     if (steps.some(step => step.kind === StepKind.Push)) this.audio.playPush();
 
@@ -151,6 +167,11 @@ export class Game {
 
   private setGameOver(): void {
     this.state.phase = GamePhase.GameOver;
+    if (!this.gameRecorded) {
+      recordCompletedGame(this.stats, this.state.score);
+      saveStats(this.stats);
+      this.gameRecorded = true;
+    }
     this.debug.refresh();
     this.audio.playGameOver();
     // Drop any in-progress animation — the game-over overlay renders on top,
@@ -163,6 +184,8 @@ export class Game {
     this.engine.restart();
     this.debug.reset();
     this.visualBoard = makeEmptyBoard();
+    this.longestStreakThisGame = 0;
+    this.gameRecorded = false;
   }
 
   private loop(now: DOMHighResTimeStamp): void {
@@ -174,6 +197,6 @@ export class Game {
     }
 
     const anims = this.animQueue?.getActiveAnimations() ?? [];
-    this.renderer.draw(this.state, this.visualBoard, anims);
+    this.renderer.draw(this.state, this.visualBoard, anims, this.stats);
   }
 }

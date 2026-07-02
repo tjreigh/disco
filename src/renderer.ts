@@ -13,6 +13,7 @@ import {
   gridPadding, cellSize, updateCellSize,
 } from './layout.js';
 import { interpolateY, interpolateX } from './animation.js';
+import type { GameStats } from './stats.js';
 
 const HUD_BOTTOM_HEIGHT = 80;
 
@@ -55,7 +56,12 @@ export class Renderer {
   // state.board (which is already in the final post-physics state). Drawing from
   // the visual board prevents discs from teleporting to their final positions
   // during intermediate animation steps like Clear and Fall.
-  draw(state: GameState, board: Board, animations: readonly RichDiscAnimation[]): void {
+  draw(
+    state: GameState,
+    board: Board,
+    animations: readonly RichDiscAnimation[],
+    stats: GameStats,
+  ): void {
     const { ctx } = this;
     // Build a set of disc IDs currently being animated. drawStaticDiscs uses
     // this to skip those cells — without it a disc would be drawn twice: once
@@ -71,7 +77,7 @@ export class Renderer {
     this.drawHUD(state);
 
     if (state.phase === GamePhase.GameOver) {
-      this.drawGameOver(state.score);
+      this.drawGameOver(state.score, stats);
     }
   }
 
@@ -204,7 +210,7 @@ export class Renderer {
     ctx.fillText(hint, lw - gp, hudCy + 8);
   }
 
-  private drawGameOver(score: number): void {
+  private drawGameOver(score: number, stats: GameStats): void {
     const { ctx } = this;
     const lw = canvasLogicalWidth();
     const lh = canvasLogicalHeight();
@@ -216,15 +222,18 @@ export class Renderer {
     ctx.font = 'bold 38px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('GAME OVER', lw / 2, lh / 2 - 32);
+    ctx.fillText('GAME OVER', lw / 2, lh / 2 - 68);
 
     ctx.font = '22px system-ui, sans-serif';
-    ctx.fillText(`Score: ${score}`, lw / 2, lh / 2 + 8);
+    ctx.fillText(`Score: ${score}`, lw / 2, lh / 2 - 28);
 
     ctx.font = '14px system-ui, sans-serif';
     ctx.fillStyle = COLOR_TEXT_DIM;
+    ctx.fillText(`High ${stats.highScore}   •   Longest chain ${stats.longestStreak}`, lw / 2, lh / 2 + 8);
+    ctx.fillText(`Average ${stats.averageScore} over ${stats.gamesPlayed} game${stats.gamesPlayed === 1 ? '' : 's'}`, lw / 2, lh / 2 + 30);
+
     const restartHint = isTouchDevice() ? 'Tap to restart' : 'Press R to restart';
-    ctx.fillText(restartHint, lw / 2, lh / 2 + 46);
+    ctx.fillText(restartHint, lw / 2, lh / 2 + 66);
   }
 
   drawDisc(disc: Disc, cx: number, cy: number, r: number, alpha: number, scale: number): void {

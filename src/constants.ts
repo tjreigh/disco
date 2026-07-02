@@ -20,11 +20,10 @@ export const PUSH_MS         = 420; // new row sliding up from below
 // width so the pressure scales with how fast the player fills columns.
 export const DROPS_PER_PUSH = 7;
 
-// Score = cleared_count × POINTS_PER_DISC × CHAIN_MULTIPLIERS[chainLevel].
-// The multiplier array has 7 entries (one per possible chain depth before it
-// caps); chains longer than 6 use the last entry (64×).
-export const CHAIN_MULTIPLIERS = [1, 2, 4, 8, 16, 32, 64] as const;
-export const POINTS_PER_DISC   = 7; // matches board dimension, per original game design
+// A disc cleared at chain length n is worth floor(7 × n^2.5):
+// 7, 39, 109, 224, 391, ... This is the original Drop7 progression and does
+// not cap, so unusually long chains continue to become more valuable.
+export const POINTS_PER_DISC = 7;
 
 // Probability thresholds for the random disc drawn from the queue.
 // Roll r in [0, 1): r < 0.70 → Numbered, r < 0.85 → SingleCracked, else DoubleCracked.

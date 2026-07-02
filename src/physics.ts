@@ -5,7 +5,7 @@ import {
 } from './types.js';
 import {
   GRID_COLS, GRID_ROWS,
-  CHAIN_MULTIPLIERS, POINTS_PER_DISC,
+  POINTS_PER_DISC,
 } from './constants.js';
 import {
   cloneBoard, countHorizontalRun, countVerticalRun, deepCloneBoard,
@@ -113,6 +113,12 @@ function commitBoard(target: Board, source: Board): void {
   }
 }
 
+/** Points awarded per cleared disc at a one-based chain length. */
+export function pointsForChain(chainLength: number): number {
+  if (!Number.isInteger(chainLength) || chainLength < 1) return 0;
+  return Math.floor(POINTS_PER_DISC * Math.pow(chainLength, 2.5));
+}
+
 // Resolves every clear/reveal/fall chain on a board that has already changed.
 // This is shared by normal drops and row pushes: a push changes every column's
 // disc count, so leaving it unresolved makes an eligible disc clear during the
@@ -131,8 +137,7 @@ function resolveClearSteps(scratch: Board, trace?: PhysicsTrace): PhysicsStep[] 
     });
     if (clears.length === 0) break;
 
-    const mult = CHAIN_MULTIPLIERS[Math.min(chainLevel, CHAIN_MULTIPLIERS.length - 1)] ?? 1;
-    const points = clears.length * POINTS_PER_DISC * mult;
+    const points = clears.length * pointsForChain(chainLevel + 1);
     // Capture immutable playback values before removeDisc() makes the positions null.
     const clearedDiscs = clears.map(pos => ({ ...scratch[pos.row]![pos.col]! }));
     steps.push({ kind: StepKind.Clear, cleared: clears, discs: clearedDiscs, chainLevel, pointsAwarded: points } satisfies ClearStep);

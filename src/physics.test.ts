@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { computeClearSteps, computeDropSteps, computePushStep } from './physics.js';
+import { computeClearSteps, computeDropSteps, computePushStep, pointsForChain } from './physics.js';
 import { makeEmptyBoard, placeDisc } from './board.js';
 import { makeDisc } from './disc.js';
 import { DiscKind, StepKind, Board, ClearStep, FallStep, RevealStep, DropStep } from './types.js';
@@ -201,6 +201,13 @@ describe('computeDropSteps – multi-adjacency', () => {
 // ─── Chain reactions ──────────────────────────────────────────────────────────
 
 describe('computeDropSteps – chain reactions', () => {
+  test('uses the original unbounded Drop7 chain score sequence', () => {
+    expect([1, 2, 3, 4, 5, 6].map(pointsForChain)).toEqual([
+      7, 39, 109, 224, 391, 617,
+    ]);
+    expect(pointsForChain(30)).toBe(34506);
+  });
+
   test('gravity after first clear enables a second clear at higher chain level', () => {
     // (3,0) val=1 is above (6,0) val=2 which clears in chain 0 (col count=2).
     // (3,4) val=7 keeps row 3 at count=2, preventing (3,0) val=1 from self-clearing
@@ -232,15 +239,14 @@ describe('computeDropSteps – chain reactions', () => {
     expect(clears[0]!.pointsAwarded).toBe(3 * 7 * 1); // 21
   });
 
-  test('scoring: chain 1 awards clearedCount × 7 × 2', () => {
-    // 1 disc clears in chain 1: 1 × 7 × 2 = 14
+  test('scoring: chain 1 awards 39 points per cleared disc', () => {
     const board = buildBoard([
       at(3, 0, 1), at(3, 4, 7),
       at(6, 0, 2), at(6, 1, 1), at(6, 2, 1),
     ]);
     const steps = computeDropSteps(board, makeDisc(7, DiscKind.Numbered), 3);
     const clears = steps.filter(s => s.kind === StepKind.Clear) as ClearStep[];
-    expect(clears[1]!.pointsAwarded).toBe(1 * 7 * 2); // 14
+    expect(clears[1]!.pointsAwarded).toBe(39);
   });
 
   test('FallStep appears between the two ClearSteps', () => {
