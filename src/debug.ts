@@ -1,4 +1,4 @@
-import { countInCol, countInRow } from './board.js';
+import { countHorizontalRun, countVerticalRun } from './board.js';
 import { TurnResult } from './engine.js';
 import { Board, Disc, DiscKind, GameState, StepKind } from './types.js';
 
@@ -15,7 +15,8 @@ function position(row: number, col: number): string {
 function isClearable(board: Board, row: number, col: number): boolean {
   const disc = board[row]![col];
   return disc?.kind === DiscKind.Numbered &&
-    (disc.value === countInRow(board, row) || disc.value === countInCol(board, col));
+    (disc.value === countHorizontalRun(board, row, col) ||
+      disc.value === countVerticalRun(board, row, col));
 }
 
 function makeBoardGrid(board: Board, compact = false): HTMLElement {
@@ -30,7 +31,7 @@ function makeBoardGrid(board: Board, compact = false): HTMLElement {
         cell.textContent = discText(disc);
         cell.classList.add(`debug-cell--${disc.kind}`);
         if (isClearable(board, row, col)) cell.classList.add('debug-cell--clearable');
-        cell.title = `#${disc.id} ${position(row, col)} ${disc.kind}; value=${disc.value}, row=${countInRow(board, row)}, col=${countInCol(board, col)}`;
+        cell.title = `#${disc.id} ${position(row, col)} ${disc.kind}; value=${disc.value}, horizontal=${countHorizontalRun(board, row, col)}, vertical=${countVerticalRun(board, row, col)}`;
       } else {
         cell.textContent = '·';
         cell.classList.add('debug-cell--empty');
@@ -141,7 +142,7 @@ export class DebugPanel {
       for (let col = 0; col < this.state.board[row]!.length; col++) {
         const disc = this.state.board[row]![col];
         if (!disc || !isClearable(this.state.board, row, col)) continue;
-        unresolved.push(`#${disc.id} v${disc.value} ${position(row, col)} (row=${countInRow(this.state.board, row)}, col=${countInCol(this.state.board, col)})`);
+        unresolved.push(`#${disc.id} v${disc.value} ${position(row, col)} (horizontal=${countHorizontalRun(this.state.board, row, col)}, vertical=${countVerticalRun(this.state.board, row, col)})`);
       }
     }
     const audit = document.createElement('div');
@@ -181,7 +182,7 @@ export class DebugPanel {
         const why = check.clearsByRow || check.clearsByCol
           ? `CLEAR by ${[check.clearsByRow ? 'row' : '', check.clearsByCol ? 'col' : ''].filter(Boolean).join('+')}`
           : 'keep';
-        return `#${check.discId} v${check.value} ${position(check.pos.row, check.pos.col)}  row=${check.rowCount} col=${check.colCount}  ${why}`;
+        return `#${check.discId} v${check.value} ${position(check.pos.row, check.pos.col)}  horizontal=${check.rowCount} vertical=${check.colCount}  ${why}`;
       }).join('\n') || '(no numbered tiles)';
       details.append(summaryLine, checks);
       this.content.append(details);

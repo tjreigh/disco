@@ -8,14 +8,15 @@ import {
   CHAIN_MULTIPLIERS, POINTS_PER_DISC,
 } from './constants.js';
 import {
-  cloneBoard, countInRow, countInCol, deepCloneBoard,
+  cloneBoard, countHorizontalRun, countVerticalRun, deepCloneBoard,
   landingRow, placeDisc, removeDisc, applyGravity,
 } from './board.js';
 import { makeCrackedDisc } from './disc.js';
 import type { DiscFactory } from './disc.js';
 
 // Returns every position that should clear this pass.
-// A disc clears when its value equals the total number of discs in its row OR column.
+// A disc clears when its value equals the contiguous horizontal or vertical run
+// containing it. Gaps separate runs; remote discs do not keep an isolated 1 alive.
 // Only Numbered discs can clear — cracked discs must be revealed first.
 // The `seen` set prevents duplicates when a disc qualifies on both row and column.
 export interface ClearCheck {
@@ -46,11 +47,11 @@ function inspectClears(board: Board): { clears: GridPos[]; checks: ClearCheck[] 
   const key = (r: number, c: number) => `${r},${c}`;
 
   for (let row = 0; row < GRID_ROWS; row++) {
-    const rowCount = countInRow(board, row);
     for (let col = 0; col < GRID_COLS; col++) {
       const disc = board[row]![col];
       if (disc && disc.kind === DiscKind.Numbered) {
-        const colCount = countInCol(board, col);
+        const rowCount = countHorizontalRun(board, row, col);
+        const colCount = countVerticalRun(board, row, col);
         const clearsByRow = disc.value === rowCount;
         const clearsByCol = disc.value === colCount;
         checks.push({

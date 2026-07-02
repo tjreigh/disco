@@ -74,6 +74,19 @@ describe('computeDropSteps – clear by row count', () => {
     expect(clears[0]!.cleared).toContainEqual({ row: 6, col: 2 });
     expect(clears[0]!.chainLevel).toBe(0);
   });
+
+  test('an isolated 1 clears despite another disc beyond a horizontal gap', () => {
+    const board = buildBoard([
+      at(6, 0, 1),
+      at(6, 2, 7, DiscKind.DoubleCracked),
+    ]);
+
+    const steps = computeClearSteps(board);
+    const clears = steps.filter(s => s.kind === StepKind.Clear) as ClearStep[];
+
+    expect(clears[0]!.cleared).toContainEqual({ row: 6, col: 0 });
+    expect(board[6]![0]).toBeNull();
+  });
 });
 
 describe('computeDropSteps – clear by col count', () => {

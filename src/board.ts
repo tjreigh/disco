@@ -42,6 +42,26 @@ export function countInCol(board: Board, col: number): number {
   return n;
 }
 
+/** Counts the uninterrupted horizontal group containing (row, col). */
+export function countHorizontalRun(board: Board, row: number, col: number): number {
+  if (board[row]?.[col] == null) return 0;
+
+  let n = 1;
+  for (let c = col - 1; c >= 0 && board[row]![c] != null; c--) n++;
+  for (let c = col + 1; c < GRID_COLS && board[row]![c] != null; c++) n++;
+  return n;
+}
+
+/** Counts the uninterrupted vertical group containing (row, col). */
+export function countVerticalRun(board: Board, row: number, col: number): number {
+  if (board[row]?.[col] == null) return 0;
+
+  let n = 1;
+  for (let r = row - 1; r >= 0 && board[r]![col] != null; r--) n++;
+  for (let r = row + 1; r < GRID_ROWS && board[r]![col] != null; r++) n++;
+  return n;
+}
+
 /** Row index where a dropped disc lands; null if column is full. */
 export function landingRow(board: Board, col: number): number | null {
   // Scan bottom-up: the first empty cell from the bottom is the landing spot.

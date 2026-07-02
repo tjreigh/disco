@@ -3,6 +3,7 @@ import {
   makeEmptyBoard, cloneBoard, deepCloneBoard,
   placeDisc, removeDisc,
   countInRow, countInCol,
+  countHorizontalRun, countVerticalRun,
   landingRow, isColumnFull,
   applyGravity,
 } from './board.js';
@@ -74,6 +75,26 @@ describe('countInCol', () => {
     const board = makeEmptyBoard();
     placeDisc(board, 5, 1, makeDisc(3, DiscKind.DoubleCracked));
     expect(countInCol(board, 1)).toBe(1);
+  });
+});
+
+describe('contiguous run counts', () => {
+  test('a gap separates horizontal groups', () => {
+    const board = makeEmptyBoard();
+    placeDisc(board, 6, 0, makeDisc(1, DiscKind.Numbered));
+    placeDisc(board, 6, 2, makeDisc(7, DiscKind.Numbered));
+
+    expect(countHorizontalRun(board, 6, 0)).toBe(1);
+    expect(countHorizontalRun(board, 6, 2)).toBe(1);
+  });
+
+  test('counts the complete vertical group containing the cell', () => {
+    const board = makeEmptyBoard();
+    placeDisc(board, 4, 3, makeDisc(3, DiscKind.Numbered));
+    placeDisc(board, 5, 3, makeDisc(3, DiscKind.SingleCracked));
+    placeDisc(board, 6, 3, makeDisc(3, DiscKind.Numbered));
+
+    expect(countVerticalRun(board, 5, 3)).toBe(3);
   });
 });
 
