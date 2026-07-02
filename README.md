@@ -30,3 +30,8 @@ const result = engine.drop(2);
 
 `result.steps` describes everything that occurred during the turn. The browser
 uses those steps for animation; tests can assert them directly.
+
+The in-game logic debugger can export a JSON issue report. Schema version 2
+includes `turnHistory`, containing every attempted turn in the current game in
+chronological order, including each turn's physics steps, clear scans, and board
+frames. `lastTurn` remains available as a convenience for older analysis tools.

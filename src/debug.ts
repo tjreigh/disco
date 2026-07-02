@@ -2,6 +2,46 @@ import { countHorizontalRun, countVerticalRun } from './board.js';
 import { TurnResult } from './engine.js';
 import { Board, Disc, DiscKind, GameState, StepKind } from './types.js';
 
+export interface DebugFlag {
+  target: string;
+  label: string;
+}
+
+export interface DebugReport {
+  schemaVersion: 2;
+  exportedAt: string;
+  note: string;
+  flags: DebugFlag[];
+  gameState: GameState;
+  /** Every attempted turn since the current game was started, oldest first. */
+  turnHistory: TurnResult[];
+  /** Convenience alias for consumers of schema version 1. */
+  lastTurn: TurnResult | null;
+}
+
+function snapshot<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+export function buildDebugReport(
+  state: GameState,
+  turnHistory: readonly TurnResult[],
+  note: string,
+  flags: ReadonlyMap<string, string>,
+  exportedAt = new Date().toISOString(),
+): DebugReport {
+  const historySnapshot = snapshot([...turnHistory]);
+  return {
+    schemaVersion: 2,
+    exportedAt,
+    note: note.trim(),
+    flags: [...flags].map(([target, label]) => ({ target, label })),
+    gameState: snapshot(state),
+    turnHistory: historySnapshot,
+    lastTurn: historySnapshot.at(-1) ?? null,
+  };
+}
+
 function discText(disc: Disc): string {
   if (disc.kind === DiscKind.SingleCracked) return `${disc.value}╱`;
   if (disc.kind === DiscKind.DoubleCracked) return `${disc.value}╳`;
@@ -19,9 +59,16 @@ function isClearable(board: Board, row: number, col: number): boolean {
       disc.value === countVerticalRun(board, row, col));
 }
 
-function makeBoardGrid(board: Board, compact = false): HTMLElement {
+interface BoardGridOptions {
+  compact?: boolean;
+  flagPrefix?: string;
+  flags?: ReadonlyMap<string, string>;
+  onToggleFlag?: (target: string, label: string) => void;
+}
+
+function makeBoardGrid(board: Board, options: BoardGridOptions = {}): HTMLElement {
   const grid = document.createElement('div');
-  grid.className = compact ? 'debug-grid debug-grid--compact' : 'debug-grid';
+  grid.className = options.compact ? 'debug-grid debug-grid--compact' : 'debug-grid';
   for (let row = 0; row < board.length; row++) {
     for (let col = 0; col < board[row]!.length; col++) {
       const cell = document.createElement('div');
@@ -35,6 +82,22 @@ function makeBoardGrid(board: Board, compact = false): HTMLElement {
       } else {
         cell.textContent = '·';
         cell.classList.add('debug-cell--empty');
+      }
+      if (options.flagPrefix && options.flags && options.onToggleFlag) {
+        const target = `${options.flagPrefix}.cell.${row}.${col}`;
+        const label = `${options.flagPrefix} ${position(row, col)}${disc ? ` #${disc.id} ${disc.kind} value=${disc.value}` : ' empty'}`;
+        const toggle = (): void => options.onToggleFlag!(target, label);
+        cell.classList.add('debug-cell--flaggable');
+        cell.classList.toggle('debug-cell--flagged', options.flags.has(target));
+        cell.setAttribute('role', 'checkbox');
+        cell.setAttribute('aria-checked', String(options.flags.has(target)));
+        cell.tabIndex = 0;
+        cell.addEventListener('click', toggle);
+        cell.addEventListener('keydown', event => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          toggle();
+        });
       }
       grid.appendChild(cell);
     }
@@ -63,7 +126,10 @@ export class DebugPanel {
   private readonly panel: HTMLElement;
   private readonly content: HTMLElement;
   private lastResult: TurnResult | null = null;
+  private readonly turnHistory: TurnResult[] = [];
   private playbackFrame = -1;
+  private issueNote = '';
+  private readonly flags = new Map<string, string>();
 
   constructor(private readonly state: GameState) {
     const toggle = document.createElement('button');
@@ -96,6 +162,7 @@ export class DebugPanel {
     toggle.addEventListener('click', () => setOpen(!this.panel.classList.contains('debug-panel--open')));
     close.addEventListener('click', () => setOpen(false));
     document.addEventListener('keydown', event => {
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
       if (event.key === 'd' || event.key === 'D') setOpen(!this.panel.classList.contains('debug-panel--open'));
     });
     this.render();
@@ -103,7 +170,10 @@ export class DebugPanel {
 
   recordTurn(result: TurnResult): void {
     this.lastResult = result;
+    this.turnHistory.push(snapshot(result));
     this.playbackFrame = -1;
+    this.issueNote = '';
+    this.flags.clear();
     this.render();
   }
 
@@ -118,7 +188,10 @@ export class DebugPanel {
 
   reset(): void {
     this.lastResult = null;
+    this.turnHistory.length = 0;
     this.playbackFrame = -1;
+    this.issueNote = '';
+    this.flags.clear();
     this.render();
   }
 
@@ -128,6 +201,37 @@ export class DebugPanel {
     return heading;
   }
 
+  private toggleFlag(target: string, label: string): void {
+    if (this.flags.has(target)) this.flags.delete(target);
+    else this.flags.set(target, label);
+    this.render();
+  }
+
+  private flagButton(target: string, label: string): HTMLButtonElement {
+    const button = document.createElement('button');
+    const flagged = this.flags.has(target);
+    button.type = 'button';
+    button.className = `debug-flag${flagged ? ' debug-flag--active' : ''}`;
+    button.textContent = flagged ? 'FLAGGED' : 'FLAG';
+    button.setAttribute('aria-pressed', String(flagged));
+    button.title = `${flagged ? 'Remove flag from' : 'Flag'} ${label}`;
+    button.addEventListener('click', () => this.toggleFlag(target, label));
+    return button;
+  }
+
+  private exportReport(): void {
+    const report = buildDebugReport(this.state, this.turnHistory, this.issueNote, this.flags);
+    const blob = new Blob([`${JSON.stringify(report, null, 2)}\n`], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `disco-debug-${report.exportedAt.replace(/[:.]/g, '-')}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
   private render(): void {
     const scrollTop = this.content.scrollTop;
     this.content.replaceChildren();
@@ -135,7 +239,15 @@ export class DebugPanel {
     const summary = document.createElement('div');
     summary.className = 'debug-summary';
     summary.textContent = `phase=${this.state.phase}  score=${this.state.score}  drops=${this.state.dropCount}  level=${this.state.level}`;
-    this.content.append(summary, this.heading('Committed board'), makeBoardGrid(this.state.board));
+    this.content.append(
+      summary,
+      this.heading('Committed board'),
+      makeBoardGrid(this.state.board, {
+        flagPrefix: 'committed-board',
+        flags: this.flags,
+        onToggleFlag: (target, label) => this.toggleFlag(target, label),
+      }),
+    );
 
     const unresolved: string[] = [];
     for (let row = 0; row < this.state.board.length; row++) {
@@ -152,6 +264,30 @@ export class DebugPanel {
       : 'Clear audit: no numbered tile currently qualifies.';
     this.content.append(audit);
 
+    const report = document.createElement('section');
+    report.className = 'debug-report';
+    const reportHeading = this.heading('Issue report');
+    const help = document.createElement('p');
+    help.className = 'debug-muted';
+    help.textContent = 'Select FLAG on an event or click any board cell that looks wrong. The export includes the complete turn history for this game.';
+    const note = document.createElement('textarea');
+    note.value = this.issueNote;
+    note.rows = 3;
+    note.placeholder = 'What did you expect, and what happened instead?';
+    note.setAttribute('aria-label', 'Issue description');
+    note.addEventListener('input', () => { this.issueNote = note.value; });
+    const actions = document.createElement('div');
+    actions.className = 'debug-report-actions';
+    const count = document.createElement('span');
+    count.textContent = `${this.turnHistory.length} turn${this.turnHistory.length === 1 ? '' : 's'} · ${this.flags.size} flagged`;
+    const exportButton = document.createElement('button');
+    exportButton.type = 'button';
+    exportButton.textContent = 'EXPORT JSON';
+    exportButton.addEventListener('click', () => this.exportReport());
+    actions.append(count, exportButton);
+    report.append(reportHeading, help, note, actions);
+    this.content.append(report);
+
     if (!this.lastResult) {
       const empty = document.createElement('p');
       empty.className = 'debug-muted';
@@ -167,12 +303,26 @@ export class DebugPanel {
     outcome.textContent = `accepted=${result.accepted}  reason=${result.reason ?? '—'}\nscoreAwarded=${result.scoreAwarded}  gameOver=${result.gameOver}\nplayback=${Math.min(this.playbackFrame + 1, result.trace.frames.length)}/${result.trace.frames.length}`;
     this.content.append(outcome);
 
-    const steps = document.createElement('pre');
-    steps.className = 'debug-steps';
-    steps.textContent = stepText(result).join('\n') || '(no physics steps)';
-    this.content.append(steps, this.heading('Clear scans'));
+    const stepLines = stepText(result);
+    if (stepLines.length === 0) {
+      const steps = document.createElement('pre');
+      steps.className = 'debug-steps';
+      steps.textContent = '(no physics steps)';
+      this.content.append(steps);
+    } else {
+      stepLines.forEach((line, index) => {
+        const row = document.createElement('div');
+        row.className = 'debug-flag-row';
+        const text = document.createElement('code');
+        text.textContent = line;
+        row.append(this.flagButton(`step.${index}`, `physics step ${index + 1}: ${line}`), text);
+        this.content.append(row);
+      });
+    }
+    this.content.append(this.heading('Clear scans'));
 
     for (const scan of result.trace.scans) {
+      const scanIndex = result.trace.scans.indexOf(scan);
       const details = document.createElement('details');
       details.open = scan.clears.length > 0;
       const summaryLine = document.createElement('summary');
@@ -184,7 +334,8 @@ export class DebugPanel {
           : 'keep';
         return `#${check.discId} v${check.value} ${position(check.pos.row, check.pos.col)}  horizontal=${check.rowCount} vertical=${check.colCount}  ${why}`;
       }).join('\n') || '(no numbered tiles)';
-      details.append(summaryLine, checks);
+      const flag = this.flagButton(`scan.${scanIndex}`, `clear scan ${scanIndex + 1}, chain ${scan.chainLevel}`);
+      details.append(summaryLine, flag, checks);
       this.content.append(details);
     }
 
@@ -192,7 +343,16 @@ export class DebugPanel {
     const before = document.createElement('details');
     const beforeSummary = document.createElement('summary');
     beforeSummary.textContent = '0. Before drop';
-    before.append(beforeSummary, makeBoardGrid(result.boardBefore, true));
+    before.append(
+      beforeSummary,
+      this.flagButton('frame.before', 'board before drop'),
+      makeBoardGrid(result.boardBefore, {
+        compact: true,
+        flagPrefix: 'frame.before',
+        flags: this.flags,
+        onToggleFlag: (target, label) => this.toggleFlag(target, label),
+      }),
+    );
     this.content.append(before);
 
     result.trace.frames.forEach((frame, index) => {
@@ -200,7 +360,16 @@ export class DebugPanel {
       details.open = index === this.playbackFrame || index === result.trace.frames.length - 1;
       const label = document.createElement('summary');
       label.textContent = `${index + 1}. ${frame.label}${index === this.playbackFrame ? '  ← animation' : ''}`;
-      details.append(label, makeBoardGrid(frame.board, true));
+      details.append(
+        label,
+        this.flagButton(`frame.${index}`, `board frame ${index + 1}: ${frame.label}`),
+        makeBoardGrid(frame.board, {
+          compact: true,
+          flagPrefix: `frame.${index}`,
+          flags: this.flags,
+          onToggleFlag: (target, flagLabel) => this.toggleFlag(target, flagLabel),
+        }),
+      );
       this.content.append(details);
     });
     this.content.scrollTop = scrollTop;
