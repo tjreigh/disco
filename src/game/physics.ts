@@ -1,23 +1,20 @@
-import {
-  Board, Disc, DiscKind, GridPos,
-  PhysicsStep, StepKind,
-  DropStep, ClearStep, FallStep, RevealStep, PushStep,
-} from './types.js';
-import {
-  GRID_COLS, GRID_ROWS,
-  POINTS_PER_DISC,
-} from './constants.js';
+import type { Board, Disc, GridPos } from './model.js';
+import { DiscKind } from './model.js';
+import type { GameModeConfig } from './modes/mode.js';
+import type { PhysicsStep, DropStep, ClearStep, PushStep } from './events.js';
+import { StepKind } from './events.js';
 import {
   cloneBoard, countHorizontalRun, countVerticalRun, deepCloneBoard,
   landingRow, placeDisc, removeDisc, applyGravity,
 } from './board.js';
 import { makeCrackedDisc } from './disc.js';
 import type { DiscFactory } from './disc.js';
+import { CLASSIC_MODE } from './modes/index.js';
 
 // Returns every position that should clear this pass.
-// A disc clears when its value equals the contiguous horizontal or vertical run
-// containing it. Gaps separate runs; remote discs do not keep an isolated 1 alive.
-// Only Numbered discs can clear — cracked discs must be revealed first.
+// A disc clears according to the mode's isClearable predicate (for Classic:
+// its value equals the contiguous horizontal or vertical run containing it).
+// Gaps separate runs; remote discs do not keep an isolated 1 alive.
 // The `seen` set prevents duplicates when a disc qualifies on both row and column.
 export interface ClearCheck {
   pos: GridPos;
@@ -39,17 +36,20 @@ export interface PhysicsTrace {
   frames: LogicFrame[];
 }
 
-function inspectClears(board: Board): { clears: GridPos[]; checks: ClearCheck[] } {
+function inspectClears(board: Board, mode: GameModeConfig): { clears: GridPos[]; checks: ClearCheck[] } {
   const seen = new Set<string>();
   const result: GridPos[] = [];
   const checks: ClearCheck[] = [];
 
   const key = (r: number, c: number) => `${r},${c}`;
 
-  for (let row = 0; row < GRID_ROWS; row++) {
-    for (let col = 0; col < GRID_COLS; col++) {
+  for (let row = 0; row < board.length; row++) {
+    for (let col = 0; col < board[row]!.length; col++) {
       const disc = board[row]![col];
       if (disc && disc.kind === DiscKind.Numbered) {
+        // rowCount/colCount are still computed via the classic contiguous-run
+        // helpers for trace/debug purposes, independent of which predicate
+        // mode.isClearable actually uses.
         const rowCount = countHorizontalRun(board, row, col);
         const colCount = countVerticalRun(board, row, col);
         const clearsByRow = disc.value === rowCount;
@@ -58,7 +58,7 @@ function inspectClears(board: Board): { clears: GridPos[]; checks: ClearCheck[] 
           pos: { row, col }, discId: disc.id, value: disc.value,
           rowCount, colCount, clearsByRow, clearsByCol,
         });
-        if (!clearsByRow && !clearsByCol) continue;
+        if (!mode.isClearable(board, row, col, disc)) continue;
         const k = key(row, col);
         if (!seen.has(k)) { seen.add(k); result.push({ row, col }); }
       }
@@ -68,67 +68,34 @@ function inspectClears(board: Board): { clears: GridPos[]; checks: ClearCheck[] 
   return { clears: result, checks };
 }
 
-const DIRS: [number, number][] = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-
-// Degrades cracked discs orthogonally adjacent to the cleared positions.
-// DoubleCracked → SingleCracked, SingleCracked → Numbered.
-// The `updated` set ensures a cracked disc adjacent to multiple cleared cells
-// in the same batch only loses one crack layer per clear event, not one per neighbor.
-function applyCrackUpdates(board: Board, cleared: GridPos[]): RevealStep {
-  const positions: GridPos[] = [];
-  const updated = new Set<string>();
-
-  for (const { row, col } of cleared) {
-    for (const [dr, dc] of DIRS) {
-      const r = row + dr;
-      const c = col + dc;
-      if (r < 0 || r >= GRID_ROWS || c < 0 || c >= GRID_COLS) continue;
-      const disc = board[r]![c];
-      if (!disc) continue;
-      const k = `${r},${c}`;
-      if (updated.has(k)) continue;
-      updated.add(k);
-
-      if (disc.kind === DiscKind.DoubleCracked) {
-        disc.kind = DiscKind.SingleCracked;
-        positions.push({ row: r, col: c });
-      } else if (disc.kind === DiscKind.SingleCracked) {
-        disc.kind = DiscKind.Numbered;
-        positions.push({ row: r, col: c });
-      }
-    }
-  }
-
-  // Animation steps are an event log, so capture values rather than mutable board
-  // references. A later chain may reveal the same disc again before playback starts.
-  const discs = positions.map(p => ({ ...board[p.row]![p.col]! }));
-  return { kind: StepKind.Reveal, positions, discs };
-}
-
 function commitBoard(target: Board, source: Board): void {
-  for (let r = 0; r < GRID_ROWS; r++) {
-    for (let c = 0; c < GRID_COLS; c++) {
+  for (let r = 0; r < target.length; r++) {
+    for (let c = 0; c < target[r]!.length; c++) {
       target[r]![c] = source[r]![c]!;
     }
   }
 }
 
 /** Points awarded per cleared disc at a one-based chain length. */
-export function pointsForChain(chainLength: number): number {
+export function pointsForChain(
+  chainLength: number,
+  pointsPerDisc: number = CLASSIC_MODE.pointsPerDisc,
+  exponent: number = CLASSIC_MODE.chainExponent,
+): number {
   if (!Number.isInteger(chainLength) || chainLength < 1) return 0;
-  return Math.floor(POINTS_PER_DISC * Math.pow(chainLength, 2.5));
+  return Math.floor(pointsPerDisc * Math.pow(chainLength, exponent));
 }
 
 // Resolves every clear/reveal/fall chain on a board that has already changed.
 // This is shared by normal drops and row pushes: a push changes every column's
 // disc count, so leaving it unresolved makes an eligible disc clear during the
 // next, potentially unrelated, drop.
-function resolveClearSteps(scratch: Board, trace?: PhysicsTrace): PhysicsStep[] {
+function resolveClearSteps(scratch: Board, mode: GameModeConfig, trace?: PhysicsTrace): PhysicsStep[] {
   const steps: PhysicsStep[] = [];
   let chainLevel = 0;
 
   while (true) {
-    const inspection = inspectClears(scratch);
+    const inspection = inspectClears(scratch, mode);
     const clears = inspection.clears;
     trace?.scans.push({
       chainLevel,
@@ -137,7 +104,7 @@ function resolveClearSteps(scratch: Board, trace?: PhysicsTrace): PhysicsStep[] 
     });
     if (clears.length === 0) break;
 
-    const points = clears.length * pointsForChain(chainLevel + 1);
+    const points = clears.length * pointsForChain(chainLevel + 1, mode.pointsPerDisc, mode.chainExponent);
     // Capture immutable playback values before removeDisc() makes the positions null.
     const clearedDiscs = clears.map(pos => ({ ...scratch[pos.row]![pos.col]! }));
     steps.push({ kind: StepKind.Clear, cleared: clears, discs: clearedDiscs, chainLevel, pointsAwarded: points } satisfies ClearStep);
@@ -148,7 +115,7 @@ function resolveClearSteps(scratch: Board, trace?: PhysicsTrace): PhysicsStep[] 
       board: deepCloneBoard(scratch),
     });
 
-    const reveal = applyCrackUpdates(scratch, clears);
+    const reveal = mode.revealAdjacent(scratch, clears);
     if (reveal.positions.length > 0) {
       steps.push(reveal);
       trace?.frames.push({ label: `Reveal ${reveal.positions.length} adjacent tile${reveal.positions.length === 1 ? '' : 's'}`, board: deepCloneBoard(scratch) });
@@ -167,9 +134,9 @@ function resolveClearSteps(scratch: Board, trace?: PhysicsTrace): PhysicsStep[] 
 }
 
 /** Resolves clear chains after an in-place board change such as a row push. */
-export function computeClearSteps(board: Board, trace?: PhysicsTrace): PhysicsStep[] {
+export function computeClearSteps(board: Board, mode: GameModeConfig = CLASSIC_MODE, trace?: PhysicsTrace): PhysicsStep[] {
   const scratch = cloneBoard(board);
-  const steps = resolveClearSteps(scratch, trace);
+  const steps = resolveClearSteps(scratch, mode, trace);
   commitBoard(board, scratch);
   return steps;
 }
@@ -183,6 +150,7 @@ export function computeDropSteps(
   board: Board,
   disc: Disc,
   col: number,
+  mode: GameModeConfig = CLASSIC_MODE,
   trace?: PhysicsTrace,
 ): PhysicsStep[] {
   const steps: PhysicsStep[] = [];
@@ -196,7 +164,7 @@ export function computeDropSteps(
   // Preserve how it looked at drop time for animation playback.
   steps.push({ kind: StepKind.Drop, disc: { ...disc }, col, toLandRow: row } satisfies DropStep);
   trace?.frames.push({ label: `Drop #${disc.id} into r${row + 1}c${col + 1}`, board: deepCloneBoard(scratch) });
-  steps.push(...resolveClearSteps(scratch, trace));
+  steps.push(...resolveClearSteps(scratch, mode, trace));
 
   // Write the scratch result back into the caller's board array in-place.
   // Replacing the board reference entirely wouldn't work because GameState
@@ -212,19 +180,20 @@ export function computeDropSteps(
 export function computePushStep(
   board: Board,
   discFactory: DiscFactory = makeCrackedDisc,
+  mode: GameModeConfig = CLASSIC_MODE,
 ): { step: PushStep; gameOver: boolean } {
-  let gameOver = false;
-  for (let c = 0; c < GRID_COLS; c++) {
-    if (board[0]![c] !== null) { gameOver = true; break; }
-  }
+  const rows = board.length;
+  const cols = board[0]!.length;
 
-  const newRow: Disc[] = Array.from({ length: GRID_COLS }, discFactory);
+  const gameOver = mode.isGameOver(board);
+
+  const newRow: Disc[] = Array.from({ length: cols }, discFactory);
 
   // Shift every row up by one index (row 0 content is discarded).
-  for (let r = 0; r < GRID_ROWS - 1; r++) {
+  for (let r = 0; r < rows - 1; r++) {
     board[r] = board[r + 1]!;
   }
-  board[GRID_ROWS - 1] = newRow;
+  board[rows - 1] = newRow;
 
   // Clear resolution runs immediately after a push and can reveal these discs.
   // Keep the push event as a snapshot of what actually entered the board.

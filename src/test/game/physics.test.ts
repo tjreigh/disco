@@ -1,8 +1,13 @@
 import { describe, test, expect } from 'vitest';
-import { computeClearSteps, computeDropSteps, computePushStep, pointsForChain } from './physics.js';
-import { makeEmptyBoard, placeDisc } from './board.js';
-import { makeDisc } from './disc.js';
-import { DiscKind, StepKind, Board, ClearStep, FallStep, RevealStep, DropStep } from './types.js';
+import { computeClearSteps, computeDropSteps, computePushStep, pointsForChain } from '../../game/physics.js';
+import { makeEmptyBoard, placeDisc } from '../../game/board.js';
+import { makeDisc } from '../../game/disc.js';
+import type { Board } from '../../game/model.js';
+import { DiscKind } from '../../game/model.js';
+import type { ClearStep, FallStep, RevealStep, DropStep } from '../../game/events.js';
+import { StepKind } from '../../game/events.js';
+import type { GameModeConfig } from '../../game/modes/mode.js';
+import { CLASSIC_MODE } from '../../game/modes/index.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -86,6 +91,21 @@ describe('computeDropSteps – clear by row count', () => {
 
     expect(clears[0]!.cleared).toContainEqual({ row: 6, col: 0 });
     expect(board[6]![0]).toBeNull();
+  });
+
+  test('an isolated 1 in the middle of the board clears by its horizontal run', () => {
+    const board = buildBoard([
+      at(4, 3, 1),
+      // Supports the 1 vertically while leaving both horizontal neighbors open.
+      at(5, 3, 7, DiscKind.DoubleCracked),
+      at(6, 3, 7, DiscKind.DoubleCracked),
+    ]);
+
+    const steps = computeClearSteps(board);
+    const clears = steps.filter(s => s.kind === StepKind.Clear) as ClearStep[];
+
+    expect(clears[0]!.cleared).toContainEqual({ row: 4, col: 3 });
+    expect(board[4]![3]).toBeNull();
   });
 });
 
@@ -202,26 +222,43 @@ describe('computeDropSteps – multi-adjacency', () => {
 
 describe('computeDropSteps – chain reactions', () => {
   test('uses the original unbounded Drop7 chain score sequence', () => {
-    expect([1, 2, 3, 4, 5, 6].map(pointsForChain)).toEqual([
+    expect([1, 2, 3, 4, 5, 6].map(n => pointsForChain(n))).toEqual([
       7, 39, 109, 224, 391, 617,
     ]);
     expect(pointsForChain(30)).toBe(34506);
   });
 
-  test('gravity after first clear enables a second clear at higher chain level', () => {
-    // (3,0) val=1 is above (6,0) val=2 which clears in chain 0 (col count=2).
-    // (3,4) val=7 keeps row 3 at count=2, preventing (3,0) val=1 from self-clearing
-    // by row in chain 0 (row count=2 ≠ val=1).
-    // After chain 0 clears (6,0),(6,1),(6,2): (3,0) falls to (6,0), col count=1=val=1 → chain 1.
-    const board = buildBoard([
-      at(3, 0, 1),
-      at(3, 4, 7), // companion: keeps row 3 count=2 so (3,0) doesn't self-clear in chain 0
-      at(6, 0, 2),
+  test('pointsPerDisc and exponent are overridable per mode', () => {
+    expect(pointsForChain(3, 1, 1)).toBe(3);
+    expect(pointsForChain(2, 10, 2)).toBe(40);
+  });
+
+  // Shared board for all four tests below:
+  // (3,0) val=2 floats above a gap, isolated (row/col count 1 ≠ 2) so it
+  // doesn't self-clear in chain 0.
+  // (6,0) val=5 stays: after (6,1)/(6,2) clear it's alone in its row (count 1)
+  // and column (count 1), and 5 matches neither.
+  // (6,1) and (6,2), both val=1, each alone in their column (count 1 == value)
+  // clear in chain 0.
+  // Removing them leaves a gap below (3,0); gravity drops it to (5,0), directly
+  // on top of (6,0) — a 2-tall column run, matching its value 2 → chain 1.
+  function chainBoard(): Board {
+    return buildBoard([
+      at(3, 0, 2),
+      at(6, 0, 5),
       at(6, 1, 1),
       at(6, 2, 1),
     ]);
-    // val=7 into col 3: col 3 count=1, 7≠1. No clear from dropped disc.
-    const steps = computeDropSteps(board, makeDisc(7, DiscKind.Numbered), 3);
+  }
+
+  // Drop into an isolated column (4) so the dropped disc never touches the
+  // (0-2) column group above — it's val=9, never matches its own 1/1 count.
+  function dropIsolated(board: Board) {
+    return computeDropSteps(board, makeDisc(9, DiscKind.Numbered), 4);
+  }
+
+  test('gravity after first clear enables a second clear at higher chain level', () => {
+    const steps = dropIsolated(chainBoard());
     const clears = steps.filter(s => s.kind === StepKind.Clear) as ClearStep[];
     expect(clears.length).toBe(2);
     expect(clears[0]!.chainLevel).toBe(0);
@@ -229,32 +266,20 @@ describe('computeDropSteps – chain reactions', () => {
   });
 
   test('scoring: chain 0 awards clearedCount × 7 × 1', () => {
-    // 3 discs clear in chain 0: 3 × 7 × 1 = 21
-    const board = buildBoard([
-      at(3, 0, 1), at(3, 4, 7),
-      at(6, 0, 2), at(6, 1, 1), at(6, 2, 1),
-    ]);
-    const steps = computeDropSteps(board, makeDisc(7, DiscKind.Numbered), 3);
+    // 2 discs clear in chain 0: 2 × 7 × 1 = 14
+    const steps = dropIsolated(chainBoard());
     const clears = steps.filter(s => s.kind === StepKind.Clear) as ClearStep[];
-    expect(clears[0]!.pointsAwarded).toBe(3 * 7 * 1); // 21
+    expect(clears[0]!.pointsAwarded).toBe(2 * 7 * 1); // 14
   });
 
   test('scoring: chain 1 awards 39 points per cleared disc', () => {
-    const board = buildBoard([
-      at(3, 0, 1), at(3, 4, 7),
-      at(6, 0, 2), at(6, 1, 1), at(6, 2, 1),
-    ]);
-    const steps = computeDropSteps(board, makeDisc(7, DiscKind.Numbered), 3);
+    const steps = dropIsolated(chainBoard());
     const clears = steps.filter(s => s.kind === StepKind.Clear) as ClearStep[];
     expect(clears[1]!.pointsAwarded).toBe(39);
   });
 
   test('FallStep appears between the two ClearSteps', () => {
-    const board = buildBoard([
-      at(3, 0, 1), at(3, 4, 7),
-      at(6, 0, 2), at(6, 1, 1), at(6, 2, 1),
-    ]);
-    const steps = computeDropSteps(board, makeDisc(7, DiscKind.Numbered), 3);
+    const steps = dropIsolated(chainBoard());
     const clearIdx0 = steps.findIndex(s => s.kind === StepKind.Clear);
     const clearIdx1 = steps.findLastIndex(s => s.kind === StepKind.Clear);
     const fallBetween = steps
@@ -262,9 +287,9 @@ describe('computeDropSteps – chain reactions', () => {
       .some(s => s.kind === StepKind.Fall);
     expect(fallBetween).toBe(true);
 
-    // Verify the FallStep records (3,0)→(6,0) move for the stranded disc
+    // Verify the FallStep records (3,0)→(5,0) move for the stranded disc
     const fall = steps.slice(clearIdx0 + 1, clearIdx1).find(s => s.kind === StepKind.Fall) as FallStep;
-    expect(fall.moves.some(m => m.from.row === 3 && m.to.row === 6 && m.from.col === 0)).toBe(true);
+    expect(fall.moves.some(m => m.from.row === 3 && m.to.row === 5 && m.from.col === 0)).toBe(true);
   });
 });
 
@@ -321,5 +346,35 @@ describe('computePushStep', () => {
     const board = buildBoard([at(1, 0, 2)]);
     const { gameOver } = computePushStep(board);
     expect(gameOver).toBe(false);
+  });
+});
+
+// ─── Custom GameModeConfig ───────────────────────────────────────────────────
+// Proves the mode parameter is actually load-bearing (board size, scoring),
+// not just decoratively threaded through, without inventing a real mode.
+
+describe('a non-default GameModeConfig', () => {
+  const smallMode: GameModeConfig = {
+    ...CLASSIC_MODE,
+    id: 'small-test-mode',
+    board: { cols: 3, rows: 3 },
+    pointsPerDisc: 1,
+    chainExponent: 1,
+  };
+
+  test('computeDropSteps respects a smaller board size', () => {
+    const board = makeEmptyBoard(3, 3);
+    const steps = computeDropSteps(board, makeDisc(1, DiscKind.Numbered), 1, smallMode);
+    const drop = steps.find(s => s.kind === StepKind.Drop) as DropStep;
+    expect(drop.toLandRow).toBe(2); // bottom row of a 3-row board, not 6
+  });
+
+  test('computeDropSteps uses the mode scoring constants for clears', () => {
+    // 1x1 board column: a lone val=1 disc has row/col run length 1 → clears immediately.
+    const board = makeEmptyBoard(3, 3);
+    const steps = computeDropSteps(board, makeDisc(1, DiscKind.Numbered), 0, smallMode);
+    const clear = steps.find(s => s.kind === StepKind.Clear) as ClearStep;
+    // pointsPerDisc=1, exponent=1, chainLength=1 → 1 point per disc, not the classic 7.
+    expect(clear.pointsAwarded).toBe(1);
   });
 });

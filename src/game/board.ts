@@ -1,9 +1,13 @@
-import { Board, Cell, Disc, FallStep, GridPos, StepKind } from './types.js';
-import { GRID_COLS, GRID_ROWS } from './constants.js';
+import type { Board, Cell, Disc, GridPos } from './model.js';
+import type { FallStep } from './events.js';
+import { StepKind } from './events.js';
 
-export function makeEmptyBoard(): Board {
-  return Array.from({ length: GRID_ROWS }, () =>
-    Array<Cell>(GRID_COLS).fill(null)
+export const DEFAULT_BOARD_COLS = 7;
+export const DEFAULT_BOARD_ROWS = 7;
+
+export function makeEmptyBoard(cols: number = DEFAULT_BOARD_COLS, rows: number = DEFAULT_BOARD_ROWS): Board {
+  return Array.from({ length: rows }, () =>
+    Array<Cell>(cols).fill(null)
   );
 }
 
@@ -28,7 +32,7 @@ export function removeDisc(board: Board, pos: GridPos): void {
 
 export function countInRow(board: Board, row: number): number {
   let n = 0;
-  for (let c = 0; c < GRID_COLS; c++) {
+  for (let c = 0; c < board[row]!.length; c++) {
     if (board[row]![c] !== null) n++;
   }
   return n;
@@ -36,7 +40,7 @@ export function countInRow(board: Board, row: number): number {
 
 export function countInCol(board: Board, col: number): number {
   let n = 0;
-  for (let r = 0; r < GRID_ROWS; r++) {
+  for (let r = 0; r < board.length; r++) {
     if (board[r]![col] !== null) n++;
   }
   return n;
@@ -48,7 +52,7 @@ export function countHorizontalRun(board: Board, row: number, col: number): numb
 
   let n = 1;
   for (let c = col - 1; c >= 0 && board[row]![c] != null; c--) n++;
-  for (let c = col + 1; c < GRID_COLS && board[row]![c] != null; c++) n++;
+  for (let c = col + 1; c < board[row]!.length && board[row]![c] != null; c++) n++;
   return n;
 }
 
@@ -58,14 +62,14 @@ export function countVerticalRun(board: Board, row: number, col: number): number
 
   let n = 1;
   for (let r = row - 1; r >= 0 && board[r]![col] != null; r--) n++;
-  for (let r = row + 1; r < GRID_ROWS && board[r]![col] != null; r++) n++;
+  for (let r = row + 1; r < board.length && board[r]![col] != null; r++) n++;
   return n;
 }
 
 /** Row index where a dropped disc lands; null if column is full. */
 export function landingRow(board: Board, col: number): number | null {
   // Scan bottom-up: the first empty cell from the bottom is the landing spot.
-  for (let r = GRID_ROWS - 1; r >= 0; r--) {
+  for (let r = board.length - 1; r >= 0; r--) {
     if (board[r]![col] === null) return r;
   }
   return null;
@@ -78,13 +82,15 @@ export function isColumnFull(board: Board, col: number): boolean {
 /** Compact each column downward in-place. Returns a FallStep describing every disc that moved. */
 export function applyGravity(board: Board): FallStep {
   const moves: FallStep['moves'] = [];
+  const rows = board.length;
+  const cols = board[0]!.length;
 
-  for (let col = 0; col < GRID_COLS; col++) {
+  for (let col = 0; col < cols; col++) {
     // Collect all discs with their current row positions before touching the board.
     // If we moved discs in-place we'd lose track of where they started, which the
     // FallStep needs so the animation can interpolate from the correct position.
     const discs: Array<{ disc: Disc; origRow: number }> = [];
-    for (let row = 0; row < GRID_ROWS; row++) {
+    for (let row = 0; row < rows; row++) {
       const cell = board[row]![col];
       // Loose != covers both null and undefined; noUncheckedIndexedAccess makes
       // board[row]![col] type Cell | undefined, so !== null alone wouldn't narrow correctly.
@@ -92,11 +98,11 @@ export function applyGravity(board: Board): FallStep {
     }
 
     // Wipe the column, then write discs back from the bottom up.
-    for (let row = 0; row < GRID_ROWS; row++) {
+    for (let row = 0; row < rows; row++) {
       board[row]![col] = null;
     }
 
-    let writeRow = GRID_ROWS - 1;
+    let writeRow = rows - 1;
     for (let i = discs.length - 1; i >= 0; i--) {
       const { disc, origRow } = discs[i]!;
       board[writeRow]![col] = disc;

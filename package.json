@@ -8,7 +8,7 @@
     "serve": "npx --yes serve public -l 3000",
     "dev": "tsc --watch & npx --yes serve public -l 3000",
     "test": "vitest run",
-    "test:engine": "vitest run src/engine.test.ts",
+    "test:engine": "vitest run src/test/game/engine.test.ts",
     "test:watch": "vitest"
   },
   "devDependencies": {

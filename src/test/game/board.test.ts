@@ -6,19 +6,20 @@ import {
   countHorizontalRun, countVerticalRun,
   landingRow, isColumnFull,
   applyGravity,
-} from './board.js';
-import { makeDisc } from './disc.js';
-import { DiscKind, StepKind } from './types.js';
-import { GRID_COLS, GRID_ROWS } from './constants.js';
+  DEFAULT_BOARD_COLS, DEFAULT_BOARD_ROWS,
+} from '../../game/board.js';
+import { makeDisc } from '../../game/disc.js';
+import { DiscKind } from '../../game/model.js';
+import { StepKind } from '../../game/events.js';
 
 // ─── makeEmptyBoard ─────────────────────────────────────────────────────────
 
 describe('makeEmptyBoard', () => {
   test('creates a 7×7 grid of null cells', () => {
     const board = makeEmptyBoard();
-    expect(board.length).toBe(GRID_ROWS);
+    expect(board.length).toBe(DEFAULT_BOARD_ROWS);
     for (const row of board) {
-      expect(row.length).toBe(GRID_COLS);
+      expect(row.length).toBe(DEFAULT_BOARD_COLS);
       for (const cell of row) {
         expect(cell).toBeNull();
       }
@@ -114,7 +115,7 @@ describe('landingRow', () => {
 
   test('full column → null', () => {
     const board = makeEmptyBoard();
-    for (let r = 0; r < GRID_ROWS; r++) {
+    for (let r = 0; r < DEFAULT_BOARD_ROWS; r++) {
       placeDisc(board, r, 0, makeDisc(1, DiscKind.Numbered));
     }
     expect(landingRow(board, 0)).toBeNull();

@@ -4,9 +4,10 @@ Disco is an original puzzle game inspired by Drop7. It currently retains some
 familiar foundations as an homage, but its rules and identity are intended to
 evolve independently.
 
-The rules live in `src/engine.ts`, `src/physics.ts`, and `src/board.ts`. They
-have no browser dependencies. Rendering, animation, audio, and input are thin
-adapters around the synchronous `GameEngine` turn result.
+The headless rules live under `src/game/`. Rendering and DOM UI live under
+`src/ui/`; audio, input, and cookie persistence live under `src/platform/`.
+These adapters are coordinated by `src/app/game-controller.ts` around the
+synchronous `GameEngine` turn result.
 
 Run all headless tests:
 

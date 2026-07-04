@@ -1,5 +1,5 @@
-import { GRID_COLS } from './constants.js';
-import { pixelToCol } from './layout.js';
+import { GRID_COLS } from '../ui/rendering/theme.js';
+import { pixelToCol } from '../ui/rendering/layout.js';
 
 export type InputIntent =
   | { kind: 'drop'; col: number }

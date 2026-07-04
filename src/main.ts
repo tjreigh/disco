@@ -1,4 +1,4 @@
-import { Game } from './game.js';
+import { Game } from './app/game-controller.js';
 
 const canvas = document.createElement('canvas');
 document.body.appendChild(canvas);

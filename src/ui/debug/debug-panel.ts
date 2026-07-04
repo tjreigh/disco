@@ -1,45 +1,13 @@
-import { countHorizontalRun, countVerticalRun } from './board.js';
-import { TurnResult } from './engine.js';
-import { Board, Disc, DiscKind, GameState, StepKind } from './types.js';
-
-export interface DebugFlag {
-  target: string;
-  label: string;
-}
-
-export interface DebugReport {
-  schemaVersion: 2;
-  exportedAt: string;
-  note: string;
-  flags: DebugFlag[];
-  gameState: GameState;
-  /** Every attempted turn since the current game was started, oldest first. */
-  turnHistory: TurnResult[];
-  /** Convenience alias for consumers of schema version 1. */
-  lastTurn: TurnResult | null;
-}
+import { countHorizontalRun, countVerticalRun } from '../../game/board.js';
+import type { TurnResult } from '../../game/engine.js';
+import type { Board, Disc } from '../../game/model.js';
+import { DiscKind } from '../../game/model.js';
+import type { GameState } from '../../game/state.js';
+import { StepKind } from '../../game/events.js';
+import { buildDebugReport } from './debug-report.js';
 
 function snapshot<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
-}
-
-export function buildDebugReport(
-  state: GameState,
-  turnHistory: readonly TurnResult[],
-  note: string,
-  flags: ReadonlyMap<string, string>,
-  exportedAt = new Date().toISOString(),
-): DebugReport {
-  const historySnapshot = snapshot([...turnHistory]);
-  return {
-    schemaVersion: 2,
-    exportedAt,
-    note: note.trim(),
-    flags: [...flags].map(([target, label]) => ({ target, label })),
-    gameState: snapshot(state),
-    turnHistory: historySnapshot,
-    lastTurn: historySnapshot.at(-1) ?? null,
-  };
 }
 
 function discText(disc: Disc): string {
@@ -238,7 +206,7 @@ export class DebugPanel {
 
     const summary = document.createElement('div');
     summary.className = 'debug-summary';
-    summary.textContent = `phase=${this.state.phase}  score=${this.state.score}  drops=${this.state.dropCount}  level=${this.state.level}`;
+    summary.textContent = `phase=${this.state.phase}  score=${this.state.score}  drops=${this.state.dropCount}  level=${this.state.level}  turnsLeft=${this.state.turnsRemaining}/${this.state.turnsPerLevel}`;
     this.content.append(
       summary,
       this.heading('Committed board'),

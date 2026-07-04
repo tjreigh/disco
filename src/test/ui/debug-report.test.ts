@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildDebugReport } from './debug.js';
-import { TurnResult } from './engine.js';
-import { DiscKind, GamePhase, GameState } from './types.js';
+import { buildDebugReport } from '../../ui/debug/debug-report.js';
+import type { TurnResult } from '../../game/engine.js';
+import { DiscKind } from '../../game/model.js';
+import type { GameState } from '../../game/state.js';
+import { GamePhase } from '../../game/state.js';
 
 describe('buildDebugReport', () => {
   it('exports a stable snapshot with notes and labeled flags', () => {
@@ -14,6 +16,8 @@ describe('buildDebugReport', () => {
       score: 10,
       dropCount: 2,
       level: 1,
+      turnsPerLevel: 30,
+      turnsRemaining: 20,
     };
 
     const firstTurn: TurnResult = {

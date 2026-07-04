@@ -1,19 +1,23 @@
-import { Board, Disc, DiscKind, GameState, GamePhase, RichDiscAnimation } from './types.js';
+import type { Board, Disc } from '../../game/model.js';
+import { DiscKind } from '../../game/model.js';
+import type { GameState } from '../../game/state.js';
+import { GamePhase } from '../../game/state.js';
+import type { RichDiscAnimation, ScorePopup } from './animation-types.js';
 import {
   GRID_COLS, GRID_ROWS,
   DISC_COLORS,
   COLOR_BG, COLOR_GRID_CELL, COLOR_GRID_LINE,
   COLOR_CRACKED_FILL, COLOR_CRACKED_DARK, COLOR_CRACK_LINE,
   COLOR_TEXT, COLOR_TEXT_DIM, COLOR_GHOST, COLOR_COL_HOVER,
-  COLOR_GAMEOVER_BG, HUD_TOP_HEIGHT,
-} from './constants.js';
+  COLOR_GAMEOVER_BG, COLOR_SCORE_POPUP, HUD_TOP_HEIGHT,
+} from './theme.js';
 import {
   cellCenterX, cellCenterY, gridOriginX, gridOriginY,
   canvasLogicalWidth, canvasLogicalHeight, gridW, gridH,
   gridPadding, cellSize, updateCellSize,
 } from './layout.js';
-import { interpolateY, interpolateX } from './animation.js';
-import type { GameStats } from './stats.js';
+import { interpolateY, interpolateX } from './animation-queue.js';
+import type { GameStats } from '../../game/stats.js';
 
 const HUD_BOTTOM_HEIGHT = 80;
 
@@ -61,6 +65,9 @@ export class Renderer {
     board: Board,
     animations: readonly RichDiscAnimation[],
     stats: GameStats,
+    displayScore: number,
+    scorePopups: readonly ScorePopup[],
+    initialTurnsPerLevel: number,
   ): void {
     const { ctx } = this;
     // Build a set of disc IDs currently being animated. drawStaticDiscs uses
@@ -70,11 +77,13 @@ export class Renderer {
 
     ctx.clearRect(0, 0, canvasLogicalWidth(), canvasLogicalHeight());
     this.drawBackground();
+    if (state.phase === GamePhase.Menu) return; // DOM overlay owns the screen entirely
     this.drawGrid(state.cursorCol);
     this.drawStaticDiscs(board, animIds);
     this.drawAnimatedDiscs(animations);
+    this.drawScorePopups(scorePopups);
     this.drawGhost(state.cursorCol, state.currentDisc, board);
-    this.drawHUD(state);
+    this.drawHUD(state, displayScore, initialTurnsPerLevel);
 
     if (state.phase === GamePhase.GameOver) {
       this.drawGameOver(state.score, stats);
@@ -139,6 +148,22 @@ export class Renderer {
     }
   }
 
+  private drawScorePopups(popups: readonly ScorePopup[]): void {
+    const { ctx } = this;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 18px system-ui, sans-serif';
+    for (const p of popups) {
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.alpha));
+      ctx.shadowColor = 'rgba(0,0,0,0.6)';
+      ctx.shadowBlur = 4;
+      ctx.fillStyle = COLOR_SCORE_POPUP;
+      ctx.fillText(`+${p.value}`, cellCenterX(p.col), cellCenterY(p.row) - p.yOffset);
+      ctx.restore();
+    }
+  }
+
   private drawGhost(cursorCol: number, disc: Disc, board: Board): void {
     // Reproduce the same bottom-up scan as landingRow() to show where the
     // current disc would actually land if the player drops here.
@@ -164,26 +189,33 @@ export class Renderer {
     ctx.setLineDash([]);
   }
 
-  private drawHUD(state: GameState): void {
+  private drawHUD(state: GameState, displayScore: number, initialTurnsPerLevel: number): void {
     const { ctx } = this;
     const lw = canvasLogicalWidth();
     const gp = gridPadding();
 
+    // Score — centered across the top of the canvas.
     ctx.fillStyle = COLOR_TEXT;
     ctx.font = 'bold 24px system-ui, sans-serif';
-    ctx.textAlign = 'left';
+    ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(String(state.score), gp, HUD_TOP_HEIGHT / 2);
+    ctx.fillText(String(displayScore), lw / 2, HUD_TOP_HEIGHT * 0.25);
 
+    // Turn pips — one circle per turn in the current level, filled while unused.
+    // A push happens the instant these run out, so this line doubles as the
+    // push countdown — no separate readout needed.
+    this.drawTurnPips(
+      state.turnsRemaining,
+      state.turnsPerLevel,
+      initialTurnsPerLevel,
+      HUD_TOP_HEIGHT * 0.6,
+    );
+
+    // Level, directly below the turn pips.
     ctx.font = '13px system-ui, sans-serif';
     ctx.fillStyle = COLOR_TEXT_DIM;
-    ctx.textAlign = 'right';
-    // When dropCount % 7 === 0 and dropCount > 0, a push just occurred and the
-    // counter resets to 7. Without the > 0 guard, drop 0 would also show 7,
-    // which is correct but the condition makes the intent explicit.
-    const pushIn = 7 - (state.dropCount % 7);
-    ctx.fillText(`LVL ${state.level}`, lw - gp, HUD_TOP_HEIGHT / 2 - 9);
-    ctx.fillText(`PUSH IN ${pushIn === 7 && state.dropCount > 0 ? 7 : pushIn}`, lw - gp, HUD_TOP_HEIGHT / 2 + 9);
+    ctx.textAlign = 'center';
+    ctx.fillText(`LVL ${state.level}`, lw / 2, HUD_TOP_HEIGHT * 0.88);
 
     const bottomY = gridOriginY() + gridH() + 8;
     const hudCy = bottomY + HUD_BOTTOM_HEIGHT / 2;
@@ -208,6 +240,34 @@ export class Renderer {
       ? 'tap column to drop'
       : '← → move  ↓ / click drop  R restart';
     ctx.fillText(hint, lw - gp, hudCy + 8);
+  }
+
+  // Circle size and spacing are based on the first level's turn budget and stay
+  // fixed for the whole game. Later levels therefore occupy less width as their
+  // budgets shrink instead of stretching fewer pips back across the full grid.
+  // Filled = not yet taken, hollow = already used; pips deplete right to left.
+  private drawTurnPips(remaining: number, total: number, scaleTotal: number, cy: number): void {
+    if (total <= 0 || scaleTotal <= 0) return;
+    const { ctx } = this;
+    const gx0 = gridOriginX();
+    const width = gridW();
+    const r = Math.min(7, Math.max(2.5, width / scaleTotal / 2 - 1.5));
+    const step = scaleTotal > 1 ? (width - r * 2) / (scaleTotal - 1) : 0;
+    const usedCount = total - remaining;
+
+    for (let i = 0; i < total; i++) {
+      const cx = gx0 + r + step * i;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      if (i >= total - usedCount) {
+        ctx.strokeStyle = COLOR_TEXT_DIM;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = COLOR_TEXT;
+        ctx.fill();
+      }
+    }
   }
 
   private drawGameOver(score: number, stats: GameStats): void {

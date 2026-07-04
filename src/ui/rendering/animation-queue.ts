@@ -1,12 +1,18 @@
-import {
-  PhysicsStep, StepKind, AnimPhase, RichDiscAnimation, Disc,
-} from './types.js';
-import {
-  DROP_MS_PER_ROW, FLASH_MS, CLEAR_MS,
-  FALL_MS_PER_ROW, REVEAL_MS, PUSH_MS,
-  GRID_ROWS,
-} from './constants.js';
+import type { PhysicsStep } from '../../game/events.js';
+import { StepKind } from '../../game/events.js';
+import type { Disc, GridPos } from '../../game/model.js';
+import type { RichDiscAnimation, ScorePopup } from './animation-types.js';
+import { AnimPhase } from './animation-types.js';
+import { GRID_ROWS } from './theme.js';
 import { cellCenterY, cellCenterX } from './layout.js';
+
+const DROP_MS_PER_ROW = 60;
+const FLASH_MS = 280;
+const CLEAR_MS = 320;
+const FALL_MS_PER_ROW = 55;
+const REVEAL_MS = 350;
+const PUSH_MS = 420;
+const SCORE_POPUP_MS = 800;
 
 function easeInOutQuad(t: number): number {
   return t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
@@ -34,15 +40,18 @@ export class AnimationQueue {
   private active: RichDiscAnimation[] = [];
   // -1 is a sentinel meaning "no step has started yet for this index".
   private stepStartTime = -1;
+  private onStepStart: (step: PhysicsStep, now: DOMHighResTimeStamp) => void;
   private onStepComplete: (step: PhysicsStep) => void;
   private onComplete: () => void;
 
   constructor(
     steps: PhysicsStep[],
+    onStepStart: (step: PhysicsStep, now: DOMHighResTimeStamp) => void,
     onStepComplete: (step: PhysicsStep) => void,
     onComplete: () => void,
   ) {
     this.steps = steps;
+    this.onStepStart = onStepStart;
     this.onStepComplete = onStepComplete;
     this.onComplete = onComplete;
   }
@@ -128,6 +137,7 @@ export class AnimationQueue {
   private startStep(now: DOMHighResTimeStamp): void {
     const step = this.steps[this.stepIndex];
     if (!step) { this.onComplete(); return; }
+    this.onStepStart(step, now);
 
     switch (step.kind) {
       case StepKind.Drop: {
@@ -213,4 +223,42 @@ export function interpolateY(anim: RichDiscAnimation): number {
 // X position doesn't interpolate — discs always stay in their column.
 export function interpolateX(anim: RichDiscAnimation): number {
   return cellCenterX(anim.col);
+}
+
+// Creates one floating "+N" popup per cleared position, all sharing the same
+// per-disc value — every disc cleared in one chain step earns the same amount.
+export function spawnScorePopups(
+  cleared: readonly GridPos[],
+  value: number,
+  now: DOMHighResTimeStamp,
+): ScorePopup[] {
+  return cleared.map(pos => ({
+    value, col: pos.col, row: pos.row,
+    startTime: now, duration: SCORE_POPUP_MS,
+    progress: 0, alpha: 1, yOffset: 0,
+  }));
+}
+
+const POPUP_DRIFT_PX = 28;
+
+// Advances each popup's progress/alpha/yOffset and drops any that have fully
+// faded. Popups live independently of AnimationQueue's per-step active[]
+// array so one from an earlier chain level can keep fading while a later
+// level's flash begins.
+export function tickScorePopups(
+  popups: readonly ScorePopup[],
+  now: DOMHighResTimeStamp,
+): ScorePopup[] {
+  const next: ScorePopup[] = [];
+  for (const p of popups) {
+    const progress = Math.min(1, (now - p.startTime) / p.duration);
+    if (progress >= 1) continue; // fully faded — pruned
+    next.push({
+      ...p,
+      progress,
+      alpha: 1 - easeInOutQuad(progress),
+      yOffset: POPUP_DRIFT_PX * easeOutCubic(progress),
+    });
+  }
+  return next;
 }

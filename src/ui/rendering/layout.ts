@@ -1,4 +1,4 @@
-import { MAX_CELL_SIZE, MIN_CELL_SIZE, HUD_TOP_HEIGHT, HUD_BOTTOM_HEIGHT, GRID_COLS, GRID_ROWS } from './constants.js';
+import { MAX_CELL_SIZE, MIN_CELL_SIZE, HUD_TOP_HEIGHT, HUD_BOTTOM_HEIGHT, GRID_COLS, GRID_ROWS } from './theme.js';
 
 // Vertical gap above and below the grid within the canvas (fixed — only
 // horizontal padding is dynamic).
