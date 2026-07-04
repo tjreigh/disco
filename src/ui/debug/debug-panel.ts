@@ -86,6 +86,8 @@ function stepText(result: TurnResult): string[] {
         return `${index + 1}. FALL ${step.moves.map(m => `${position(m.from.row, m.from.col)}→${position(m.to.row, m.to.col)}`).join(', ')}`;
       case StepKind.Push:
         return `${index + 1}. PUSH ${step.newRow.length} cracked tiles`;
+      case StepKind.Bonus:
+        return `${index + 1}. BONUS ${step.bonusKind} +${step.pointsAwarded}`;
     }
   });
 }

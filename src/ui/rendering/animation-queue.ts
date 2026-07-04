@@ -1,7 +1,7 @@
 import type { PhysicsStep } from '../../game/events.js';
 import { StepKind } from '../../game/events.js';
 import type { Disc, GridPos } from '../../game/model.js';
-import type { RichDiscAnimation, ScorePopup } from './animation-types.js';
+import type { RichDiscAnimation, ScoreIndicator, ScorePopup } from './animation-types.js';
 import { AnimPhase } from './animation-types.js';
 import { GRID_ROWS } from './theme.js';
 import { cellCenterY, cellCenterX } from './layout.js';
@@ -13,6 +13,7 @@ const FALL_MS_PER_ROW = 55;
 const REVEAL_MS = 350;
 const PUSH_MS = 420;
 const SCORE_POPUP_MS = 800;
+const SCORE_INDICATOR_MS = 1_100;
 
 function easeInOutQuad(t: number): number {
   return t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
@@ -201,6 +202,12 @@ export class AnimationQueue {
         }
         break;
       }
+
+      case StepKind.Bonus:
+        // Score indicators have their own lifetime, so this event does not
+        // need to hold up board animation playback.
+        this.advance(now);
+        break;
     }
   }
 
@@ -211,6 +218,35 @@ export class AnimationQueue {
   isDone(): boolean {
     return this.stepIndex >= this.steps.length;
   }
+}
+
+export function spawnScoreIndicator(
+  title: string,
+  detail: string,
+  now: DOMHighResTimeStamp,
+): ScoreIndicator {
+  return {
+    title, detail, startTime: now, duration: SCORE_INDICATOR_MS,
+    progress: 0, alpha: 1, scale: 0.85,
+  };
+}
+
+export function tickScoreIndicators(
+  indicators: readonly ScoreIndicator[],
+  now: DOMHighResTimeStamp,
+): ScoreIndicator[] {
+  return indicators.flatMap(indicator => {
+    const progress = Math.min(1, (now - indicator.startTime) / indicator.duration);
+    if (progress >= 1) return [];
+    const fadeStart = 0.55;
+    const alpha = progress <= fadeStart ? 1 : 1 - (progress - fadeStart) / (1 - fadeStart);
+    return [{
+      ...indicator,
+      progress,
+      alpha,
+      scale: 0.85 + 0.15 * easeOutCubic(Math.min(1, progress * 5)),
+    }];
+  });
 }
 
 // Interpolates the Y canvas position for an animation using easeOutCubic,

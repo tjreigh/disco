@@ -76,6 +76,10 @@ function commitBoard(target: Board, source: Board): void {
   }
 }
 
+function isBoardEmpty(board: Board): boolean {
+  return board.every(row => row.every(cell => cell === null));
+}
+
 /** Points awarded per cleared disc at a one-based chain length. */
 export function pointsForChain(
   chainLength: number,
@@ -125,6 +129,15 @@ function resolveClearSteps(scratch: Board, mode: GameModeConfig, trace?: Physics
     if (fall.moves.length > 0) {
       steps.push(fall);
       trace?.frames.push({ label: `Gravity: ${fall.moves.length} move${fall.moves.length === 1 ? '' : 's'}`, board: deepCloneBoard(scratch) });
+    }
+
+
+    if (isBoardEmpty(scratch)) {
+      steps.push({
+        kind: StepKind.Bonus,
+        bonusKind: 'board-clear',
+        pointsAwarded: mode.boardClearBonus,
+      });
     }
 
     chainLevel++;

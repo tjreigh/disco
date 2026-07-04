@@ -54,6 +54,20 @@ describe('GameEngine', () => {
     ]);
   });
 
+  test('awards 70,000 points when a clear empties the board', () => {
+    const engine = new GameEngine({ discFactory: numberedFactory(1, 7, 7, 7) });
+
+    const result = engine.drop(3);
+
+    expect(result.scoreAwarded).toBe(70_007);
+    expect(engine.state.score).toBe(70_007);
+    expect(result.steps).toContainEqual({
+      kind: StepKind.Bonus,
+      bonusKind: 'board-clear',
+      pointsAwarded: 70_000,
+    });
+  });
+
   test('a push occurs when the level\'s turn budget is exhausted', () => {
     const oneTurnMode: GameModeConfig = {
       ...CLASSIC_MODE,
@@ -80,6 +94,12 @@ describe('GameEngine', () => {
     expect(engine.state.board[6]!.every(Boolean)).toBe(true);
     expect(engine.state.level).toBe(2);
     expect(engine.state.currentDisc).toBe(previewedNext);
+    expect(result.scoreAwarded).toBe(7_000);
+    expect(result.steps).toContainEqual({
+      kind: StepKind.Bonus,
+      bonusKind: 'level',
+      pointsAwarded: 7_000,
+    });
   });
 
   test('resolves a match created by a push during the same turn', () => {
@@ -115,8 +135,8 @@ describe('GameEngine', () => {
       kind: StepKind.Clear,
       cleared: [{ row: 5, col: 2 }],
     });
-    expect(result.scoreAwarded).toBe(7);
-    expect(engine.state.score).toBe(7);
+    expect(result.scoreAwarded).toBe(7_007);
+    expect(engine.state.score).toBe(7_007);
     expect(engine.state.board[5]![2]).toBeNull();
   });
 
@@ -230,7 +250,7 @@ describe('GameEngine', () => {
     expect(engine.state.level).toBe(2);
     expect(engine.state.turnsPerLevel).toBe(1); // turnsForLevel(mode, 2) = max(1, 2 - 1)
     expect(engine.state.turnsRemaining).toBe(1);
-    expect(engine.state.score).toBe(0);
+    expect(engine.state.score).toBe(7_000);
     expect(engine.state.board[6]![0]).not.toBeNull();
     expect(engine.state.board[6]![1]).not.toBeNull();
   });

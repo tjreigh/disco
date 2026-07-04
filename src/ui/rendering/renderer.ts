@@ -2,7 +2,7 @@ import type { Board, Disc } from '../../game/model.js';
 import { DiscKind } from '../../game/model.js';
 import type { GameState } from '../../game/state.js';
 import { GamePhase } from '../../game/state.js';
-import type { RichDiscAnimation, ScorePopup } from './animation-types.js';
+import type { RichDiscAnimation, ScoreIndicator, ScorePopup } from './animation-types.js';
 import {
   GRID_COLS, GRID_ROWS,
   DISC_COLORS,
@@ -67,6 +67,7 @@ export class Renderer {
     stats: GameStats,
     displayScore: number,
     scorePopups: readonly ScorePopup[],
+    scoreIndicators: readonly ScoreIndicator[],
     initialTurnsPerLevel: number,
   ): void {
     const { ctx } = this;
@@ -82,6 +83,7 @@ export class Renderer {
     this.drawStaticDiscs(board, animIds);
     this.drawAnimatedDiscs(animations);
     this.drawScorePopups(scorePopups);
+    this.drawScoreIndicators(scoreIndicators);
     this.drawGhost(state.cursorCol, state.currentDisc, board);
     this.drawHUD(state, displayScore, initialTurnsPerLevel);
 
@@ -162,6 +164,30 @@ export class Renderer {
       ctx.fillText(`+${p.value}`, cellCenterX(p.col), cellCenterY(p.row) - p.yOffset);
       ctx.restore();
     }
+  }
+
+  private drawScoreIndicators(indicators: readonly ScoreIndicator[]): void {
+    const { ctx } = this;
+    const cx = canvasLogicalWidth() / 2;
+    const baseY = gridOriginY() + gridH() * 0.42;
+    indicators.forEach((indicator, index) => {
+      const y = baseY + index * 58;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, indicator.alpha));
+      ctx.translate(cx, y);
+      ctx.scale(indicator.scale, indicator.scale);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(0,0,0,0.85)';
+      ctx.shadowBlur = 8;
+      ctx.fillStyle = COLOR_SCORE_POPUP;
+      ctx.font = 'bold 25px system-ui, sans-serif';
+      ctx.fillText(indicator.title, 0, -12);
+      ctx.fillStyle = COLOR_TEXT;
+      ctx.font = 'bold 16px system-ui, sans-serif';
+      ctx.fillText(indicator.detail, 0, 15);
+      ctx.restore();
+    });
   }
 
   private drawGhost(cursorCol: number, disc: Disc, board: Board): void {

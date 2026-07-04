@@ -36,3 +36,13 @@ export interface ScorePopup {
   alpha: number;
   yOffset: number;
 }
+
+export interface ScoreIndicator {
+  title: string;
+  detail: string;
+  startTime: number;
+  duration: number;
+  progress: number;
+  alpha: number;
+  scale: number;
+}

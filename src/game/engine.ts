@@ -102,8 +102,20 @@ export class GameEngine {
       steps.push(...computeClearSteps(this.state.board, this.mode, trace));
     }
 
+    if (levelComplete && !pushOverflow) {
+      steps.push({
+        kind: StepKind.Bonus,
+        bonusKind: 'level',
+        pointsAwarded: this.mode.levelBonus,
+      });
+    }
+
     const scoreAwarded = steps.reduce(
-      (total, step) => total + (step.kind === StepKind.Clear ? step.pointsAwarded : 0),
+      (total, step) => total + (
+        step.kind === StepKind.Clear || step.kind === StepKind.Bonus
+          ? step.pointsAwarded
+          : 0
+      ),
       0,
     );
     this.state.score += scoreAwarded;

@@ -6,6 +6,7 @@ export const enum StepKind {
   Fall = 'fall',
   Reveal = 'reveal',
   Push = 'push',
+  Bonus = 'bonus',
 }
 
 export interface DropStep {
@@ -39,4 +40,12 @@ export interface PushStep {
   newRow: Disc[];
 }
 
-export type PhysicsStep = DropStep | ClearStep | FallStep | RevealStep | PushStep;
+export type BonusKind = 'level' | 'board-clear';
+
+export interface BonusStep {
+  kind: StepKind.Bonus;
+  bonusKind: BonusKind;
+  pointsAwarded: number;
+}
+
+export type PhysicsStep = DropStep | ClearStep | FallStep | RevealStep | PushStep | BonusStep;

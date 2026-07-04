@@ -4,12 +4,15 @@ import type { GameState } from '../game/state.js';
 import { GamePhase } from '../game/state.js';
 import type { PhysicsStep } from '../game/events.js';
 import { StepKind } from '../game/events.js';
-import type { ScorePopup } from '../ui/rendering/animation-types.js';
+import type { ScoreIndicator, ScorePopup } from '../ui/rendering/animation-types.js';
 import { makeEmptyBoard } from '../game/board.js';
 import { GameEngine } from '../game/engine.js';
 import { CLASSIC_MODE, GAME_MODES } from '../game/modes/index.js';
 import { DebugPanel } from '../ui/debug/debug-panel.js';
-import { AnimationQueue, spawnScorePopups, tickScorePopups } from '../ui/rendering/animation-queue.js';
+import {
+  AnimationQueue, spawnScoreIndicator, spawnScorePopups,
+  tickScoreIndicators, tickScorePopups,
+} from '../ui/rendering/animation-queue.js';
 import { Renderer } from '../ui/rendering/renderer.js';
 import { InputHandler } from '../platform/input-handler.js';
 import type { InputIntent } from '../platform/input-handler.js';
@@ -40,6 +43,7 @@ export class Game {
   // how visualBoard lags behind state.board.
   private displayedScore = 0;
   private scorePopups: ScorePopup[] = [];
+  private scoreIndicators: ScoreIndicator[] = [];
   private stats: GameStats;
   private longestStreakThisGame = 0;
   private gameRecorded = false;
@@ -82,6 +86,7 @@ export class Game {
     this.visualBoard = makeEmptyBoard(mode.board.cols, mode.board.rows);
     this.displayedScore = this.state.score;
     this.scorePopups = [];
+    this.scoreIndicators = [];
     this.longestStreakThisGame = 0;
     this.gameRecorded = false;
     this.debug.reset();
@@ -91,6 +96,7 @@ export class Game {
   private returnToMenu(): void {
     this.animQueue = null;
     this.scorePopups = [];
+    this.scoreIndicators = [];
     this.displayedScore = this.state.score;
     this.state.phase = GamePhase.Menu;
     this.homeScreen.open();
@@ -180,14 +186,30 @@ export class Game {
     );
   }
 
-  // Fires the instant a step's animation begins. Only ClearStep contributes
-  // points; every disc cleared in one step earns the same amount by
-  // construction (pointsAwarded = cleared.length * per-disc value).
+  // Fires the instant a step's animation begins, keeping score and its visual
+  // explanation synchronized with physics playback.
   private handleStepStart(step: PhysicsStep, now: DOMHighResTimeStamp): void {
-    if (step.kind !== StepKind.Clear) return;
-    this.displayedScore += step.pointsAwarded;
-    const perDiscPoints = step.pointsAwarded / step.cleared.length;
-    this.scorePopups.push(...spawnScorePopups(step.cleared, perDiscPoints, now));
+    if (step.kind === StepKind.Clear) {
+      this.displayedScore += step.pointsAwarded;
+      const perDiscPoints = step.pointsAwarded / step.cleared.length;
+      this.scorePopups.push(...spawnScorePopups(step.cleared, perDiscPoints, now));
+      const chainLength = step.chainLevel + 1;
+      if (chainLength >= 2) {
+        const multiplier = Math.pow(chainLength, this.mode.chainExponent);
+        this.scoreIndicators.push(spawnScoreIndicator(
+          `CHAIN ${chainLength}`,
+          `×${formatMultiplier(multiplier)}  +${step.pointsAwarded}`,
+          now,
+        ));
+      }
+    } else if (step.kind === StepKind.Bonus) {
+      this.displayedScore += step.pointsAwarded;
+      this.scoreIndicators.push(spawnScoreIndicator(
+        step.bonusKind === 'level' ? 'LEVEL BONUS' : 'BOARD CLEAR',
+        `+${step.pointsAwarded.toLocaleString('en-US')}`,
+        now,
+      ));
+    }
   }
 
   // Applies a completed physics step to visualBoard so the next frame's static
@@ -226,6 +248,8 @@ export class Game {
         for (let r = 0; r < vb.length - 1; r++) vb[r] = vb[r + 1]!;
         vb[vb.length - 1] = step.newRow.map(d => ({ ...d }));
         break;
+      case StepKind.Bonus:
+        break;
     }
   }
 
@@ -250,6 +274,7 @@ export class Game {
     this.visualBoard = makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
     this.displayedScore = this.state.score;
     this.scorePopups = [];
+    this.scoreIndicators = [];
     this.longestStreakThisGame = 0;
     this.gameRecorded = false;
   }
@@ -262,6 +287,7 @@ export class Game {
       if (this.animQueue.isDone()) this.animQueue = null;
     }
     this.scorePopups = tickScorePopups(this.scorePopups, now);
+    this.scoreIndicators = tickScoreIndicators(this.scoreIndicators, now);
 
     const anims = this.animQueue?.getActiveAnimations() ?? [];
     this.renderer.draw(
@@ -271,7 +297,12 @@ export class Game {
       this.stats,
       this.displayedScore,
       this.scorePopups,
+      this.scoreIndicators,
       this.mode.initialTurnsPerLevel,
     );
   }
+}
+
+function formatMultiplier(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }

@@ -17,9 +17,9 @@ describe('makeRandomDisc', () => {
 
     vi.spyOn(Math, 'random')
       .mockReturnValueOnce(0)    // value roll
-      .mockReturnValueOnce(0.67) // below level 2's 68% numbered chance
+      .mockReturnValueOnce(0.78) // below level 2's 79% numbered chance
       .mockReturnValueOnce(0)
-      .mockReturnValueOnce(0.68);
+      .mockReturnValueOnce(0.79);
 
     expect(factory(2).kind).toBe(DiscKind.Numbered);
     expect(factory(2).kind).toBe(DiscKind.DoubleCracked);

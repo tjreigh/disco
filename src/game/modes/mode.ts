@@ -13,6 +13,8 @@ export interface GameModeConfig {
   readonly maxUnnumberedProbability: number;
   readonly pointsPerDisc: number;
   readonly chainExponent: number;
+  readonly levelBonus: number;
+  readonly boardClearBonus: number;
   readonly initialTurnsPerLevel: number;
   readonly turnsPerLevelStep: number;
   readonly minTurnsPerLevel: number;

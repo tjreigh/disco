@@ -12,20 +12,22 @@ describe('CLASSIC_MODE', () => {
     expect(CLASSIC_MODE.chainExponent).toBe(2.5);
     expect(CLASSIC_MODE.discValueMin).toBe(1);
     expect(CLASSIC_MODE.discValueMax).toBe(7);
-    expect(CLASSIC_MODE.initialUnnumberedProbability).toBe(0.30);
-    expect(CLASSIC_MODE.unnumberedProbabilityLevelStep).toBe(0.02);
-    expect(CLASSIC_MODE.maxUnnumberedProbability).toBe(0.60);
+    expect(CLASSIC_MODE.initialUnnumberedProbability).toBe(0.20);
+    expect(CLASSIC_MODE.unnumberedProbabilityLevelStep).toBe(0.01);
+    expect(CLASSIC_MODE.maxUnnumberedProbability).toBe(0.40);
+    expect(CLASSIC_MODE.levelBonus).toBe(7_000);
+    expect(CLASSIC_MODE.boardClearBonus).toBe(70_000);
     expect(CLASSIC_MODE.initialTurnsPerLevel).toBe(30);
     expect(CLASSIC_MODE.turnsPerLevelStep).toBe(1);
     expect(CLASSIC_MODE.minTurnsPerLevel).toBe(8);
   });
 
-  test('increases the unnumbered chance by level and caps it at 60%', () => {
-    expect(unnumberedProbabilityForLevel(CLASSIC_MODE, 1)).toBeCloseTo(0.30);
-    expect(unnumberedProbabilityForLevel(CLASSIC_MODE, 2)).toBeCloseTo(0.32);
-    expect(unnumberedProbabilityForLevel(CLASSIC_MODE, 10)).toBeCloseTo(0.48);
-    expect(unnumberedProbabilityForLevel(CLASSIC_MODE, 16)).toBeCloseTo(0.60);
-    expect(unnumberedProbabilityForLevel(CLASSIC_MODE, 100)).toBeCloseTo(0.60);
+  test('increases the unnumbered chance by level and caps it at 40%', () => {
+    expect(unnumberedProbabilityForLevel(CLASSIC_MODE, 1)).toBeCloseTo(0.20);
+    expect(unnumberedProbabilityForLevel(CLASSIC_MODE, 2)).toBeCloseTo(0.21);
+    expect(unnumberedProbabilityForLevel(CLASSIC_MODE, 10)).toBeCloseTo(0.29);
+    expect(unnumberedProbabilityForLevel(CLASSIC_MODE, 21)).toBeCloseTo(0.40);
+    expect(unnumberedProbabilityForLevel(CLASSIC_MODE, 100)).toBeCloseTo(0.40);
   });
 
   test('is the only entry in GAME_MODES', () => {
