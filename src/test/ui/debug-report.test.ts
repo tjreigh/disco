@@ -8,6 +8,7 @@ import { GamePhase } from '../../game/state.js';
 describe('buildDebugReport', () => {
   it('exports a stable snapshot with notes and labeled flags', () => {
     const state: GameState = {
+      generationSeed: 1234,
       phase: GamePhase.WaitingForDrop,
       board: [[{ id: 1, value: 2, kind: DiscKind.Numbered }]],
       currentDisc: { id: 2, value: 3, kind: DiscKind.Numbered },
@@ -52,7 +53,7 @@ describe('buildDebugReport', () => {
     secondTurn.boardBefore[0]![0]!.value = 5;
     history.length = 0;
     expect(report).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       exportedAt: '2026-07-02T12:00:00.000Z',
       note: 'This tile should clear.',
       flags: [{ target: 'committed-board.cell.0.0', label: 'committed-board r1c1 #1' }],

@@ -8,6 +8,8 @@ export const enum GamePhase {
 }
 
 export interface GameState {
+  /** Seed controlling both deterministic disc-generation streams. */
+  generationSeed: number;
   phase: GamePhase;
   board: Board;
   currentDisc: Disc;

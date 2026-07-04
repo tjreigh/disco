@@ -9,6 +9,7 @@ import { createDiscFactories, DiscFactory, DiscQueue } from './disc.js';
 import { computeClearSteps, computeDropSteps, computePushStep, PhysicsTrace } from './physics.js';
 import { CLASSIC_MODE } from './modes/index.js';
 import { turnsForLevel } from './modes/mode.js';
+import { createGameSeed, createSeededRandom, deriveSeed } from './random.js';
 
 export type RejectedTurnReason = 'game-over' | 'invalid-column' | 'full-column';
 
@@ -25,6 +26,8 @@ export interface TurnResult {
 
 export interface GameEngineOptions {
   mode?: GameModeConfig;
+  /** Reproduce built-in disc generation with a known unsigned 32-bit seed. */
+  seed?: number;
   discFactory?: DiscFactory;
   crackedDiscFactory?: DiscFactory;
   board?: Board;
@@ -41,17 +44,28 @@ export class GameEngine {
   private mode: GameModeConfig;
   private queue: DiscQueue;
   private crackedDiscFactory: DiscFactory;
+  private customDiscFactory: DiscFactory | undefined;
+  private customCrackedDiscFactory: DiscFactory | undefined;
 
   constructor(options: GameEngineOptions = {}) {
     this.mode = options.mode ?? CLASSIC_MODE;
-    const factories = createDiscFactories(this.mode);
-    const queueFactory = options.discFactory ? () => options.discFactory!() : factories.discFactory;
-    this.queue = new DiscQueue(queueFactory, 1);
+    this.customDiscFactory = options.discFactory;
+    this.customCrackedDiscFactory = options.crackedDiscFactory;
+    const seed = options.seed === undefined ? createGameSeed() : options.seed >>> 0;
+    const factories = this.createSeededFactories(seed);
+    const initialBoard = options.board
+      ? deepCloneBoard(options.board)
+      : makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
+    const queueFactory = options.discFactory
+      ? (_level: number, _board: Board) => options.discFactory!()
+      : factories.discFactory;
+    this.queue = new DiscQueue(queueFactory, 1, initialBoard);
     this.crackedDiscFactory = options.crackedDiscFactory ?? factories.crackedDiscFactory;
     const dropCount = options.dropCount ?? 0;
     this.state = {
+      generationSeed: seed,
       phase: GamePhase.WaitingForDrop,
-      board: options.board ? deepCloneBoard(options.board) : makeEmptyBoard(this.mode.board.cols, this.mode.board.rows),
+      board: initialBoard,
       currentDisc: this.queue.peek(),
       nextDisc: this.queue.peekNext(),
       cursorCol: Math.floor(this.mode.board.cols / 2),
@@ -137,7 +151,7 @@ export class GameEngine {
 
     // Keep the already-previewed discs stable. Only the new tail disc uses the
     // current level's spawn probability after a level transition.
-    this.queue.advance(this.state.level);
+    this.queue.advance(this.state.level, this.state.board);
     this.state.currentDisc = this.queue.peek();
     this.state.nextDisc = this.queue.peekNext();
 
@@ -152,10 +166,16 @@ export class GameEngine {
   // a reference to it that must stay valid across mode switches.
   reconfigure(mode: GameModeConfig): void {
     this.mode = mode;
-    const factories = createDiscFactories(mode);
-    this.queue = new DiscQueue(factories.discFactory, 1);
+    this.customDiscFactory = undefined;
+    this.customCrackedDiscFactory = undefined;
+    const seed = createGameSeed();
+    const factories = this.createSeededFactories(seed);
+    const board = makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
+    this.state.board = board;
+    this.queue = new DiscQueue(factories.discFactory, 1, board);
     this.crackedDiscFactory = factories.crackedDiscFactory;
-    this.resetState();
+    this.state.generationSeed = seed;
+    this.resetState(board);
   }
 
   // Resets gameplay state for a fresh game in the same mode, reusing whichever
@@ -163,13 +183,29 @@ export class GameEngine {
   // instead of rebuilding it — this preserves deterministic factories (as used
   // in tests) across a restart, matching pre-mode-system behavior.
   restart(): void {
-    this.queue.reset(1);
-    this.resetState();
+    const seed = createGameSeed();
+    this.state.generationSeed = seed;
+    const factories = this.createSeededFactories(seed);
+    const board = makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
+    this.state.board = board;
+    if (this.customDiscFactory) {
+      this.queue.reset(1, board);
+    } else {
+      this.queue = new DiscQueue(factories.discFactory, 1, board);
+    }
+    this.crackedDiscFactory = this.customCrackedDiscFactory ?? factories.crackedDiscFactory;
+    this.resetState(board);
   }
 
-  private resetState(): void {
+  private createSeededFactories(seed: number): ReturnType<typeof createDiscFactories> {
+    const playableRandom = createSeededRandom(deriveSeed(seed, 0x504c4159));
+    const pushRandom = createSeededRandom(deriveSeed(seed, 0x50555348));
+    return createDiscFactories(this.mode, playableRandom, pushRandom);
+  }
+
+  private resetState(board: Board): void {
     this.state.phase = GamePhase.WaitingForDrop;
-    this.state.board = makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
+    this.state.board = board;
     this.state.currentDisc = this.queue.peek();
     this.state.nextDisc = this.queue.peekNext();
     this.state.cursorCol = Math.floor(this.mode.board.cols / 2);

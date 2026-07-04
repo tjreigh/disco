@@ -64,7 +64,22 @@ export const CLASSIC_MODE: GameModeConfig = {
   initialUnnumberedProbability: 0.20,
   unnumberedProbabilityLevelStep: 0.01,
   maxUnnumberedProbability: 0.40,
+  discGeneration: {
+    maxSameValueRun: 3,
+    maxNumberedRun: 6,
+    maxCrackedRun: 2,
+    valueBalanceWindow: 14,
+    valueBalanceStrength: 0.75,
+    kindBalanceWindow: 50,
+    kindBalanceStrength: 1,
+    boardPressureStartHeight: 2,
+    boardPressureStrength: 1.5,
+    boardRelevanceStrength: 0.75,
+  },
   pointsPerDisc: 7,
+  // 2.5 rewards chains superlinearly: a 4-disc chain scores ~9x a single disc's
+  // base value (4^2.5), not 4x, so hunting long chains clearly beats clearing
+  // discs one at a time.
   chainExponent: 2.5,
   levelBonus: 7_000,
   boardClearBonus: 70_000,

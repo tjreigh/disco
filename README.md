@@ -32,7 +32,12 @@ const result = engine.drop(2);
 `result.steps` describes everything that occurred during the turn. The browser
 uses those steps for animation; tests can assert them directly.
 
-The in-game logic debugger can export a JSON issue report. Schema version 2
+The in-game logic debugger can export a JSON issue report. Schema version 3
 includes `turnHistory`, containing every attempted turn in the current game in
 chronological order, including each turn's physics steps, clear scans, and board
-frames. `lastTurn` remains available as a convenience for older analysis tools.
+frames. Built-in playable values are board-aware: taller stacks favor smaller
+values, with a secondary boost for values that could form an immediate
+horizontal or vertical match. Replaying generation requires the same
+`generationSeed`, starting board, and accepted move sequence. Rejected moves do
+not advance generation. `lastTurn` remains available as a convenience for older
+analysis tools.

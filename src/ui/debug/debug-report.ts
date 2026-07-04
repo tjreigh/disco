@@ -7,7 +7,7 @@ export interface DebugFlag {
 }
 
 export interface DebugReport {
-  schemaVersion: 2;
+  schemaVersion: 3;
   exportedAt: string;
   note: string;
   flags: DebugFlag[];
@@ -29,7 +29,7 @@ export function buildDebugReport(
 ): DebugReport {
   const historySnapshot = snapshot([...turnHistory]);
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     exportedAt,
     note: note.trim(),
     flags: [...flags].map(([target, label]) => ({ target, label })),

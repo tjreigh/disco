@@ -6,21 +6,56 @@ export interface GameModeConfig {
   readonly name: string;
   readonly tagline: string;
   readonly board: { cols: number; rows: number };
+  /** Inclusive range of numbered disc values that can be dealt. Widening it makes matches rarer (more values to spread across). */
   readonly discValueMin: number;
   readonly discValueMax: number;
+  /** Chance a dealt disc is DoubleCracked (unnumbered/hazard) at level 1. See {@link unnumberedProbabilityForLevel}. */
   readonly initialUnnumberedProbability: number;
+  /** Flat amount added to the unnumbered probability per level (linear ramp, not exponential). Higher = hazards ramp up faster. */
   readonly unnumberedProbabilityLevelStep: number;
+  /** Ceiling the unnumbered probability ramp saturates at, however high the level gets. */
   readonly maxUnnumberedProbability: number;
+  readonly discGeneration: DiscGenerationConfig;
+  /** Base points per disc in a clear, before the chain-length exponent is applied. See {@link pointsForChain}. */
   readonly pointsPerDisc: number;
+  /** Exponent on chain length in the scoring formula (points = pointsPerDisc * chainLength^chainExponent). >1 makes longer chains reward superlinearly; higher values make big chains far more lucrative than several small ones. */
   readonly chainExponent: number;
+  /** Flat bonus awarded once when a level is completed. */
   readonly levelBonus: number;
+  /** Flat bonus awarded once when the board is fully cleared. */
   readonly boardClearBonus: number;
+  /** Turn budget for level 1. See {@link turnsForLevel}. */
   readonly initialTurnsPerLevel: number;
+  /** Amount the turn budget shrinks per level (linear decay) as levels progress. */
   readonly turnsPerLevelStep: number;
+  /** Floor the shrinking turn budget cannot drop below, however high the level gets. */
   readonly minTurnsPerLevel: number;
   isClearable(board: Board, row: number, col: number, disc: Disc): boolean;
   revealAdjacent(board: Board, cleared: GridPos[]): RevealStep;
   isGameOver(board: Board): boolean;
+}
+
+export interface DiscGenerationConfig {
+  /** Hard cap on repeats of the same disc value in a row; that value is excluded once hit. Lower = more variety, never 0. */
+  readonly maxSameValueRun: number;
+  /** Hard cap on consecutive Numbered discs; the next disc is forced DoubleCracked once hit. Lower = more frequent forced hazards. */
+  readonly maxNumberedRun: number;
+  /** Hard cap on consecutive DoubleCracked discs; the next disc is forced Numbered once hit. Lower = fewer hazard streaks. */
+  readonly maxCrackedRun: number;
+  /** How many recent discs count toward "expected vs. observed" value frequency. Bigger = smoother/slower-reacting value distribution. */
+  readonly valueBalanceWindow: number;
+  /** How hard under/over-dealt values get pushed back toward even distribution. 0 = no correction (pure weighted random); higher = snappier correction. */
+  readonly valueBalanceStrength: number;
+  /** How many recent discs count toward "expected vs. observed" Numbered ratio. Bigger = smoother/slower-reacting kind distribution. */
+  readonly kindBalanceWindow: number;
+  /** How hard the Numbered/DoubleCracked ratio gets pushed back toward the level's target probability. 0 = no correction; higher = snappier correction. */
+  readonly kindBalanceStrength: number;
+  /** Column height (in rows), below which "board pressure" is 0 (no bias yet). Higher = more room before pressure kicks in. */
+  readonly boardPressureStartHeight: number;
+  /** As pressure rises (tall columns), how strongly high-value discs get suppressed in favor of low ones. 0 = no suppression; higher = low values dealt almost exclusively near the top. */
+  readonly boardPressureStrength: number;
+  /** As pressure rises, how strongly values that would immediately complete a clear get boosted. 0 = no boost; higher = generation actively bails you out under pressure. */
+  readonly boardRelevanceStrength: number;
 }
 
 // Turn budget for a given level: shrinks by turnsPerLevelStep per level from

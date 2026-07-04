@@ -14,6 +14,65 @@ function numberedFactory(...values: number[]): () => ReturnType<typeof makeDisc>
 }
 
 describe('GameEngine', () => {
+  test('an explicit seed reproduces the built-in playable sequence', () => {
+    const startingBoard = makeEmptyBoard();
+    placeDisc(startingBoard, 6, 6, makeDisc(7, DiscKind.DoubleCracked));
+    const first = new GameEngine({ seed: 0x12345678, board: startingBoard });
+    const second = new GameEngine({ seed: 0x12345678, board: startingBoard });
+    const signature = (engine: GameEngine) => ({
+      current: { value: engine.state.currentDisc.value, kind: engine.state.currentDisc.kind },
+      next: { value: engine.state.nextDisc.value, kind: engine.state.nextDisc.kind },
+    });
+
+    expect(first.state.generationSeed).toBe(0x12345678);
+    expect(signature(first)).toEqual(signature(second));
+    for (let turn = 0; turn < 20; turn++) {
+      expect(signature(first)).toEqual(signature(second));
+      expect(first.drop(turn % 7).steps.map(step => step.kind)).toEqual(
+        second.drop(turn % 7).steps.map(step => step.kind),
+      );
+    }
+  });
+
+  test('uses an injected starting board when prefilling the built-in queue', () => {
+    const highBoard = makeEmptyBoard();
+    for (let row = 1; row < highBoard.length; row++) {
+      placeDisc(highBoard, row, 6, makeDisc(7, DiscKind.DoubleCracked));
+    }
+
+    const empty = new GameEngine({ seed: 1 });
+    const high = new GameEngine({ seed: 1, board: highBoard });
+    const values = (engine: GameEngine) => [engine.state.currentDisc.value, engine.state.nextDisc.value];
+
+    expect(values(empty)).toEqual([6, 7]);
+    expect(values(high)).toEqual([5, 6]);
+  });
+
+  test('rejected drops do not advance built-in generation', () => {
+    const startingBoard = makeEmptyBoard();
+    for (let row = 0; row < startingBoard.length; row++) {
+      placeDisc(startingBoard, row, 0, makeDisc(7, DiscKind.DoubleCracked));
+    }
+    const uninterrupted = new GameEngine({ seed: 0xabcdef01, board: startingBoard });
+    const withRejections = new GameEngine({ seed: 0xabcdef01, board: startingBoard });
+    const signature = (engine: GameEngine) => [
+      engine.state.currentDisc.value,
+      engine.state.currentDisc.kind,
+      engine.state.nextDisc.value,
+      engine.state.nextDisc.kind,
+    ];
+
+    expect(withRejections.drop(-1)).toMatchObject({ accepted: false, reason: 'invalid-column' });
+    expect(withRejections.drop(0)).toMatchObject({ accepted: false, reason: 'full-column' });
+    expect(signature(withRejections)).toEqual(signature(uninterrupted));
+
+    for (const col of [1, 2, 3, 4]) {
+      expect(withRejections.drop(col).accepted).toBe(true);
+      expect(uninterrupted.drop(col).accepted).toBe(true);
+      expect(signature(withRejections)).toEqual(signature(uninterrupted));
+    }
+  });
+
   test('plays a complete turn without browser dependencies', () => {
     const engine = new GameEngine({ discFactory: numberedFactory(7, 6, 5, 4) });
 
