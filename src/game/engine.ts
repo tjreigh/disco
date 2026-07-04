@@ -78,7 +78,7 @@ export class GameEngine {
 
     if (this.state.phase === GamePhase.GameOver) return reject('game-over', true);
     if (!Number.isInteger(col) || col < 0 || col >= this.state.board[0]!.length) return reject('invalid-column');
-    if (isColumnFull(this.state.board, col)) return reject('full-column', true);
+    if (isColumnFull(this.state.board, col)) return reject('full-column');
 
     this.state.cursorCol = col;
     const steps = computeDropSteps(this.state.board, this.queue.peek(), col, this.mode, trace);

@@ -150,7 +150,7 @@ describe('GameEngine', () => {
     expect(engine.state.board).toEqual(makeEmptyBoard());
   });
 
-  test('a drop into a full column ends the game without consuming the disc', () => {
+  test('a drop into a full column is rejected without ending the game or consuming the disc', () => {
     const board = makeEmptyBoard();
     for (let row = 0; row < 7; row++) {
       placeDisc(board, row, 1, makeDisc(7, DiscKind.DoubleCracked));
@@ -160,8 +160,8 @@ describe('GameEngine', () => {
 
     const result = engine.drop(1);
 
-    expect(result).toMatchObject({ accepted: false, reason: 'full-column', gameOver: true });
-    expect(engine.state.phase).toBe(GamePhase.GameOver);
+    expect(result).toMatchObject({ accepted: false, reason: 'full-column', gameOver: false });
+    expect(engine.state.phase).toBe(GamePhase.WaitingForDrop);
     expect(engine.state.currentDisc.id).toBe(currentId);
     expect(engine.state.dropCount).toBe(0);
   });
@@ -255,7 +255,7 @@ describe('GameEngine', () => {
     expect(engine.state.board[6]![1]).not.toBeNull();
   });
 
-  test('a game-ending drop freezes the level and turn budget instead of rolling over', () => {
+  test('a rejected full-column drop leaves the level and turn budget unchanged', () => {
     const board = makeEmptyBoard();
     for (let row = 0; row < 7; row++) {
       placeDisc(board, row, 1, makeDisc(7, DiscKind.DoubleCracked));
@@ -271,7 +271,7 @@ describe('GameEngine', () => {
 
     const result = engine.drop(1);
 
-    expect(result.gameOver).toBe(true);
+    expect(result).toMatchObject({ accepted: false, reason: 'full-column', gameOver: false });
     expect(engine.state.level).toBe(1);
     expect(engine.state.turnsRemaining).toBe(1);
   });
