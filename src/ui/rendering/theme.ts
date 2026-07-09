@@ -1,6 +1,3 @@
-export const GRID_COLS = 7;
-export const GRID_ROWS = 7;
-
 // Maximum cell size on large screens; shrinks on small viewports.
 export const MAX_CELL_SIZE = 72;
 export const MIN_CELL_SIZE = 40;

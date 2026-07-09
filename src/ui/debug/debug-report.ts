@@ -7,12 +7,13 @@ export interface DebugFlag {
 }
 
 export interface DebugReport {
-  schemaVersion: 3;
+  schemaVersion: 4;
   exportedAt: string;
   note: string;
   flags: DebugFlag[];
   gameState: GameState;
   turnHistory: TurnResult[];
+  truncatedTurns: number;
   lastTurn: TurnResult | null;
 }
 
@@ -23,18 +24,20 @@ function snapshot<T>(value: T): T {
 export function buildDebugReport(
   state: GameState,
   turnHistory: readonly TurnResult[],
+  truncatedTurns: number,
   note: string,
   flags: ReadonlyMap<string, string>,
   exportedAt = new Date().toISOString(),
 ): DebugReport {
   const historySnapshot = snapshot([...turnHistory]);
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     exportedAt,
     note: note.trim(),
     flags: [...flags].map(([target, label]) => ({ target, label })),
     gameState: snapshot(state),
     turnHistory: historySnapshot,
+    truncatedTurns,
     lastTurn: historySnapshot.at(-1) ?? null,
   };
 }

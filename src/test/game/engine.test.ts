@@ -7,6 +7,7 @@ import { GamePhase } from '../../game/state.js';
 import { StepKind } from '../../game/events.js';
 import type { GameModeConfig } from '../../game/modes/mode.js';
 import { CLASSIC_MODE } from '../../game/modes/index.js';
+import { doubleCrackedFactory } from '../helpers.js';
 
 function numberedFactory(...values: number[]): () => ReturnType<typeof makeDisc> {
   let index = 0;
@@ -345,5 +346,163 @@ describe('GameEngine', () => {
     expect(engine.state).toBe(stateRef); // same object reference, mutated in place
     expect(engine.state.board.length).toBe(3);
     expect(engine.state.phase).toBe(GamePhase.WaitingForDrop);
+  });
+
+  // ─── Full-board soft-lock (bug #2) ───────────────────────────────────────
+  // A fully-occupied board can never change again on its own: every column
+  // rejects a drop, so no turn is ever consumed and no push ever fires. That
+  // makes it terminal even when no push has overflowed row 0.
+
+  describe('full-board terminal state', () => {
+    // A huge turn budget keeps a push from ever interfering — the test wants
+    // to prove the full-board check alone ends the game, not a push overflow.
+    // DoubleCracked discs never clear on their own, so filling the board
+    // column by column never triggers a clear/reveal either.
+    const noPushMode: GameModeConfig = {
+      ...CLASSIC_MODE,
+      id: 'full-board-test-mode',
+      initialTurnsPerLevel: 999,
+      turnsPerLevelStep: 0,
+      minTurnsPerLevel: 999,
+    };
+
+    test('filling all 49 cells ends the game on the filling drop, without a push', () => {
+      const engine = new GameEngine({ mode: noPushMode, discFactory: doubleCrackedFactory() });
+
+      let lastResult: ReturnType<GameEngine['drop']> | undefined;
+      for (let col = 0; col < 7; col++) {
+        for (let row = 0; row < 7; row++) {
+          lastResult = engine.drop(col);
+        }
+      }
+
+      expect(lastResult).toMatchObject({ accepted: true, gameOver: true });
+      expect(lastResult!.steps.some(step => step.kind === StepKind.Push)).toBe(false);
+      expect(engine.state.phase).toBe(GamePhase.GameOver);
+
+      const further = engine.drop(0);
+      expect(further).toMatchObject({ accepted: false, reason: 'game-over' });
+    });
+
+    test('6 full columns plus a partially-filled 7th is not terminal', () => {
+      const engine = new GameEngine({ mode: noPushMode, discFactory: doubleCrackedFactory() });
+
+      for (let col = 0; col < 6; col++) {
+        for (let row = 0; row < 7; row++) engine.drop(col);
+      }
+      let lastResult;
+      for (let row = 0; row < 6; row++) lastResult = engine.drop(6);
+
+      expect(lastResult!.gameOver).toBe(false);
+      expect(engine.state.phase).not.toBe(GamePhase.GameOver);
+    });
+
+    test('constructing an engine with an already-full injected board is immediately game over', () => {
+      const board = makeEmptyBoard();
+      for (let row = 0; row < 7; row++) {
+        for (let col = 0; col < 7; col++) placeDisc(board, row, col, makeDisc(9, DiscKind.DoubleCracked));
+      }
+
+      const engine = new GameEngine({ board });
+
+      expect(engine.state.phase).toBe(GamePhase.GameOver);
+    });
+  });
+
+  // ─── Steps↔frames parity (bug #4's invariant) ────────────────────────────
+
+  describe('steps↔frames parity', () => {
+    test('level-bonus turn: every non-Bonus step has exactly one frame', () => {
+      const oneTurnMode: GameModeConfig = {
+        ...CLASSIC_MODE,
+        id: 'parity-level-bonus-mode',
+        initialTurnsPerLevel: 1,
+        turnsPerLevelStep: 1,
+        minTurnsPerLevel: 1,
+      };
+      const engine = new GameEngine({
+        mode: oneTurnMode,
+        discFactory: numberedFactory(7, 6, 5, 4),
+        crackedDiscFactory: () => makeDisc(2, DiscKind.DoubleCracked),
+      });
+
+      const result = engine.drop(0);
+      const nonBonusSteps = result.steps.filter(step => step.kind !== StepKind.Bonus);
+
+      expect(result.steps.some(step => step.kind === StepKind.Bonus)).toBe(true);
+      expect(nonBonusSteps.length).toBe(result.trace.frames.length);
+    });
+
+    // Also exercises the physics-level board-clear bonus (a second Bonus
+    // variant distinct from the engine's level bonus above).
+    test('board-clearing chain turn (board-clear bonus): every non-Bonus step has exactly one frame', () => {
+      const engine = new GameEngine({ discFactory: numberedFactory(1, 7, 7, 7) });
+
+      const result = engine.drop(3);
+      const nonBonusSteps = result.steps.filter(step => step.kind !== StepKind.Bonus);
+
+      expect(result.steps.some(step => step.kind === StepKind.Bonus)).toBe(true);
+      expect(nonBonusSteps.length).toBe(result.trace.frames.length);
+    });
+
+    test('a normal multi-step clear turn without any bonus still has parity', () => {
+      const board = makeEmptyBoard();
+      placeDisc(board, 6, 0, makeDisc(5, DiscKind.Numbered));
+      placeDisc(board, 6, 1, makeDisc(4, DiscKind.Numbered));
+      const engine = new GameEngine({ board, discFactory: numberedFactory(3, 7, 7, 7) });
+
+      const result = engine.drop(2);
+      const nonBonusSteps = result.steps.filter(step => step.kind !== StepKind.Bonus);
+
+      expect(result.steps.some(step => step.kind === StepKind.Bonus)).toBe(false);
+      expect(nonBonusSteps.length).toBe(result.trace.frames.length);
+    });
+  });
+
+  // ─── generationSource (#9) ────────────────────────────────────────────────
+
+  describe('generationSource', () => {
+    test('defaults to seeded when no custom factory is injected', () => {
+      const engine = new GameEngine({});
+      expect(engine.state.generationSource).toBe('seeded');
+    });
+
+    test('is injected when a custom discFactory is provided', () => {
+      const engine = new GameEngine({ discFactory: numberedFactory(1) });
+      expect(engine.state.generationSource).toBe('injected');
+    });
+
+    test('is injected when only a custom crackedDiscFactory is provided', () => {
+      const engine = new GameEngine({ crackedDiscFactory: () => makeDisc(1, DiscKind.DoubleCracked) });
+      expect(engine.state.generationSource).toBe('injected');
+    });
+
+    test('remains injected after restart(), which deliberately keeps custom factories', () => {
+      const engine = new GameEngine({ discFactory: numberedFactory(1) });
+      engine.restart();
+      expect(engine.state.generationSource).toBe('injected');
+    });
+
+    test('becomes seeded after reconfigure(), which discards any injected factory', () => {
+      const engine = new GameEngine({ discFactory: numberedFactory(1) });
+      engine.reconfigure(CLASSIC_MODE);
+      expect(engine.state.generationSource).toBe('seeded');
+    });
+  });
+
+  // ─── moveCursor phase guard (#12) ─────────────────────────────────────────
+
+  test('moveCursor is a no-op once the game is over', () => {
+    const board = makeEmptyBoard();
+    for (let row = 0; row < 7; row++) {
+      for (let col = 0; col < 7; col++) placeDisc(board, row, col, makeDisc(9, DiscKind.DoubleCracked));
+    }
+    const engine = new GameEngine({ board });
+    expect(engine.state.phase).toBe(GamePhase.GameOver);
+    const before = engine.state.cursorCol;
+
+    engine.moveCursor(before === 6 ? 0 : before + 1);
+
+    expect(engine.state.cursorCol).toBe(before);
   });
 });

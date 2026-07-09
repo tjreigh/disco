@@ -21,6 +21,8 @@ import { HomeScreen } from '../ui/home-screen.js';
 import type { GameStats } from '../game/stats.js';
 import { recordCompletedGame, updateRecords } from '../game/stats.js';
 import { loadStats, saveStats } from '../platform/cookie-stats-store.js';
+import { applyStepToVisualBoard } from './visual-board.js';
+import { setGridSize } from '../ui/rendering/layout.js';
 
 export class Game {
   private state: GameState;
@@ -83,6 +85,8 @@ export class Game {
     this.mode = mode;
     this.engine.reconfigure(mode); // mutates engine.state in place; never replaces it
     this.stats = loadStats(mode.id);
+    setGridSize(mode.board.cols, mode.board.rows);
+    this.renderer.resize();
     this.visualBoard = makeEmptyBoard(mode.board.cols, mode.board.rows);
     this.displayedScore = this.state.score;
     this.scorePopups = [];
@@ -132,7 +136,10 @@ export class Game {
     const result = this.engine.drop(col);
     if (!result.accepted) {
       this.debug.recordTurn(result);
-      if (result.gameOver) this.setGameOver();
+      if (result.gameOver) {
+        this.recordGameEnd();
+        this.setGameOver();
+      }
       return;
     }
 
@@ -144,19 +151,10 @@ export class Game {
       0,
     );
     this.longestStreakThisGame = Math.max(this.longestStreakThisGame, longestStreakThisTurn);
-    updateRecords(this.stats, this.state.score, this.longestStreakThisGame);
-    saveStats(this.mode.id, this.stats);
+    const recordsImproved = updateRecords(this.stats, this.state.score, this.longestStreakThisGame);
+    if (recordsImproved && !result.gameOver) saveStats(this.mode.id, this.stats);
     this.visualBoard = result.boardBefore;
-    if (steps.some(step => step.kind === StepKind.Push)) this.audio.playPush();
-
-    this.audio.playDrop();
-    const hasClears = steps.some(s => s.kind === StepKind.Clear);
-    if (hasClears) {
-      const maxChain = steps
-        .filter(s => s.kind === StepKind.Clear)
-        .reduce((m, s) => (s.kind === StepKind.Clear ? Math.max(m, s.chainLevel) : m), 0);
-      this.audio.playClear(maxChain);
-    }
+    if (result.gameOver) this.recordGameEnd();
 
     // The engine has already completed the turn synchronously. The browser
     // temporarily overrides its final phase while replaying the returned steps.
@@ -171,8 +169,8 @@ export class Game {
       steps,
       (step, now) => this.handleStepStart(step, now),
       step => {
-        this.applyStepToVisualBoard(step);
-        this.debug.advancePlayback();
+        applyStepToVisualBoard(this.visualBoard, step);
+        if (step.kind !== StepKind.Bonus) this.debug.advancePlayback();
       },
       () => {
         this.displayedScore = this.state.score; // convergence safety net
@@ -189,6 +187,16 @@ export class Game {
   // Fires the instant a step's animation begins, keeping score and its visual
   // explanation synchronized with physics playback.
   private handleStepStart(step: PhysicsStep, now: DOMHighResTimeStamp): void {
+    if (step.kind === StepKind.Drop) {
+      this.audio.playDrop();
+    } else if (step.kind === StepKind.Push) {
+      this.audio.playPush();
+    } else if (step.kind === StepKind.Clear) {
+      this.audio.playClear(step.chainLevel);
+    } else if (step.kind === StepKind.Reveal) {
+      this.audio.playReveal();
+    }
+
     if (step.kind === StepKind.Clear) {
       this.displayedScore += step.pointsAwarded;
       const perDiscPoints = step.pointsAwarded / step.cleared.length;
@@ -212,59 +220,22 @@ export class Game {
     }
   }
 
-  // Applies a completed physics step to visualBoard so the next frame's static
-  // draw shows discs at their post-step positions. Called by AnimationQueue after
-  // each step's animations finish but before the next step's animations begin.
-  private applyStepToVisualBoard(step: PhysicsStep): void {
-    const vb = this.visualBoard;
-    switch (step.kind) {
-      case StepKind.Drop:
-        vb[step.toLandRow]![step.col] = { ...step.disc };
-        break;
-      case StepKind.Clear:
-        for (const pos of step.cleared) {
-          vb[pos.row]![pos.col] = null;
-        }
-        break;
-      case StepKind.Reveal:
-        // positions[i] and discs[i] are parallel; discs carry the post-physics
-        // kind. The visual board's disc objects are separate clones so we update
-        // kind by matching position rather than object identity.
-        for (let i = 0; i < step.positions.length; i++) {
-          const pos  = step.positions[i]!;
-          const disc = step.discs[i]!;
-          const cell = vb[pos.row]![pos.col];
-          if (cell != null) cell.kind = disc.kind;
-        }
-        break;
-      case StepKind.Fall:
-        for (const m of step.moves) {
-          vb[m.to.row]![m.to.col] = vb[m.from.row]![m.from.col]!;
-          if (m.from.row !== m.to.row) vb[m.from.row]![m.from.col] = null;
-        }
-        break;
-      case StepKind.Push:
-        // Mirror what computePushStep does: shift rows up, place new row at bottom.
-        for (let r = 0; r < vb.length - 1; r++) vb[r] = vb[r + 1]!;
-        vb[vb.length - 1] = step.newRow.map(d => ({ ...d }));
-        break;
-      case StepKind.Bonus:
-        break;
-    }
-  }
-
   private setGameOver(): void {
     this.state.phase = GamePhase.GameOver;
-    if (!this.gameRecorded) {
-      recordCompletedGame(this.stats, this.state.score);
-      saveStats(this.mode.id, this.stats);
-      this.gameRecorded = true;
-    }
+    this.recordGameEnd();
     this.debug.refresh();
     this.audio.playGameOver();
     // Drop any in-progress animation — the game-over overlay renders on top,
     // so partial animation state is invisible and we can discard it safely.
     this.animQueue = null;
+  }
+
+  private recordGameEnd(): void {
+    if (!this.gameRecorded) {
+      recordCompletedGame(this.stats, this.state.score);
+      saveStats(this.mode.id, this.stats);
+      this.gameRecorded = true;
+    }
   }
 
   private restart(): void {
@@ -277,6 +248,11 @@ export class Game {
     this.scoreIndicators = [];
     this.longestStreakThisGame = 0;
     this.gameRecorded = false;
+  }
+
+  destroy(): void {
+    cancelAnimationFrame(this.rafId);
+    this.input.destroy();
   }
 
   private loop(now: DOMHighResTimeStamp): void {

@@ -4,22 +4,19 @@ import type { GameState } from '../../game/state.js';
 import { GamePhase } from '../../game/state.js';
 import type { RichDiscAnimation, ScoreIndicator, ScorePopup } from './animation-types.js';
 import {
-  GRID_COLS, GRID_ROWS,
   DISC_COLORS,
   COLOR_BG, COLOR_GRID_CELL, COLOR_GRID_LINE,
   COLOR_CRACKED_FILL, COLOR_CRACKED_DARK, COLOR_CRACK_LINE,
   COLOR_TEXT, COLOR_TEXT_DIM, COLOR_GHOST, COLOR_COL_HOVER,
-  COLOR_GAMEOVER_BG, COLOR_SCORE_POPUP, HUD_TOP_HEIGHT,
+  COLOR_GAMEOVER_BG, COLOR_SCORE_POPUP, HUD_TOP_HEIGHT, HUD_BOTTOM_HEIGHT,
 } from './theme.js';
 import {
   cellCenterX, cellCenterY, gridOriginX, gridOriginY,
   canvasLogicalWidth, canvasLogicalHeight, gridW, gridH,
-  gridPadding, cellSize, updateCellSize,
+  gridPadding, cellSize, updateCellSize, gridCols, gridRows,
 } from './layout.js';
-import { interpolateY, interpolateX } from './animation-queue.js';
+import { interpolateY, interpolateX, pushBoardOffsetY } from './animation-queue.js';
 import type { GameStats } from '../../game/stats.js';
-
-const HUD_BOTTOM_HEIGHT = 80;
 
 // Computed each draw call so it stays proportional after a resize.
 function discR(): number { return cellSize() / 2 - Math.max(3, cellSize() * 0.07); }
@@ -80,11 +77,13 @@ export class Renderer {
     this.drawBackground();
     if (state.phase === GamePhase.Menu) return; // DOM overlay owns the screen entirely
     this.drawGrid(state.cursorCol);
-    this.drawStaticDiscs(board, animIds);
+    this.drawStaticDiscs(board, animations, animIds);
     this.drawAnimatedDiscs(animations);
     this.drawScorePopups(scorePopups);
     this.drawScoreIndicators(scoreIndicators);
-    this.drawGhost(state.cursorCol, state.currentDisc, board);
+    if (state.phase === GamePhase.WaitingForDrop) {
+      this.drawGhost(state.cursorCol, state.currentDisc, board);
+    }
     this.drawHUD(state, displayScore, initialTurnsPerLevel);
 
     if (state.phase === GamePhase.GameOver) {
@@ -107,8 +106,8 @@ export class Renderer {
     ctx.fillStyle = COLOR_COL_HOVER;
     ctx.fillRect(ox + cursorCol * cs, oy, cs, gridH());
 
-    for (let r = 0; r < GRID_ROWS; r++) {
-      for (let c = 0; c < GRID_COLS; c++) {
+    for (let r = 0; r < gridRows(); r++) {
+      for (let c = 0; c < gridCols(); c++) {
         ctx.fillStyle = COLOR_GRID_CELL;
         ctx.beginPath();
         ctx.roundRect(ox + c * cs + 2, oy + r * cs + 2, cs - 4, cs - 4, 6);
@@ -118,13 +117,13 @@ export class Renderer {
 
     ctx.strokeStyle = COLOR_GRID_LINE;
     ctx.lineWidth = 1;
-    for (let c = 0; c <= GRID_COLS; c++) {
+    for (let c = 0; c <= gridCols(); c++) {
       ctx.beginPath();
       ctx.moveTo(ox + c * cs, oy);
       ctx.lineTo(ox + c * cs, oy + gridH());
       ctx.stroke();
     }
-    for (let r = 0; r <= GRID_ROWS; r++) {
+    for (let r = 0; r <= gridRows(); r++) {
       ctx.beginPath();
       ctx.moveTo(ox, oy + r * cs);
       ctx.lineTo(ox + gridW(), oy + r * cs);
@@ -132,12 +131,13 @@ export class Renderer {
     }
   }
 
-  private drawStaticDiscs(board: Board, animIds: Set<number>): void {
-    for (let r = 0; r < GRID_ROWS; r++) {
-      for (let c = 0; c < GRID_COLS; c++) {
+  private drawStaticDiscs(board: Board, animations: readonly RichDiscAnimation[], animIds: Set<number>): void {
+    const offsetY = pushBoardOffsetY(animations);
+    for (let r = 0; r < board.length; r++) {
+      for (let c = 0; c < board[r]!.length; c++) {
         const disc = board[r]![c];
         if (!disc || animIds.has(disc.id)) continue;
-        this.drawDisc(disc, cellCenterX(c), cellCenterY(r), discR(), 1, 1);
+        this.drawDisc(disc, cellCenterX(c), cellCenterY(r) + offsetY, discR(), 1, 1);
       }
     }
   }
@@ -194,7 +194,7 @@ export class Renderer {
     // Reproduce the same bottom-up scan as landingRow() to show where the
     // current disc would actually land if the player drops here.
     let landRow = -1;
-    for (let r = GRID_ROWS - 1; r >= 0; r--) {
+    for (let r = board.length - 1; r >= 0; r--) {
       if (board[r]![cursorCol] === null) { landRow = r; break; }
     }
     if (landRow < 0) return; // column full — no ghost
@@ -225,7 +225,7 @@ export class Renderer {
     ctx.font = 'bold 24px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(String(displayScore), lw / 2, HUD_TOP_HEIGHT * 0.25);
+    ctx.fillText(displayScore.toLocaleString('en-US'), lw / 2, HUD_TOP_HEIGHT * 0.25);
 
     // Turn pips — one circle per turn in the current level, filled while unused.
     // A push happens the instant these run out, so this line doubles as the
@@ -315,8 +315,8 @@ export class Renderer {
 
     ctx.font = '14px system-ui, sans-serif';
     ctx.fillStyle = COLOR_TEXT_DIM;
-    ctx.fillText(`High ${stats.highScore}   •   Longest chain ${stats.longestStreak}`, lw / 2, lh / 2 + 8);
-    ctx.fillText(`Average ${stats.averageScore} over ${stats.gamesPlayed} game${stats.gamesPlayed === 1 ? '' : 's'}`, lw / 2, lh / 2 + 30);
+    ctx.fillText(`High ${stats.highScore.toLocaleString('en-US')}   •   Longest chain ${stats.longestStreak.toLocaleString('en-US')}`, lw / 2, lh / 2 + 8);
+    ctx.fillText(`Average ${stats.averageScore.toLocaleString('en-US')} over ${stats.gamesPlayed.toLocaleString('en-US')} game${stats.gamesPlayed === 1 ? '' : 's'}`, lw / 2, lh / 2 + 30);
 
     const restartHint = isTouchDevice() ? 'Tap to restart' : 'Press R to restart';
     ctx.fillText(restartHint, lw / 2, lh / 2 + 66);

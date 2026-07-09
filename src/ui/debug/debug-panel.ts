@@ -6,6 +6,8 @@ import type { GameState } from '../../game/state.js';
 import { StepKind } from '../../game/events.js';
 import { buildDebugReport } from './debug-report.js';
 
+export const MAX_TURN_HISTORY = 50;
+
 function snapshot<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
@@ -37,6 +39,7 @@ interface BoardGridOptions {
 function makeBoardGrid(board: Board, options: BoardGridOptions = {}): HTMLElement {
   const grid = document.createElement('div');
   grid.className = options.compact ? 'debug-grid debug-grid--compact' : 'debug-grid';
+  grid.style.gridTemplateColumns = `repeat(${board[0]?.length ?? 0}, 1fr)`;
   for (let row = 0; row < board.length; row++) {
     for (let col = 0; col < board[row]!.length; col++) {
       const cell = document.createElement('div');
@@ -92,11 +95,27 @@ function stepText(result: TurnResult): string[] {
   });
 }
 
+export function snapshotTurnHistory(
+  turnHistory: readonly TurnResult[],
+  result: TurnResult,
+): { turnHistory: TurnResult[]; truncatedTurns: number } {
+  const nextHistory = [...turnHistory, snapshot(result)];
+  if (nextHistory.length <= MAX_TURN_HISTORY) {
+    return { turnHistory: nextHistory, truncatedTurns: 0 };
+  }
+
+  return {
+    turnHistory: nextHistory.slice(nextHistory.length - MAX_TURN_HISTORY),
+    truncatedTurns: nextHistory.length - MAX_TURN_HISTORY,
+  };
+}
+
 export class DebugPanel {
   private readonly panel: HTMLElement;
   private readonly content: HTMLElement;
   private lastResult: TurnResult | null = null;
-  private readonly turnHistory: TurnResult[] = [];
+  private turnHistory: TurnResult[] = [];
+  private truncatedTurns = 0;
   private playbackFrame = -1;
   private issueNote = '';
   private readonly flags = new Map<string, string>();
@@ -140,7 +159,9 @@ export class DebugPanel {
 
   recordTurn(result: TurnResult): void {
     this.lastResult = result;
-    this.turnHistory.push(snapshot(result));
+    const history = snapshotTurnHistory(this.turnHistory, result);
+    this.turnHistory = history.turnHistory;
+    this.truncatedTurns += history.truncatedTurns;
     this.playbackFrame = -1;
     this.issueNote = '';
     this.flags.clear();
@@ -158,7 +179,8 @@ export class DebugPanel {
 
   reset(): void {
     this.lastResult = null;
-    this.turnHistory.length = 0;
+    this.turnHistory = [];
+    this.truncatedTurns = 0;
     this.playbackFrame = -1;
     this.issueNote = '';
     this.flags.clear();
@@ -190,7 +212,13 @@ export class DebugPanel {
   }
 
   private exportReport(): void {
-    const report = buildDebugReport(this.state, this.turnHistory, this.issueNote, this.flags);
+    const report = buildDebugReport(
+      this.state,
+      this.turnHistory,
+      this.truncatedTurns,
+      this.issueNote,
+      this.flags,
+    );
     const blob = new Blob([`${JSON.stringify(report, null, 2)}\n`], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -239,7 +267,7 @@ export class DebugPanel {
     const reportHeading = this.heading('Issue report');
     const help = document.createElement('p');
     help.className = 'debug-muted';
-    help.textContent = 'Select FLAG on an event or click any board cell that looks wrong. The export includes the complete turn history for this game.';
+    help.textContent = 'Select FLAG on an event or click any board cell that looks wrong. The export includes the most recent 50 turns and says how many earlier ones were omitted.';
     const note = document.createElement('textarea');
     note.value = this.issueNote;
     note.rows = 3;
@@ -249,7 +277,7 @@ export class DebugPanel {
     const actions = document.createElement('div');
     actions.className = 'debug-report-actions';
     const count = document.createElement('span');
-    count.textContent = `${this.turnHistory.length} turn${this.turnHistory.length === 1 ? '' : 's'} · ${this.flags.size} flagged`;
+    count.textContent = `${this.turnHistory.length} turns${this.truncatedTurns ? ` (${this.truncatedTurns} earlier omitted)` : ''} · ${this.flags.size} flagged`;
     const exportButton = document.createElement('button');
     exportButton.type = 'button';
     exportButton.textContent = 'EXPORT JSON';

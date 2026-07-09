@@ -15,7 +15,9 @@ import { CLASSIC_MODE } from './modes/index.js';
 // A disc clears according to the mode's isClearable predicate (for Classic:
 // its value equals the contiguous horizontal or vertical run containing it).
 // Gaps separate runs; remote discs do not keep an isolated 1 alive.
-// The `seen` set prevents duplicates when a disc qualifies on both row and column.
+// The scan is a single row-major pass over every (row, col) exactly once, so a
+// disc qualifying via both its row-run and its column-run still produces at
+// most one push into `result` — there is no duplicate source to guard against.
 export interface ClearCheck {
   pos: GridPos;
   discId: number;
@@ -37,11 +39,8 @@ export interface PhysicsTrace {
 }
 
 function inspectClears(board: Board, mode: GameModeConfig): { clears: GridPos[]; checks: ClearCheck[] } {
-  const seen = new Set<string>();
   const result: GridPos[] = [];
   const checks: ClearCheck[] = [];
-
-  const key = (r: number, c: number) => `${r},${c}`;
 
   for (let row = 0; row < board.length; row++) {
     for (let col = 0; col < board[row]!.length; col++) {
@@ -59,8 +58,7 @@ function inspectClears(board: Board, mode: GameModeConfig): { clears: GridPos[];
           rowCount, colCount, clearsByRow, clearsByCol,
         });
         if (!mode.isClearable(board, row, col, disc)) continue;
-        const k = key(row, col);
-        if (!seen.has(k)) { seen.add(k); result.push({ row, col }); }
+        result.push({ row, col });
       }
     }
   }
@@ -94,6 +92,17 @@ export function pointsForChain(
 // This is shared by normal drops and row pushes: a push changes every column's
 // disc count, so leaving it unresolved makes an eligible disc clear during the
 // next, potentially unrelated, drop.
+//
+// Steps/frames invariant (relied on by the UI to map playback position to
+// trace.frames): every PhysicsStep produced across a turn, except Bonus, pairs
+// with exactly one trace.frames entry. Drop, Clear, and Push steps always push
+// a frame unconditionally right alongside them (Drop and Push happen outside
+// this function, in computeDropSteps and the engine's push handling, but the
+// same rule applies there). Reveal and Fall steps are each pushed under the
+// same `length > 0` guard as their frame below, so the step and its frame
+// either both fire or neither does. Bonus steps — the board-clear bonus here
+// and the engine's level bonus — never emit a frame, since a bonus doesn't
+// change the board and so has nothing new to render.
 function resolveClearSteps(scratch: Board, mode: GameModeConfig, trace?: PhysicsTrace): PhysicsStep[] {
   const steps: PhysicsStep[] = [];
   let chainLevel = 0;

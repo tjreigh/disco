@@ -1,4 +1,3 @@
-import { GRID_COLS } from '../ui/rendering/theme.js';
 import { pixelToCol } from '../ui/rendering/layout.js';
 
 export type InputIntent =
@@ -45,16 +44,22 @@ export class InputHandler {
     }, sig);
 
     document.addEventListener('keydown', (e: KeyboardEvent) => {
+      // Game keys must not fire while the user is interacting with a focusable
+      // control (e.g. the debug panel's textarea or its keyboard-focusable flag
+      // cells) — only dispatch when focus is on a non-interactive element such
+      // as document.body or the canvas (both default to tabIndex -1).
+      if (e.target instanceof HTMLElement && (e.target.isContentEditable || e.target.tabIndex >= 0)) return;
+
       switch (e.key) {
         case 'ArrowLeft':
         case 'h':
           e.preventDefault();
-          this.emit({ kind: 'move', col: Math.max(0, this.getCursorCol() - 1) });
+          this.emit({ kind: 'move', col: this.getCursorCol() - 1 });
           break;
         case 'ArrowRight':
         case 'l':
           e.preventDefault();
-          this.emit({ kind: 'move', col: Math.min(GRID_COLS - 1, this.getCursorCol() + 1) });
+          this.emit({ kind: 'move', col: this.getCursorCol() + 1 });
           break;
         case 'ArrowDown':
         case ' ':

@@ -1,4 +1,4 @@
-export const enum DiscKind {
+export enum DiscKind {
   Numbered = 'numbered',
   SingleCracked = 'single-cracked',
   DoubleCracked = 'double-cracked',

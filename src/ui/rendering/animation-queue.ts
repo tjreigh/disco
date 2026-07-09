@@ -3,8 +3,7 @@ import { StepKind } from '../../game/events.js';
 import type { Disc, GridPos } from '../../game/model.js';
 import type { RichDiscAnimation, ScoreIndicator, ScorePopup } from './animation-types.js';
 import { AnimPhase } from './animation-types.js';
-import { GRID_ROWS } from './theme.js';
-import { cellCenterY, cellCenterX } from './layout.js';
+import { cellCenterY, cellCenterX, gridRows } from './layout.js';
 
 const DROP_MS_PER_ROW = 60;
 const FLASH_MS = 280;
@@ -193,8 +192,8 @@ export class AnimationQueue {
 
       case StepKind.Push: {
         // Animate each new disc sliding up from one row below the grid.
-        const fromY = cellCenterY(GRID_ROWS);     // one cell below the bottom row
-        const toY   = cellCenterY(GRID_ROWS - 1); // bottom row
+        const fromY = cellCenterY(gridRows());     // one cell below the bottom row
+        const toY   = cellCenterY(gridRows() - 1); // bottom row
         for (let c = 0; c < step.newRow.length; c++) {
           const disc = step.newRow[c];
           if (!disc) continue;
@@ -254,6 +253,13 @@ export function tickScoreIndicators(
 export function interpolateY(anim: RichDiscAnimation): number {
   const t = easeOutCubic(anim.progress);
   return anim.fromY + (anim.toY - anim.fromY) * t;
+}
+
+// During a Push step the whole settled board must rise in lockstep with the
+// sliding new row; this returns the shared Y offset (0 when no push is active).
+export function pushBoardOffsetY(anims: readonly RichDiscAnimation[]): number {
+  const push = anims.find(a => a.phase === AnimPhase.Pushing);
+  return push ? interpolateY(push) - push.fromY : 0;
 }
 
 // X position doesn't interpolate — discs always stay in their column.

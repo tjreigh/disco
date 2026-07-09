@@ -1,6 +1,6 @@
 import type { Disc, GridPos } from './model.js';
 
-export const enum StepKind {
+export enum StepKind {
   Drop = 'drop',
   Clear = 'clear',
   Fall = 'fall',

@@ -1,20 +1,37 @@
-import { MAX_CELL_SIZE, MIN_CELL_SIZE, HUD_TOP_HEIGHT, HUD_BOTTOM_HEIGHT, GRID_COLS, GRID_ROWS } from './theme.js';
+import { MAX_CELL_SIZE, MIN_CELL_SIZE, HUD_TOP_HEIGHT, HUD_BOTTOM_HEIGHT } from './theme.js';
 
 // Vertical gap above and below the grid within the canvas (fixed — only
 // horizontal padding is dynamic).
 const GRID_PAD_V = 8;
+export const DEFAULT_BOARD_COLS = 7;
+export const DEFAULT_BOARD_ROWS = 7;
 
 // Module-level cell size, updated by updateCellSize() on every resize.
 // All geometry functions read from this so a single resize call propagates everywhere.
 let _cellSize = MAX_CELL_SIZE;
+let _gridCols = DEFAULT_BOARD_COLS;
+let _gridRows = DEFAULT_BOARD_ROWS;
+
+export function setGridSize(cols: number, rows: number): void {
+  _gridCols = Math.max(1, Math.floor(cols));
+  _gridRows = Math.max(1, Math.floor(rows));
+}
+
+export function gridCols(): number {
+  return _gridCols;
+}
+
+export function gridRows(): number {
+  return _gridRows;
+}
 
 // Recomputes the cell size to fit the current viewport. Should be called at
 // startup and on every window resize before the canvas dimensions are recalculated.
 export function updateCellSize(): void {
   const availW = window.innerWidth;
   const availH = window.innerHeight - HUD_TOP_HEIGHT - HUD_BOTTOM_HEIGHT - GRID_PAD_V * 2;
-  const byWidth  = Math.floor(availW / GRID_COLS);
-  const byHeight = Math.floor(availH / GRID_ROWS);
+  const byWidth  = Math.floor(availW / gridCols());
+  const byHeight = Math.floor(availH / gridRows());
   _cellSize = Math.max(MIN_CELL_SIZE, Math.min(MAX_CELL_SIZE, byWidth, byHeight));
 }
 
@@ -23,11 +40,11 @@ export function cellSize(): number { return _cellSize; }
 // Centers the grid horizontally — uses whatever space the viewport leaves after
 // fitting the cells. At least 4px so discs don't clip the canvas edge.
 export function gridPadding(): number {
-  return Math.max(4, Math.floor((window.innerWidth - _cellSize * GRID_COLS) / 2));
+  return Math.max(4, Math.floor((window.innerWidth - _cellSize * gridCols()) / 2));
 }
 
-export function gridW(): number { return _cellSize * GRID_COLS; }
-export function gridH(): number { return _cellSize * GRID_ROWS; }
+export function gridW(): number { return _cellSize * gridCols(); }
+export function gridH(): number { return _cellSize * gridRows(); }
 
 export function gridOriginX(): number { return gridPadding(); }
 export function gridOriginY(): number { return HUD_TOP_HEIGHT + GRID_PAD_V; }
@@ -59,7 +76,7 @@ export function pixelToCol(canvasRect: DOMRect, clientX: number): number | null 
   const renderedGridW = canvasRect.width * (gridW() / canvasLogicalWidth());
   const renderedOriginX = canvasRect.width * (gridOriginX() / canvasLogicalWidth());
   const x = clientX - canvasRect.left - renderedOriginX;
-  const renderedCell = renderedGridW / GRID_COLS;
+  const renderedCell = renderedGridW / gridCols();
   const col = Math.floor(x / renderedCell);
-  return col >= 0 && col < GRID_COLS ? col : null;
+  return col >= 0 && col < gridCols() ? col : null;
 }

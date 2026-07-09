@@ -2,6 +2,7 @@
   "name": "disco",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "build": "tsc && cp index.html public/index.html",
     "watch": "tsc --watch",
@@ -9,7 +10,8 @@
     "dev": "tsc --watch & npx --yes serve public -l 3000",
     "test": "vitest run",
     "test:engine": "vitest run src/test/game/engine.test.ts",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.test.json"
   },
   "devDependencies": {
     "typescript": "^5.4.0",

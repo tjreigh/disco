@@ -4,7 +4,7 @@ import type { GameState } from './state.js';
 import { GamePhase } from './state.js';
 import type { PhysicsStep } from './events.js';
 import { StepKind } from './events.js';
-import { deepCloneBoard, isColumnFull, makeEmptyBoard } from './board.js';
+import { deepCloneBoard, isBoardFull, isColumnFull, makeEmptyBoard } from './board.js';
 import { createDiscFactories, DiscFactory, DiscQueue } from './disc.js';
 import { computeClearSteps, computeDropSteps, computePushStep, PhysicsTrace } from './physics.js';
 import { CLASSIC_MODE } from './modes/index.js';
@@ -24,6 +24,12 @@ export interface TurnResult {
   trace: PhysicsTrace;
 }
 
+/**
+ * board/score/dropCount are test affordances for constructing an engine in a
+ * specific mid-game shape — not a resume API. level and turnsRemaining are
+ * deliberately not accepted here: an engine always starts at level 1, and the
+ * turn budget is derived from the mode, not injected.
+ */
 export interface GameEngineOptions {
   mode?: GameModeConfig;
   /** Reproduce built-in disc generation with a known unsigned 32-bit seed. */
@@ -64,7 +70,8 @@ export class GameEngine {
     const dropCount = options.dropCount ?? 0;
     this.state = {
       generationSeed: seed,
-      phase: GamePhase.WaitingForDrop,
+      generationSource: options.discFactory || options.crackedDiscFactory ? 'injected' : 'seeded',
+      phase: isBoardFull(initialBoard) ? GamePhase.GameOver : GamePhase.WaitingForDrop,
       board: initialBoard,
       currentDisc: this.queue.peek(),
       nextDisc: this.queue.peekNext(),
@@ -78,6 +85,7 @@ export class GameEngine {
   }
 
   moveCursor(col: number): void {
+    if (this.state.phase === GamePhase.GameOver) return;
     if (!Number.isInteger(col)) return;
     this.state.cursorCol = Math.max(0, Math.min(this.state.board[0]!.length - 1, col));
   }
@@ -134,11 +142,20 @@ export class GameEngine {
     );
     this.state.score += scoreAwarded;
 
-    // Only a push shoving a row-0 disc off the board ends the game — resting in
-    // row 0 through normal stacking is a valid, non-terminal state. mode.isGameOver
-    // is already applied at the correct point, inside computePushStep, before the
-    // shift; its result flows in here via pushOverflow.
-    const gameOver = pushOverflow;
+    // Two terminal conditions:
+    // 1. A push shoving a row-0 disc off the board — resting in row 0 through
+    //    normal stacking is a valid, non-terminal state. mode.isGameOver is
+    //    already applied at the correct point, inside computePushStep, before
+    //    the shift; its result flows in here via pushOverflow.
+    // 2. A fully-occupied board after this turn's resolution. Turn resolution
+    //    loops until nothing is clearable, so a board that is still completely
+    //    full at that fixed point can never change again on its own: every
+    //    column rejects a drop (no legal move → no turn consumption → no push),
+    //    so the state is permanently stuck. This check runs after push+clear
+    //    resolution above, so a board that momentarily fills mid-turn and then
+    //    clears is NOT terminal, and a level bonus awarded on a level-completing
+    //    turn (pushed into `steps` above) still counts — both intended.
+    const gameOver = pushOverflow || isBoardFull(this.state.board);
     this.state.phase = gameOver ? GamePhase.GameOver : GamePhase.WaitingForDrop;
 
     // Board and score carry over unchanged into the new level. Skipped on game
@@ -175,6 +192,7 @@ export class GameEngine {
     this.queue = new DiscQueue(factories.discFactory, 1, board);
     this.crackedDiscFactory = factories.crackedDiscFactory;
     this.state.generationSeed = seed;
+    this.state.generationSource = 'seeded';
     this.resetState(board);
   }
 
@@ -185,6 +203,7 @@ export class GameEngine {
   restart(): void {
     const seed = createGameSeed();
     this.state.generationSeed = seed;
+    this.state.generationSource = this.customDiscFactory || this.customCrackedDiscFactory ? 'injected' : 'seeded';
     const factories = this.createSeededFactories(seed);
     const board = makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
     this.state.board = board;

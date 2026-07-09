@@ -34,9 +34,9 @@ function randomValue(spawn: DiscSpawnConfig, random: RandomSource = Math.random)
   return spawn.valueMin + Math.floor(random() * (spawn.valueMax - spawn.valueMin + 1));
 }
 
-export function makeRandomDisc(spawn: DiscSpawnConfig = CLASSIC_SPAWN): Disc {
-  const value = randomValue(spawn);
-  const r = Math.random();
+export function makeRandomDisc(spawn: DiscSpawnConfig = CLASSIC_SPAWN, random: RandomSource = Math.random): Disc {
+  const value = randomValue(spawn, random);
+  const r = random();
   const kind = r < spawn.probNumbered ? DiscKind.Numbered : DiscKind.DoubleCracked;
   return makeDisc(value, kind);
 }

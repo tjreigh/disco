@@ -79,6 +79,11 @@ export function isColumnFull(board: Board, col: number): boolean {
   return board[0]![col] !== null;
 }
 
+/** True when every column has a disc in row 0 (the board has no legal drop left). */
+export function isBoardFull(board: Board): boolean {
+  return board[0]!.every(cell => cell !== null);
+}
+
 /** Compact each column downward in-place. Returns a FallStep describing every disc that moved. */
 export function applyGravity(board: Board): FallStep {
   const moves: FallStep['moves'] = [];

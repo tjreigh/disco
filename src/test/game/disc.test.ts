@@ -28,6 +28,31 @@ describe('makeRandomDisc', () => {
     expect(factory(2, board).kind).toBe(DiscKind.Numbered);
     expect(factory(2, board).kind).toBe(DiscKind.DoubleCracked);
   });
+
+  // #12: makeRandomDisc used to roll Math.random() directly, bypassing any
+  // injected RandomSource — a seeding trap for anything trying to reproduce a
+  // sequence involving it.
+  describe('with an explicit RandomSource', () => {
+    test('the same seed produces identical discs across independent calls', () => {
+      const first = makeRandomDisc(undefined, createSeededRandom(42));
+      const second = makeRandomDisc(undefined, createSeededRandom(42));
+      expect(first.value).toBe(second.value);
+      expect(first.kind).toBe(second.kind);
+    });
+
+    test('both the value and kind rolls consume the seeded source, not Math.random', () => {
+      const randomSpy = vi.spyOn(Math, 'random');
+      makeRandomDisc(undefined, createSeededRandom(1));
+      expect(randomSpy).not.toHaveBeenCalled();
+    });
+
+    test('default argument still falls back to Math.random', () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0);
+      const disc = makeRandomDisc();
+      expect(disc.value).toBe(1); // valueMin(1) + floor(0 * 7)
+      expect(disc.kind).toBe(DiscKind.Numbered); // 0 < probNumbered(0.70)
+    });
+  });
 });
 
 describe('PlayableDiscGenerator', () => {

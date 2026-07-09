@@ -1,6 +1,6 @@
 import type { Disc } from '../../game/model.js';
 
-export const enum AnimPhase {
+export enum AnimPhase {
   Dropping = 'dropping',
   Flashing = 'flashing',
   Clearing = 'clearing',
