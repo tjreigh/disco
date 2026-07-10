@@ -14,6 +14,8 @@ export interface DiscAnimation {
   phase: AnimPhase;
   startTime: number;
   duration: number;
+  fromX: number;
+  toX: number;
   fromY: number;
   toY: number;
   alpha: number;
@@ -23,7 +25,6 @@ export interface DiscAnimation {
 
 export interface RichDiscAnimation extends DiscAnimation {
   disc: Disc;
-  col: number;
 }
 
 export interface ScorePopup {

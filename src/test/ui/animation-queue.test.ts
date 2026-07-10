@@ -1,21 +1,28 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import { AnimationQueue, pushBoardOffsetY } from '../../ui/rendering/animation-queue.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AnimationQueue, interpolateX, pushBoardOffsetY } from '../../ui/rendering/animation-queue.js';
 import { AnimPhase } from '../../ui/rendering/animation-types.js';
 import type { RichDiscAnimation } from '../../ui/rendering/animation-types.js';
-import { cellCenterY, gridCols, gridRows, setGridSize } from '../../ui/rendering/layout.js';
+import { cellCenterX, cellCenterY, gridCols, gridRows, setGridSize } from '../../ui/rendering/layout.js';
 import { makeDisc } from '../../game/disc.js';
 import { DiscKind } from '../../game/model.js';
 import type { DropStep, ClearStep, FallStep, PushStep, BonusStep } from '../../game/events.js';
 import { StepKind } from '../../game/events.js';
 
-// Mirrors the module's private easeOutCubic — pushBoardOffsetY isn't exported
-// so the module doesn't provide a way to derive the expected mid-flight value
-// other than replicating the documented easing formula independently.
+// Mirrors the module's private easeOutCubic so expected mid-flight values are
+// derived independently of the helpers under test.
 function easeOutCubic(t: number): number {
   return 1 - (1 - t) ** 3;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+beforeEach(() => {
+  vi.stubGlobal('window', { innerWidth: 420, innerHeight: 800 });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function makeQueue(
   steps: Array<DropStep | ClearStep | FallStep | PushStep | BonusStep>,
@@ -38,10 +45,11 @@ function fakeAnim(phase: AnimPhase): RichDiscAnimation {
   return {
     discId: 1,
     disc: makeDisc(1, DiscKind.Numbered),
-    col: 0,
     phase,
     startTime: 0,
     duration: 100,
+    fromX: 0,
+    toX: 0,
     fromY: 0,
     toY: 100,
     alpha: 1,
@@ -150,6 +158,36 @@ describe('AnimationQueue sequencing', () => {
     queue.tick(1_120);
     expect(queue.isDone()).toBe(true);
     expect(completeCount()).toBe(1);
+  });
+
+  it('stores explicit X endpoints for vertical Classic movement', () => {
+    const fallDisc = makeDisc(2, DiscKind.Numbered);
+    const fallStep: FallStep = {
+      kind: StepKind.Fall,
+      moves: [{ from: { row: 0, col: 3 }, to: { row: 2, col: 3 }, disc: fallDisc }],
+    };
+    const { queue } = makeQueue([fallStep]);
+
+    queue.tick(0);
+
+    const anim = queue.getActiveAnimations()[0]!;
+    expect(anim.fromX).toBe(cellCenterX(3));
+    expect(anim.toX).toBe(cellCenterX(3));
+    expect(anim.fromY).toBe(cellCenterY(0));
+    expect(anim.toY).toBe(cellCenterY(2));
+  });
+});
+
+// ─── 2D interpolation ───────────────────────────────────────────────────────
+
+describe('interpolateX', () => {
+  it('interpolates between explicit X endpoints', () => {
+    const anim = fakeAnim(AnimPhase.Falling);
+    anim.fromX = 10;
+    anim.toX = 30;
+    anim.progress = 0.5;
+
+    expect(interpolateX(anim)).toBeCloseTo(10 + (30 - 10) * easeOutCubic(0.5), 5);
   });
 });
 

@@ -31,7 +31,9 @@ export function applyStepToVisualBoard(board: Board, step: PhysicsStep): void {
     case StepKind.Fall:
       for (const move of step.moves) {
         board[move.to.row]![move.to.col] = board[move.from.row]![move.from.col]!;
-        if (move.from.row !== move.to.row) board[move.from.row]![move.from.col] = null;
+        if (move.from.row !== move.to.row || move.from.col !== move.to.col) {
+          board[move.from.row]![move.from.col] = null;
+        }
       }
       break;
     case StepKind.Push:

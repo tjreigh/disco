@@ -6,8 +6,27 @@ import type { TurnResult } from '../../game/engine.js';
 import { GamePhase } from '../../game/state.js';
 import { deepCloneBoard } from '../../game/board.js';
 import { StepKind } from '../../game/events.js';
+import { makeDisc } from '../../game/disc.js';
+import { DiscKind } from '../../game/model.js';
 
 describe('visual board playback', () => {
+  test('clears the source cell for same-row movement', () => {
+    const disc = makeDisc(4, DiscKind.Numbered);
+    const board = [
+      [null, disc, null],
+      [null, null, null],
+      [null, null, null],
+    ];
+
+    applyStepToVisualBoard(board, {
+      kind: StepKind.Fall,
+      moves: [{ from: { row: 0, col: 1 }, to: { row: 0, col: 2 }, disc }],
+    });
+
+    expect(board[0]![1]).toBeNull();
+    expect(board[0]![2]).toBe(disc);
+  });
+
   test('replays step logs back to the engine board across several seeded runs', () => {
     const seenKinds = new Set<StepKind>();
     const seeds = [1, 7, 13, 21, 34, 55];

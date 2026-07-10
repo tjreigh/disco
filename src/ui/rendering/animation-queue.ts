@@ -23,11 +23,21 @@ function easeOutCubic(t: number): number {
 }
 
 function makeAnim(
-  disc: Disc, col: number, phase: AnimPhase,
+  disc: Disc, phase: AnimPhase,
   now: number, duration: number,
-  fromY: number, toY: number,
+  fromX: number, fromY: number,
+  toX: number, toY: number,
 ): RichDiscAnimation {
-  return { discId: disc.id, disc, col, phase, startTime: now, duration, fromY, toY, alpha: 1, scale: 1, progress: 0 };
+  return {
+    discId: disc.id, disc, phase,
+    startTime: now, duration,
+    fromX, toX, fromY, toY,
+    alpha: 1, scale: 1, progress: 0,
+  };
+}
+
+function gridDistance(from: GridPos, to: GridPos): number {
+  return Math.max(Math.abs(to.row - from.row), Math.abs(to.col - from.col));
 }
 
 // Sequences PhysicsSteps one at a time, converting each into a set of
@@ -144,9 +154,10 @@ export class AnimationQueue {
         // toLandRow + 1: row 0 is a full cell below the start position (row -1),
         // so even landing on row 0 needs one row's worth of travel time.
         const duration = Math.max(120, DROP_MS_PER_ROW * (step.toLandRow + 1));
+        const x = cellCenterX(step.col);
         const fromY = cellCenterY(-1); // one cell above the grid
         const toY   = cellCenterY(step.toLandRow);
-        this.active.push(makeAnim(step.disc, step.col, AnimPhase.Dropping, now, duration, fromY, toY));
+        this.active.push(makeAnim(step.disc, AnimPhase.Dropping, now, duration, x, fromY, x, toY));
         break;
       }
 
@@ -156,8 +167,9 @@ export class AnimationQueue {
         for (let i = 0; i < step.cleared.length; i++) {
           const pos  = step.cleared[i]!;
           const disc = step.discs[i]!;
+          const x = cellCenterX(pos.col);
           const y = cellCenterY(pos.row);
-          const anim = makeAnim(disc, pos.col, AnimPhase.Flashing, now, FLASH_MS + CLEAR_MS, y, y);
+          const anim = makeAnim(disc, AnimPhase.Flashing, now, FLASH_MS + CLEAR_MS, x, y, x, y);
           this.active.push(anim);
         }
         break;
@@ -167,11 +179,12 @@ export class AnimationQueue {
         if (step.moves.length === 0) { this.advance(now); return; }
         for (const move of step.moves) {
           // Duration scales with distance so all falling discs arrive at the same velocity.
-          const rows     = move.to.row - move.from.row;
-          const duration = Math.max(80, FALL_MS_PER_ROW * rows);
+          const distance = gridDistance(move.from, move.to);
+          const duration = Math.max(80, FALL_MS_PER_ROW * distance);
           this.active.push(makeAnim(
-            move.disc, move.to.col, AnimPhase.Falling, now, duration,
-            cellCenterY(move.from.row), cellCenterY(move.to.row),
+            move.disc, AnimPhase.Falling, now, duration,
+            cellCenterX(move.from.col), cellCenterY(move.from.row),
+            cellCenterX(move.to.col), cellCenterY(move.to.row),
           ));
         }
         break;
@@ -182,10 +195,11 @@ export class AnimationQueue {
         for (let i = 0; i < step.positions.length; i++) {
           const pos  = step.positions[i]!;
           const disc = step.discs[i]!;
+          const x = cellCenterX(pos.col);
           const y = cellCenterY(pos.row);
           // disc.kind is already updated (physics ran eagerly), so the pulse
           // animation shows the disc in its new, revealed appearance.
-          this.active.push(makeAnim(disc, pos.col, AnimPhase.Revealing, now, REVEAL_MS, y, y));
+          this.active.push(makeAnim(disc, AnimPhase.Revealing, now, REVEAL_MS, x, y, x, y));
         }
         break;
       }
@@ -197,7 +211,8 @@ export class AnimationQueue {
         for (let c = 0; c < step.newRow.length; c++) {
           const disc = step.newRow[c];
           if (!disc) continue;
-          this.active.push(makeAnim(disc, c, AnimPhase.Pushing, now, PUSH_MS, fromY, toY));
+          const x = cellCenterX(c);
+          this.active.push(makeAnim(disc, AnimPhase.Pushing, now, PUSH_MS, x, fromY, x, toY));
         }
         break;
       }
@@ -270,9 +285,9 @@ export function pushBoardOffsetY(anims: readonly RichDiscAnimation[]): number {
   return push ? interpolateY(push) - push.fromY : 0;
 }
 
-// X position doesn't interpolate — discs always stay in their column.
 export function interpolateX(anim: RichDiscAnimation): number {
-  return cellCenterX(anim.col);
+  const t = easeOutCubic(anim.progress);
+  return anim.fromX + (anim.toX - anim.fromX) * t;
 }
 
 // Creates one floating "+N" popup per cleared position, all sharing the same
