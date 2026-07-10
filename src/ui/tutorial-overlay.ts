@@ -57,12 +57,12 @@ export class TutorialOverlay {
     this.root.classList.add('tutorial-overlay--visible');
   }
 
-  showComplete(definition: TutorialDefinition): void {
+  showComplete(definition: TutorialDefinition, modeName: string): void {
     this.clearCompleteTimer();
     this.complete = true;
     this.eyebrow.textContent = definition.title;
     this.title.textContent = 'Tutorial Complete';
-    this.prompt.textContent = 'You can keep playing from here in Classic mode.';
+    this.prompt.textContent = `You can keep playing from here in ${modeName} mode.`;
     this.retryButton.hidden = false;
     this.retryButton.textContent = 'KEEP PLAYING';
     this.exitButton.textContent = 'EXIT';

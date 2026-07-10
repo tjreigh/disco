@@ -25,7 +25,7 @@ import { recordCompletedGame, updateRecords } from '../game/stats.js';
 import { AccountStatsStore } from '../platform/account-stats-store.js';
 import { applyStepToVisualBoard } from './visual-board.js';
 import { setGridSize } from '../ui/rendering/layout.js';
-import { CLASSIC_TUTORIAL } from './tutorial.js';
+import { TUTORIALS } from './tutorial.js';
 import type { TutorialDefinition, TutorialStep } from './tutorial.js';
 import { isTutorialStepSuccessful } from './tutorial.js';
 import { TutorialOverlay } from '../ui/tutorial-overlay.js';
@@ -143,12 +143,13 @@ export class Game {
   }
 
   private startTutorial(mode: GameModeConfig): void {
-    if (mode.id !== CLASSIC_TUTORIAL.id) return;
+    const tutorial = TUTORIALS[mode.id];
+    if (!tutorial) return;
     this.mode = mode;
     this.stats = this.statsStore.loadStats(mode.id);
     setGridSize(mode.board.cols, mode.board.rows);
     this.renderer.resize();
-    this.activeTutorial = CLASSIC_TUTORIAL;
+    this.activeTutorial = tutorial;
     this.tutorialStepIndex = 0;
     this.longestStreakThisGame = 0;
     this.gameRecorded = true; // tutorials never count as completed games
@@ -439,6 +440,7 @@ export class Game {
       board: step.board,
       currentDisc: step.currentDisc,
       nextDisc: step.nextDisc,
+      ...(step.gravityAngleDeg !== undefined ? { gravityAngleDeg: step.gravityAngleDeg } : {}),
     });
     this.visualBoard = deepCloneBoard(step.board);
     this.displayedScore = this.state.score;
@@ -467,7 +469,7 @@ export class Game {
       this.stats = this.statsStore.loadStats(this.mode.id);
       this.displayedScore = this.state.score;
       this.state.phase = GamePhase.WaitingForDrop;
-      this.tutorialOverlay.showComplete(completedTutorial);
+      this.tutorialOverlay.showComplete(completedTutorial, this.mode.name);
       this.debug.refresh();
       return;
     }
