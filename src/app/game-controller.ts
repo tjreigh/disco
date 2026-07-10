@@ -477,8 +477,14 @@ export class Game {
     this.rafId = requestAnimationFrame(this.loop);
 
     if (!this.isPaused && this.animQueue) {
+      // tick() can synchronously fire the queue's onComplete callback for
+      // its final step — and onComplete calls setGameOver() when the turn
+      // that just finished animating ended the game, which itself nulls
+      // this.animQueue (see setGameOver). So by the time tick() returns,
+      // this.animQueue may already be null; optional-chain the isDone()
+      // check rather than assuming it's still the same queue.
       this.animQueue.tick(now);
-      if (this.animQueue.isDone()) this.animQueue = null;
+      if (this.animQueue?.isDone()) this.animQueue = null;
     }
     if (!this.isPaused) {
       this.scorePopups = tickScorePopups(this.scorePopups, now);
