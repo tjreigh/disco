@@ -172,6 +172,45 @@ describe('AccountStatsStore', () => {
     });
   });
 
+  test('promotes better local records on later sign-ins without reimporting totals', async () => {
+    const localByMode = new Map<string, GameStats>([
+      ['classic', stats({ highScore: 1500, longestStreak: 7, gamesPlayed: 10, totalScore: 5000, averageScore: 500 })],
+    ]);
+    const storage = makeMemoryStorage({ 'disco_imported_account_account-1': '1' });
+    const api = createApi({
+      remoteStats: {
+        classic: stats({ highScore: 1000, longestStreak: 5, gamesPlayed: 2, totalScore: 900, averageScore: 450 }),
+      },
+    });
+
+    const store = new AccountStatsStore(TEST_MODES, {
+      api,
+      storage,
+      loadCookieStats: modeId => cloneStats(localByMode.get(modeId) ?? stats()),
+      saveCookieStats: (modeId, value) => {
+        localByMode.set(modeId, cloneStats(value));
+      },
+    });
+
+    await store.ready;
+
+    expect(store.loadStats('classic')).toEqual({
+      highScore: 1500,
+      longestStreak: 7,
+      gamesPlayed: 2,
+      totalScore: 900,
+      averageScore: 450,
+    });
+    expect(api.putStats).toHaveBeenCalledTimes(1);
+    expect(api.putStats).toHaveBeenCalledWith('classic', {
+      highScore: 1500,
+      longestStreak: 7,
+      gamesPlayed: 2,
+      totalScore: 900,
+      averageScore: 450,
+    });
+  });
+
   test('falls back to guest cookie stats when the API is unavailable', async () => {
     const localClassic = stats({ highScore: 320, longestStreak: 2, gamesPlayed: 4, totalScore: 900, averageScore: 225 });
     const api = createApi({

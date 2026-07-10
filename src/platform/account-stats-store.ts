@@ -55,6 +55,18 @@ export function mergeLocalAndRemoteStats(local: GameStats, remote: GameStats): G
   };
 }
 
+function mergeLocalRecordsIntoRemoteStats(local: GameStats, remote: GameStats): GameStats {
+  return {
+    ...remote,
+    highScore: Math.max(local.highScore, remote.highScore),
+    longestStreak: Math.max(local.longestStreak, remote.longestStreak),
+  };
+}
+
+function hasBetterLocalRecords(local: GameStats, remote: GameStats): boolean {
+  return local.highScore > remote.highScore || local.longestStreak > remote.longestStreak;
+}
+
 function hasStats(stats: GameStats): boolean {
   return stats.highScore > 0 || stats.longestStreak > 0 || stats.gamesPlayed > 0 || stats.totalScore > 0;
 }
@@ -168,12 +180,13 @@ export class AccountStatsStore {
     for (const mode of this.modes) {
       const local = this.loadCookieStats(mode.id);
       const remote = remoteStats.get(mode.id) ?? emptyStats();
-      const next = shouldImport && hasStats(local)
+      const shouldImportLocalStats = shouldImport && hasStats(local);
+      const next = shouldImportLocalStats
         ? mergeLocalAndRemoteStats(local, remote)
-        : remote;
+        : mergeLocalRecordsIntoRemoteStats(local, remote);
       this.statsByMode.set(mode.id, next);
       this.saveCookieStats(mode.id, next);
-      if (shouldImport && hasStats(local)) {
+      if (shouldImportLocalStats || hasBetterLocalRecords(local, remote)) {
         await this.api.putStats(mode.id, next);
       }
     }
