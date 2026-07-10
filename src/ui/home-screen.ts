@@ -22,6 +22,7 @@ export class HomeScreen {
   onRequestRestart?: () => void;
   onRequestHome?: () => void;
   onRequestToggleSound?: () => void;
+  onRequestTutorial?: (mode: GameModeConfig) => void;
 
   constructor(
     private readonly modes: readonly GameModeConfig[],
@@ -165,9 +166,20 @@ export class HomeScreen {
 
     for (const mode of this.modes) {
       const stats = this.loadStats(mode.id);
-      const card = document.createElement('button');
-      card.type = 'button';
+      const card = document.createElement('div');
       card.className = 'home-mode-card';
+      card.tabIndex = 0;
+      card.role = 'button';
+      card.addEventListener('click', event => {
+        if (event.target instanceof HTMLElement && event.target.closest('.home-mode-action')) return;
+        this.onSelectMode(mode);
+      });
+      card.addEventListener('keydown', event => {
+        if (event.target !== card) return;
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        this.onSelectMode(mode);
+      });
 
       const name = document.createElement('strong');
       name.textContent = mode.name;
@@ -179,16 +191,27 @@ export class HomeScreen {
       best.className = 'home-mode-best';
       best.textContent = stats.gamesPlayed > 0 ? `Best ${stats.highScore}` : 'Not played yet';
 
-      card.append(name, tagline, best);
-      card.addEventListener('click', () => this.onSelectMode(mode));
+      const actions = document.createElement('div');
+      actions.className = 'home-mode-actions';
+
+      const playButton = document.createElement('button');
+      playButton.type = 'button';
+      playButton.className = 'home-mode-action home-mode-action--play';
+      playButton.textContent = 'PLAY';
+      playButton.addEventListener('click', () => this.onSelectMode(mode));
+
+      const tutorialButton = document.createElement('button');
+      tutorialButton.type = 'button';
+      tutorialButton.className = 'home-mode-action';
+      tutorialButton.textContent = 'TUTORIAL';
+      tutorialButton.addEventListener('click', event => {
+        event.stopPropagation();
+        this.onRequestTutorial?.(mode);
+      });
+
+      actions.append(playButton, tutorialButton);
+      card.append(name, tagline, best, actions);
       this.cardsContainer.append(card);
     }
-
-    // Cosmetic only — proves the list layout scales past one entry without
-    // inventing a second mode's mechanics.
-    const comingSoon = document.createElement('div');
-    comingSoon.className = 'home-mode-card home-mode-card--disabled';
-    comingSoon.textContent = 'More modes coming soon';
-    this.cardsContainer.append(comingSoon);
   }
 }

@@ -5,7 +5,7 @@ import { GamePhase } from '../game/state.js';
 import type { PhysicsStep } from '../game/events.js';
 import { StepKind } from '../game/events.js';
 import type { ScoreIndicator, ScorePopup } from '../ui/rendering/animation-types.js';
-import { makeEmptyBoard } from '../game/board.js';
+import { deepCloneBoard, makeEmptyBoard } from '../game/board.js';
 import { GameEngine } from '../game/engine.js';
 import { CLASSIC_MODE, GAME_MODES } from '../game/modes/index.js';
 import { DebugPanel } from '../ui/debug/debug-panel.js';
@@ -23,6 +23,10 @@ import { recordCompletedGame, updateRecords } from '../game/stats.js';
 import { AccountStatsStore } from '../platform/account-stats-store.js';
 import { applyStepToVisualBoard } from './visual-board.js';
 import { setGridSize } from '../ui/rendering/layout.js';
+import { CLASSIC_TUTORIAL } from './tutorial.js';
+import type { TutorialDefinition, TutorialStep } from './tutorial.js';
+import { isTutorialStepSuccessful } from './tutorial.js';
+import { TutorialOverlay } from '../ui/tutorial-overlay.js';
 
 interface LevelProgressDisplay {
   level: number;
@@ -39,6 +43,7 @@ export class Game {
   private audio: AudioManager;
   private debug: DebugPanel;
   private homeScreen: HomeScreen;
+  private tutorialOverlay: TutorialOverlay;
   private animQueue: AnimationQueue | null = null;
   private rafId = 0;
   // Tracks the board as it should look right now, advanced one physics step at a
@@ -60,6 +65,8 @@ export class Game {
   private displayedLevelProgress: LevelProgressDisplay;
   private isPaused = false;
   private pauseStartedAt = 0;
+  private activeTutorial: TutorialDefinition | null = null;
+  private tutorialStepIndex = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new Renderer(canvas);
@@ -70,6 +77,7 @@ export class Game {
     this.state.phase = GamePhase.Menu; // suppress gameplay until a mode is selected
     this.displayedLevelProgress = this.snapshotLevelProgress();
     this.debug    = new DebugPanel(this.state);
+    this.tutorialOverlay = new TutorialOverlay();
     this.visualBoard = makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
     this.statsStore = new AccountStatsStore(GAME_MODES);
     this.stats = this.statsStore.loadStats(this.mode.id);
@@ -87,6 +95,10 @@ export class Game {
     this.homeScreen.onRequestRestart = () => this.restart();
     this.homeScreen.onRequestHome = () => this.returnToMenu();
     this.homeScreen.onRequestToggleSound = () => this.toggleSound();
+    this.homeScreen.onRequestTutorial = mode => this.startTutorial(mode);
+    this.tutorialOverlay.onRetry = () => this.retryTutorialStep();
+    this.tutorialOverlay.onExit = () => this.returnToMenu();
+    this.tutorialOverlay.onContinue = () => this.tutorialOverlay.hide();
     this.homeScreen.setSoundEnabled(this.audio.isEnabled());
     this.unsubscribeStatsStore = this.statsStore.subscribe(() => this.handleStatsStoreUpdate());
     this.homeScreen.open();
@@ -108,6 +120,8 @@ export class Game {
   }
 
   private startGame(mode: GameModeConfig): void {
+    this.activeTutorial = null;
+    this.tutorialOverlay.hide();
     this.mode = mode;
     this.engine.reconfigure(mode); // mutates engine.state in place; never replaces it
     this.stats = this.statsStore.loadStats(mode.id);
@@ -125,9 +139,30 @@ export class Game {
     this.homeScreen.close();
   }
 
+  private startTutorial(mode: GameModeConfig): void {
+    if (mode.id !== CLASSIC_TUTORIAL.id) return;
+    this.mode = mode;
+    this.stats = this.statsStore.loadStats(mode.id);
+    setGridSize(mode.board.cols, mode.board.rows);
+    this.renderer.resize();
+    this.activeTutorial = CLASSIC_TUTORIAL;
+    this.tutorialStepIndex = 0;
+    this.longestStreakThisGame = 0;
+    this.gameRecorded = true; // tutorials never count as completed games
+    this.debug.reset();
+    this.isPaused = false;
+    this.scorePopups = [];
+    this.scoreIndicators = [];
+    this.animQueue = null;
+    this.loadTutorialStep();
+    this.homeScreen.close();
+  }
+
   private returnToMenu(): void {
     this.isPaused = false;
     this.homeScreen.closeGameMenu();
+    this.activeTutorial = null;
+    this.tutorialOverlay.hide();
     this.animQueue = null;
     this.scorePopups = [];
     this.scoreIndicators = [];
@@ -158,6 +193,11 @@ export class Game {
       this.engine.moveCursor(col);
     } else if (intent.kind === 'drop') {
       const col = Math.max(0, Math.min(lastCol, intent.col));
+      const tutorialStep = this.currentTutorialStep();
+      if (tutorialStep && !tutorialStep.allowedCols.includes(col)) {
+        this.engine.moveCursor(tutorialStep.allowedCols[0] ?? col);
+        return;
+      }
       this.state.cursorCol = col;
       this.handleDrop(col);
     }
@@ -183,11 +223,13 @@ export class Game {
       0,
     );
     this.longestStreakThisGame = Math.max(this.longestStreakThisGame, longestStreakThisTurn);
-    const recordsImproved = updateRecords(this.stats, this.state.score, this.longestStreakThisGame);
-    if (recordsImproved && !result.gameOver) this.statsStore.saveStats(this.mode.id, this.stats);
+    if (!this.activeTutorial) {
+      const recordsImproved = updateRecords(this.stats, this.state.score, this.longestStreakThisGame);
+      if (recordsImproved && !result.gameOver) this.statsStore.saveStats(this.mode.id, this.stats);
+    }
     this.visualBoard = result.boardBefore;
     this.setAnimatedLevelProgress(previousLevelProgress);
-    if (result.gameOver) this.recordGameEnd();
+    if (result.gameOver && !this.activeTutorial) this.recordGameEnd();
 
     // The engine has already completed the turn synchronously. The browser
     // temporarily overrides its final phase while replaying the returned steps.
@@ -210,6 +252,8 @@ export class Game {
         this.syncLevelProgressDisplay();
         if (result.gameOver) {
           this.setGameOver();
+        } else if (this.activeTutorial) {
+          this.completeTutorialTurn(result);
         } else {
           this.state.phase = GamePhase.WaitingForDrop;
           this.debug.refresh();
@@ -244,7 +288,7 @@ export class Game {
           now,
         ));
       }
-    } else if (step.kind === StepKind.Bonus) {
+    } else if (step.kind === StepKind.Bonus && !this.activeTutorial) {
       this.displayedScore += step.pointsAwarded;
       this.scoreIndicators.push(spawnScoreIndicator(
         step.bonusKind === 'level' ? 'LEVEL BONUS' : 'BOARD CLEAR',
@@ -266,6 +310,7 @@ export class Game {
   }
 
   private recordGameEnd(): void {
+    if (this.activeTutorial) return;
     if (!this.gameRecorded) {
       recordCompletedGame(this.stats, this.state.score);
       this.statsStore.recordCompletedGame(
@@ -290,6 +335,11 @@ export class Game {
     this.isPaused = false;
     this.homeScreen.closeGameMenu();
     this.animQueue = null;
+    if (this.activeTutorial) {
+      this.isPaused = false;
+      this.retryTutorialStep();
+      return;
+    }
     this.engine.restart();
     this.debug.reset();
     this.visualBoard = makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
@@ -299,6 +349,65 @@ export class Game {
     this.scoreIndicators = [];
     this.longestStreakThisGame = 0;
     this.gameRecorded = false;
+  }
+
+  private currentTutorialStep(): TutorialStep | null {
+    return this.activeTutorial?.steps[this.tutorialStepIndex] ?? null;
+  }
+
+  private retryTutorialStep(): void {
+    if (!this.activeTutorial) return;
+    this.homeScreen.closeGameMenu();
+    this.animQueue = null;
+    this.scorePopups = [];
+    this.scoreIndicators = [];
+    this.loadTutorialStep();
+  }
+
+  private loadTutorialStep(): void {
+    const tutorial = this.activeTutorial;
+    const step = this.currentTutorialStep();
+    if (!tutorial || !step) return;
+
+    this.engine.loadScriptedState({
+      mode: this.mode,
+      board: step.board,
+      currentDisc: step.currentDisc,
+      nextDisc: step.nextDisc,
+    });
+    this.visualBoard = deepCloneBoard(step.board);
+    this.displayedScore = this.state.score;
+    this.syncLevelProgressDisplay();
+    this.state.cursorCol = step.allowedCols[0] ?? this.state.cursorCol;
+    this.tutorialOverlay.show(tutorial, this.tutorialStepIndex);
+    this.debug.refresh();
+  }
+
+  private completeTutorialTurn(result: { accepted: boolean; steps: readonly PhysicsStep[] }): void {
+    if (!this.activeTutorial) return;
+    const step = this.currentTutorialStep();
+    if (!step || !isTutorialStepSuccessful(step, result)) {
+      this.loadTutorialStep();
+      return;
+    }
+
+    this.tutorialStepIndex++;
+    if (this.tutorialStepIndex >= this.activeTutorial.steps.length) {
+      const completedTutorial = this.activeTutorial;
+      this.engine.resumeSeededGeneration();
+      this.state.score = 0;
+      this.activeTutorial = null;
+      this.longestStreakThisGame = 0;
+      this.gameRecorded = false;
+      this.stats = this.statsStore.loadStats(this.mode.id);
+      this.displayedScore = this.state.score;
+      this.state.phase = GamePhase.WaitingForDrop;
+      this.tutorialOverlay.showComplete(completedTutorial);
+      this.debug.refresh();
+      return;
+    }
+
+    this.loadTutorialStep();
   }
 
   private openGameMenu(): void {
@@ -377,6 +486,7 @@ export class Game {
     }
 
     const anims = this.animQueue?.getActiveAnimations() ?? [];
+    const tutorialStep = this.currentTutorialStep();
     this.renderer.draw(
       this.state,
       this.visualBoard,
@@ -387,6 +497,7 @@ export class Game {
       this.scoreIndicators,
       this.mode.initialTurnsPerLevel,
       this.displayedLevelProgress,
+      tutorialStep ? { allowedCols: tutorialStep.allowedCols } : null,
     );
   }
 }

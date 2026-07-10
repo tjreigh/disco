@@ -505,4 +505,67 @@ describe('GameEngine', () => {
 
     expect(engine.state.cursorCol).toBe(before);
   });
+
+  test('loadScriptedState preserves the state object and installs scripted board and queue', () => {
+    const engine = new GameEngine({ seed: 1 });
+    const stateRef = engine.state;
+    const board = makeEmptyBoard();
+    const boardDisc = makeDisc(4, DiscKind.Numbered);
+    const current = makeDisc(3, DiscKind.Numbered);
+    const next = makeDisc(5, DiscKind.Numbered);
+    const tail = makeDisc(6, DiscKind.Numbered);
+    placeDisc(board, 6, 0, boardDisc);
+
+    engine.loadScriptedState({
+      mode: CLASSIC_MODE,
+      board,
+      currentDisc: current,
+      nextDisc: next,
+      queuedDiscs: [tail],
+      score: 12,
+      dropCount: 2,
+    });
+
+    expect(engine.state).toBe(stateRef);
+    expect(engine.state.generationSource).toBe('injected');
+    expect(engine.state.score).toBe(12);
+    expect(engine.state.dropCount).toBe(2);
+    expect(engine.state.board).not.toBe(board);
+    expect(engine.state.board[6]![0]).toEqual(boardDisc);
+    expect(engine.state.currentDisc).toEqual(current);
+    expect(engine.state.nextDisc).toEqual(next);
+
+    engine.drop(1);
+
+    expect(engine.state.currentDisc).toEqual(next);
+    expect(engine.state.nextDisc).toEqual(tail);
+  });
+
+  test('resumeSeededGeneration replaces a scripted queue without resetting the board', () => {
+    const engine = new GameEngine({ seed: 1 });
+    const stateRef = engine.state;
+    const board = makeEmptyBoard();
+    const boardDisc = makeDisc(4, DiscKind.Numbered);
+    const current = makeDisc(3, DiscKind.Numbered);
+    const next = makeDisc(3, DiscKind.Numbered);
+    placeDisc(board, 6, 0, boardDisc);
+
+    engine.loadScriptedState({
+      mode: CLASSIC_MODE,
+      board,
+      currentDisc: current,
+      nextDisc: next,
+    });
+    const scriptedBoard = engine.state.board;
+
+    engine.resumeSeededGeneration(123);
+
+    expect(engine.state).toBe(stateRef);
+    expect(engine.state.board).toBe(scriptedBoard);
+    expect(engine.state.board[6]![0]).toEqual(boardDisc);
+    expect(engine.state.generationSeed).toBe(123);
+    expect(engine.state.generationSource).toBe('seeded');
+    expect(engine.state.currentDisc.id).not.toBe(current.id);
+    expect(engine.state.nextDisc.id).not.toBe(next.id);
+  });
 });

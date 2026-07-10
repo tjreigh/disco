@@ -1,4 +1,4 @@
-import type { Board } from './model.js';
+import type { Board, Disc } from './model.js';
 import type { GameModeConfig } from './modes/mode.js';
 import type { GameState } from './state.js';
 import { GamePhase } from './state.js';
@@ -39,6 +39,19 @@ export interface GameEngineOptions {
   board?: Board;
   score?: number;
   dropCount?: number;
+}
+
+export interface ScriptedGameStateOptions {
+  mode?: GameModeConfig;
+  board: Board;
+  currentDisc: Disc;
+  nextDisc?: Disc;
+  queuedDiscs?: readonly Disc[];
+  crackedDiscFactory?: DiscFactory;
+  score?: number;
+  dropCount?: number;
+  level?: number;
+  turnsRemaining?: number;
 }
 
 /**
@@ -214,6 +227,54 @@ export class GameEngine {
     }
     this.crackedDiscFactory = this.customCrackedDiscFactory ?? factories.crackedDiscFactory;
     this.resetState(board);
+  }
+
+  // Loads a deterministic single-scenario state for tutorials. This keeps the
+  // existing GameState object alive for UI/debug references while replacing the
+  // board and incoming queue with scripted values.
+  loadScriptedState(options: ScriptedGameStateOptions): void {
+    this.mode = options.mode ?? this.mode;
+    this.customDiscFactory = undefined;
+    this.customCrackedDiscFactory = options.crackedDiscFactory;
+    const board = deepCloneBoard(options.board);
+    const level = options.level ?? 1;
+    const scriptedQueue = [
+      options.currentDisc,
+      options.nextDisc ?? options.queuedDiscs?.[0] ?? options.currentDisc,
+      ...(options.queuedDiscs ?? []),
+    ];
+    let index = 0;
+    const factory: DiscFactory = () => ({ ...scriptedQueue[Math.min(index++, scriptedQueue.length - 1)]! });
+    this.queue = new DiscQueue((_level, _board) => factory(), level, board);
+    this.crackedDiscFactory = options.crackedDiscFactory ?? (() => ({ ...options.currentDisc }));
+    this.state.generationSeed = 0;
+    this.state.generationSource = 'injected';
+    this.state.phase = isBoardFull(board) ? GamePhase.GameOver : GamePhase.WaitingForDrop;
+    this.state.board = board;
+    this.state.currentDisc = this.queue.peek();
+    this.state.nextDisc = this.queue.peekNext();
+    this.state.cursorCol = Math.floor(this.mode.board.cols / 2);
+    this.state.score = options.score ?? 0;
+    this.state.dropCount = options.dropCount ?? 0;
+    this.state.level = level;
+    this.state.turnsPerLevel = turnsForLevel(this.mode, level);
+    this.state.turnsRemaining = options.turnsRemaining ?? this.state.turnsPerLevel;
+  }
+
+  // After a tutorial/scripted scenario hands control back to normal play, keep
+  // the current board/progress but replace the injected queue with the mode's
+  // regular seeded generation.
+  resumeSeededGeneration(seed: number = createGameSeed()): void {
+    this.customDiscFactory = undefined;
+    this.customCrackedDiscFactory = undefined;
+    const normalizedSeed = seed >>> 0;
+    const factories = this.createSeededFactories(normalizedSeed);
+    this.queue = new DiscQueue(factories.discFactory, this.state.level, this.state.board);
+    this.crackedDiscFactory = factories.crackedDiscFactory;
+    this.state.generationSeed = normalizedSeed;
+    this.state.generationSource = 'seeded';
+    this.state.currentDisc = this.queue.peek();
+    this.state.nextDisc = this.queue.peekNext();
   }
 
   private createSeededFactories(seed: number): ReturnType<typeof createDiscFactories> {

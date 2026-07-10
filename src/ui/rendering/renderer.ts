@@ -24,6 +24,10 @@ interface LevelProgressDisplay {
   turnsRemaining: number;
 }
 
+export interface TutorialVisualState {
+  allowedCols: readonly number[];
+}
+
 // Computed each draw call so it stays proportional after a resize.
 function discR(): number { return cellSize() / 2 - Math.max(3, cellSize() * 0.07); }
 
@@ -73,6 +77,7 @@ export class Renderer {
     scoreIndicators: readonly ScoreIndicator[],
     initialTurnsPerLevel: number,
     levelProgress: LevelProgressDisplay,
+    tutorial?: TutorialVisualState | null,
   ): void {
     const { ctx } = this;
     // Build a set of disc IDs currently being animated. drawStaticDiscs uses
@@ -84,7 +89,7 @@ export class Renderer {
     this.drawBackground();
     if (state.phase === GamePhase.Menu) return; // DOM overlay owns the screen entirely
     const showCursor = state.phase === GamePhase.WaitingForDrop;
-    this.drawGrid(state.cursorCol, showCursor);
+    this.drawGrid(state.cursorCol, showCursor, tutorial ?? null);
     this.drawStaticDiscs(board, animations, animIds);
     this.drawAnimatedDiscs(animations);
     this.drawScorePopups(scorePopups);
@@ -104,7 +109,7 @@ export class Renderer {
     this.ctx.fillRect(0, 0, canvasLogicalWidth(), canvasLogicalHeight());
   }
 
-  private drawGrid(cursorCol: number, showCursor: boolean): void {
+  private drawGrid(cursorCol: number, showCursor: boolean, tutorial: TutorialVisualState | null): void {
     const { ctx } = this;
     const ox = gridOriginX();
     const oy = gridOriginY();
@@ -125,6 +130,8 @@ export class Renderer {
       }
     }
 
+    if (tutorial) this.drawTutorialColumns(tutorial.allowedCols);
+
     ctx.strokeStyle = COLOR_GRID_LINE;
     ctx.lineWidth = 1;
     for (let c = 0; c <= gridCols(); c++) {
@@ -138,6 +145,39 @@ export class Renderer {
       ctx.moveTo(ox, oy + r * cs);
       ctx.lineTo(ox + gridW(), oy + r * cs);
       ctx.stroke();
+    }
+  }
+
+  private drawTutorialColumns(allowedCols: readonly number[]): void {
+    const { ctx } = this;
+    const ox = gridOriginX();
+    const oy = gridOriginY();
+    const cs = cellSize();
+    const top = oy + 1;
+    const height = gridH() - 2;
+
+    for (const col of allowedCols) {
+      if (col < 0 || col >= gridCols()) continue;
+      const x = ox + col * cs;
+
+      const gradient = ctx.createLinearGradient(x, oy, x + cs, oy);
+      gradient.addColorStop(0, 'rgba(46, 204, 113, 0.04)');
+      gradient.addColorStop(0.5, 'rgba(46, 204, 113, 0.22)');
+      gradient.addColorStop(1, 'rgba(46, 204, 113, 0.04)');
+
+      ctx.save();
+      ctx.fillStyle = gradient;
+      ctx.fillRect(x + 1, top, cs - 2, height);
+
+      ctx.strokeStyle = 'rgba(129, 230, 177, 0.72)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x + 3, oy + 3, cs - 6, gridH() - 6);
+
+      ctx.fillStyle = 'rgba(129, 230, 177, 0.95)';
+      ctx.beginPath();
+      ctx.arc(x + cs / 2, oy - 6, Math.max(3, Math.min(5, cs * 0.08)), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
     }
   }
 
