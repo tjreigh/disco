@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Disco</title>
   <style>
+    :root { --game-controls-height: 72px; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; }
     body {
@@ -29,7 +30,49 @@
       pointer-events: none;
     }
     .shell-region--top { padding-top: env(safe-area-inset-top); }
-    .shell-region--bottom { padding-bottom: env(safe-area-inset-bottom); }
+    .shell-region--bottom {
+      display: grid;
+      place-items: center;
+      min-height: calc(var(--game-controls-height) + env(safe-area-inset-bottom));
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .game-controls {
+      pointer-events: auto;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: min(500px, calc(100vw - 24px));
+      min-height: 64px;
+      padding: 8px 0;
+    }
+    .game-control {
+      min-width: 44px;
+      min-height: 44px;
+      border: 1px solid #486581;
+      border-radius: 5px;
+      padding: 7px 10px;
+      background: #102a43;
+      color: #f0f4f8;
+      font: 700 14px ui-monospace, SFMono-Regular, Menlo, monospace;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+    .game-control--drop, .game-control--confirm { min-width: 76px; background: #1769aa; border-color: #62b0e8; }
+    .game-control:hover:not(:disabled) { border-color: #62b0e8; background: #16324f; }
+    .game-control:disabled { opacity: .38; cursor: default; }
+    .game-control[hidden] { display: none; }
+    @media (max-width: 420px) {
+      .game-controls { gap: 4px; width: calc(100vw - 12px); }
+      .game-control { min-width: 40px; padding-inline: 7px; }
+      .game-control--drop, .game-control--confirm { min-width: 68px; }
+    }
+    @media (hover: hover) and (pointer: fine) and (min-width: 721px) {
+      :root { --game-controls-height: 0px; }
+      .shell-region--bottom { min-height: 0; padding-bottom: 0; }
+      .game-controls { display: none; }
+    }
     .game-stage {
       position: relative;
       display: grid;
@@ -383,7 +426,7 @@
     .tutorial-overlay {
       position: fixed;
       left: 50%;
-      bottom: max(10px, env(safe-area-inset-bottom));
+      bottom: calc(max(10px, env(safe-area-inset-bottom)) + var(--game-controls-height));
       z-index: 25;
       width: min(420px, calc(100vw - 20px));
       padding: 10px 12px;

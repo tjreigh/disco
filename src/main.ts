@@ -15,7 +15,6 @@ stage.appendChild(canvas);
 
 const bottomRegion = document.createElement('div');
 bottomRegion.className = 'shell-region shell-region--bottom';
-bottomRegion.setAttribute('aria-hidden', 'true');
 
 shell.append(topRegion, stage, bottomRegion);
 document.body.appendChild(shell);

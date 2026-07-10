@@ -29,6 +29,7 @@ import { TUTORIALS } from './tutorial.js';
 import type { TutorialDefinition, TutorialStep } from './tutorial.js';
 import { isTutorialStepSuccessful } from './tutorial.js';
 import { TutorialOverlay } from '../ui/tutorial-overlay.js';
+import { GameControls } from '../ui/game-controls.js';
 
 interface LevelProgressDisplay {
   level: number;
@@ -46,6 +47,7 @@ export class Game {
   private debug: DebugPanel;
   private homeScreen: HomeScreen;
   private tutorialOverlay: TutorialOverlay;
+  private gameControls: GameControls;
   private animQueue: AnimationQueue | null = null;
   private rafId = 0;
   // Tracks the board as it should look right now, advanced one physics step at a
@@ -80,6 +82,7 @@ export class Game {
     this.displayedLevelProgress = this.snapshotLevelProgress();
     this.debug    = new DebugPanel(this.state);
     this.tutorialOverlay = new TutorialOverlay();
+    this.gameControls = new GameControls(intent => this.handleIntent(intent));
     this.visualBoard = makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
     this.statsStore = new AccountStatsStore(GAME_MODES);
     this.stats = this.statsStore.loadStats(this.mode.id);
@@ -548,6 +551,7 @@ export class Game {
     cancelAnimationFrame(this.rafId);
     this.unsubscribeStatsStore?.();
     this.input.destroy();
+    this.gameControls.destroy();
   }
 
   private loop(now: DOMHighResTimeStamp): void {
@@ -569,6 +573,14 @@ export class Game {
     }
 
     const anims = this.animQueue?.getActiveAnimations() ?? [];
+    this.gameControls.render({
+      phase: this.state.phase,
+      hasGravity: Boolean(this.mode.gravity),
+      cursorLane: this.state.cursorCol,
+      laneCount: this.currentLaneCount(),
+      axis: this.currentAxis(),
+      disabled: this.homeScreen.isGameMenuOpen() || this.isPaused,
+    });
     const tutorialStep = this.currentTutorialStep();
     // While a tilt is in progress, show how the board WOULD land at the
     // current angle rather than its actual (untouched) committed state —

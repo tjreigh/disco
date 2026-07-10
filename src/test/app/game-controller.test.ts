@@ -144,6 +144,7 @@ function lastDraw(renderer: any): { state: any; board: Board; tutorial: { allowe
 let rafCallback: FrameRequestCallback | null = null;
 
 beforeEach(() => {
+  document.body.replaceChildren();
   rendererInstances.length = 0;
   audioInstances.length = 0;
   inputHandlerInstances.length = 0;
@@ -165,6 +166,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  document.body.replaceChildren();
   vi.unstubAllGlobals();
 });
 
@@ -239,6 +241,26 @@ describe('starting normal play', () => {
     const [state, board] = lastOf(renderer.draw.mock.calls);
     expect(state.phase).toBe(GamePhase.WaitingForDrop);
     expect(isEmptyBoard(board)).toBe(true);
+  });
+});
+
+// ─── DOM controls ───────────────────────────────────────────────────────────
+
+describe('DOM controls', () => {
+  test('Gravity tilt buttons drive the Game intent path into Aiming', () => {
+    createGame();
+    const homeScreen = lastOf(homeScreenInstances);
+    const renderer = lastOf(rendererInstances);
+
+    homeScreen.onSelectMode(GRAVITY_MODE);
+    frame(0);
+
+    document.querySelector<HTMLButtonElement>('[data-control="tilt-clockwise"]')!.click();
+    frame(16);
+
+    const { state } = lastDraw(renderer);
+    expect(state.phase).toBe(GamePhase.Aiming);
+    expect(state.gravity!.angle).toBe(5);
   });
 });
 
