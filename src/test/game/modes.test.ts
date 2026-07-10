@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { CLASSIC_MODE, GAME_MODES } from '../../game/modes/index.js';
+import { CLASSIC_MODE, GAME_MODES, GRAVITY_MODE } from '../../game/modes/index.js';
 import { turnsForLevel, unnumberedProbabilityForLevel } from '../../game/modes/mode.js';
 import { makeEmptyBoard, placeDisc } from '../../game/board.js';
 import { makeDisc } from '../../game/disc.js';
@@ -30,8 +30,12 @@ describe('CLASSIC_MODE', () => {
     expect(unnumberedProbabilityForLevel(CLASSIC_MODE, 100)).toBeCloseTo(0.40);
   });
 
-  test('is the only entry in GAME_MODES', () => {
-    expect(GAME_MODES).toEqual([CLASSIC_MODE]);
+  test('has no gravity config', () => {
+    expect(CLASSIC_MODE.gravity).toBeUndefined();
+  });
+
+  test('GAME_MODES contains Classic and Gravity', () => {
+    expect(GAME_MODES).toEqual([CLASSIC_MODE, GRAVITY_MODE]);
   });
 
   test('isClearable: a numbered disc clears when value equals its run length', () => {
@@ -61,6 +65,50 @@ describe('CLASSIC_MODE', () => {
     const full = makeEmptyBoard();
     placeDisc(full, 0, 3, makeDisc(1, DiscKind.Numbered));
     expect(CLASSIC_MODE.isGameOver(full)).toBe(true);
+  });
+});
+
+describe('GRAVITY_MODE', () => {
+  test('has the default gravity config', () => {
+    expect(GRAVITY_MODE.gravity).toEqual({ initialAngleDeg: 0, maxTiltDeltaDeg: 45 });
+  });
+
+  test('reuses Classic scoring, generation, and board size', () => {
+    expect(GRAVITY_MODE.board).toEqual(CLASSIC_MODE.board);
+    expect(GRAVITY_MODE.pointsPerDisc).toBe(CLASSIC_MODE.pointsPerDisc);
+    expect(GRAVITY_MODE.chainExponent).toBe(CLASSIC_MODE.chainExponent);
+    expect(GRAVITY_MODE.discGeneration).toEqual(CLASSIC_MODE.discGeneration);
+  });
+
+  test('reuses Classic revealAdjacent', () => {
+    expect(GRAVITY_MODE.revealAdjacent).toBe(CLASSIC_MODE.revealAdjacent);
+  });
+
+  // isClearable is gravity-specific (checks runs along the current gravity
+  // angle, not always grid rows/columns — see gravity.test.ts for the
+  // diagonal-angle cases) but at the default angle 0 it's exactly equivalent
+  // to Classic's grid-based rule.
+  test('isClearable at angle 0 matches Classic\'s grid-based rule', () => {
+    const board = makeEmptyBoard();
+    placeDisc(board, 6, 0, makeDisc(1, DiscKind.Numbered));
+    expect(GRAVITY_MODE.isClearable(board, 6, 0, board[6]![0]!, 0)).toBe(true);
+    expect(GRAVITY_MODE.isClearable(board, 6, 0, board[6]![0]!)).toBe(true); // angleDeg defaults to 0
+  });
+
+  test('isClearable: a cracked disc never clears directly', () => {
+    const board = makeEmptyBoard();
+    placeDisc(board, 6, 0, makeDisc(1, DiscKind.SingleCracked));
+    expect(GRAVITY_MODE.isClearable(board, 6, 0, board[6]![0]!, 0)).toBe(false);
+  });
+
+  test('isGameOver is a genuine full-board scan, not a row-0 shortcut', () => {
+    const rowZeroOnly = makeEmptyBoard();
+    for (let c = 0; c < 7; c++) placeDisc(rowZeroOnly, 0, c, makeDisc(1, DiscKind.Numbered));
+    expect(GRAVITY_MODE.isGameOver(rowZeroOnly)).toBe(false);
+
+    const fullBoard = makeEmptyBoard();
+    for (let r = 0; r < 7; r++) for (let c = 0; c < 7; c++) placeDisc(fullBoard, r, c, makeDisc(1, DiscKind.Numbered));
+    expect(GRAVITY_MODE.isGameOver(fullBoard)).toBe(true);
   });
 });
 

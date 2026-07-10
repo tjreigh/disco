@@ -1,5 +1,7 @@
 import { describe, test, expect } from 'vitest';
-import { computeClearSteps, computeDropSteps, computePushStep, pointsForChain } from '../../game/physics.js';
+import {
+  computeClearSteps, computeDropSteps, computeGravityTiltSteps, computePushStep, pointsForChain,
+} from '../../game/physics.js';
 import { makeEmptyBoard, placeDisc } from '../../game/board.js';
 import { makeDisc } from '../../game/disc.js';
 import type { Board } from '../../game/model.js';
@@ -7,7 +9,7 @@ import { DiscKind } from '../../game/model.js';
 import type { ClearStep, FallStep, RevealStep, DropStep } from '../../game/events.js';
 import { StepKind } from '../../game/events.js';
 import type { GameModeConfig } from '../../game/modes/mode.js';
-import { CLASSIC_MODE } from '../../game/modes/index.js';
+import { CLASSIC_MODE, GRAVITY_MODE } from '../../game/modes/index.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -35,8 +37,7 @@ describe('computeDropSteps – disc placement', () => {
     const steps = computeDropSteps(board, disc, 3);
     const drop = steps[0] as DropStep;
     expect(drop.kind).toBe(StepKind.Drop);
-    expect(drop.toLandRow).toBe(6);
-    expect(drop.col).toBe(3);
+    expect(drop.landPos).toEqual({ row: 6, col: 3 });
   });
 
   test('board is committed in-place after the call', () => {
@@ -52,7 +53,7 @@ describe('computeDropSteps – disc placement', () => {
     const disc = makeDisc(3, DiscKind.Numbered);
     const steps = computeDropSteps(board, disc, 2);
     const drop = steps[0] as DropStep;
-    expect(drop.toLandRow).toBe(4);
+    expect(drop.landPos.row).toBe(4);
   });
 
   test('returns empty array for a full column', () => {
@@ -305,9 +306,9 @@ describe('computePushStep', () => {
 
     computeClearSteps(board);
 
-    expect(step.newRow[0]!.kind).toBe(DiscKind.DoubleCracked);
+    expect(step.newDiscs[0]!.kind).toBe(DiscKind.DoubleCracked);
     expect(board[6]![0]!.kind).toBe(DiscKind.SingleCracked);
-    expect(step.newRow[0]).not.toBe(board[6]![0]);
+    expect(step.newDiscs[0]).not.toBe(board[6]![0]);
   });
 
   test('shifts all rows up by one', () => {
@@ -322,8 +323,8 @@ describe('computePushStep', () => {
   test('fills row 6 with 7 cracked discs', () => {
     const { step } = computePushStep(makeEmptyBoard());
     expect(step.kind).toBe(StepKind.Push);
-    expect(step.newRow.length).toBe(7);
-    for (const disc of step.newRow) {
+    expect(step.newDiscs.length).toBe(7);
+    for (const disc of step.newDiscs) {
       expect([DiscKind.SingleCracked, DiscKind.DoubleCracked]).toContain(disc.kind);
     }
   });
@@ -347,6 +348,71 @@ describe('computePushStep', () => {
     const { gameOver } = computePushStep(board);
     expect(gameOver).toBe(false);
   });
+
+  // A push enters from whichever edge gravity currently pulls TOWARD (the
+  // "floor" — opposite of where a drop enters), not always the bottom.
+  // angleDeg 0 (the default, tested above) is Classic's fixed case; these
+  // cover the other 3 cardinal directions a Gravity mode tilt can commit to.
+  describe('angle-aware push direction', () => {
+    test('180deg (gravity up): enters at row 0, shifts every row down, discards row 6', () => {
+      const board = makeEmptyBoard();
+      const disc = makeDisc(4, DiscKind.Numbered);
+      placeDisc(board, 3, 0, disc);
+      const { step } = computePushStep(board, () => makeDisc(7, DiscKind.DoubleCracked), 180);
+
+      expect(step.edge).toBe('top');
+      expect(board[4]![0]).toBe(disc); // row 3 -> row 4 (shifted down)
+      expect(board[3]![0]).toBeNull();
+      expect(board[0]).toEqual(step.newDiscs); // new row entered at the top (step.newDiscs is a clone, see below)
+    });
+
+    test('180deg: gameOver is true when row 6 (the drop entry edge) has a disc before the push', () => {
+      const board = buildBoard([at(6, 3, 5)]);
+      const { gameOver } = computePushStep(board, undefined, 180);
+      expect(gameOver).toBe(true);
+    });
+
+    test('90deg (gravity right): enters at the rightmost column, shifts every column left, discards column 0', () => {
+      const board = makeEmptyBoard();
+      const disc = makeDisc(4, DiscKind.Numbered);
+      placeDisc(board, 0, 3, disc);
+      const { step } = computePushStep(board, () => makeDisc(7, DiscKind.DoubleCracked), 90);
+
+      expect(step.edge).toBe('right');
+      expect(board[0]![2]).toBe(disc); // col 3 -> col 2 (shifted left)
+      expect(board[0]![3]).toBeNull();
+      for (let r = 0; r < board.length; r++) expect(board[r]![6]).toEqual(step.newDiscs[r]);
+    });
+
+    test('90deg: gameOver is true when column 0 (the drop entry edge) has a disc before the push', () => {
+      const board = buildBoard([at(3, 0, 5)]);
+      const { gameOver } = computePushStep(board, undefined, 90);
+      expect(gameOver).toBe(true);
+    });
+
+    test('270deg (gravity left): enters at column 0, shifts every column right, discards column 6', () => {
+      const board = makeEmptyBoard();
+      const disc = makeDisc(4, DiscKind.Numbered);
+      placeDisc(board, 0, 3, disc);
+      const { step } = computePushStep(board, () => makeDisc(7, DiscKind.DoubleCracked), 270);
+
+      expect(step.edge).toBe('left');
+      expect(board[0]![4]).toBe(disc); // col 3 -> col 4 (shifted right)
+      expect(board[0]![3]).toBeNull();
+      for (let r = 0; r < board.length; r++) expect(board[r]![0]).toEqual(step.newDiscs[r]);
+    });
+
+    test('270deg: gameOver is true when column 6 (the drop entry edge) has a disc before the push', () => {
+      const board = buildBoard([at(3, 6, 5)]);
+      const { gameOver } = computePushStep(board, undefined, 270);
+      expect(gameOver).toBe(true);
+    });
+
+    test('0deg (default) is unchanged: enters at the bottom, edge is "bottom"', () => {
+      const { step } = computePushStep(makeEmptyBoard());
+      expect(step.edge).toBe('bottom');
+    });
+  });
 });
 
 // ─── Custom GameModeConfig ───────────────────────────────────────────────────
@@ -366,7 +432,7 @@ describe('a non-default GameModeConfig', () => {
     const board = makeEmptyBoard(3, 3);
     const steps = computeDropSteps(board, makeDisc(1, DiscKind.Numbered), 1, smallMode);
     const drop = steps.find(s => s.kind === StepKind.Drop) as DropStep;
-    expect(drop.toLandRow).toBe(2); // bottom row of a 3-row board, not 6
+    expect(drop.landPos.row).toBe(2); // bottom row of a 3-row board, not 6
   });
 
   test('computeDropSteps uses the mode scoring constants for clears', () => {
@@ -376,5 +442,40 @@ describe('a non-default GameModeConfig', () => {
     const clear = steps.find(s => s.kind === StepKind.Clear) as ClearStep;
     // pointsPerDisc=1, exponent=1, chainLength=1 → 1 point per disc, not the classic 7.
     expect(clear.pointsAwarded).toBe(1);
+  });
+});
+
+// ─── computeGravityTiltSteps – gravity-aware clearing ───────────────────────
+// The whole reason Gravity mode's isClearable checks runs along the current
+// angle instead of always grid rows/columns: at 45deg, settling packs discs
+// into diagonal lines, and a diagonal line is a real "run" to the player
+// even though it isn't one to a grid-only rule.
+
+describe('computeGravityTiltSteps – gravity-aware clearing', () => {
+  test('a diagonal line clears together at 45deg, which a grid-only rule would miss', () => {
+    const board = makeEmptyBoard();
+    placeDisc(board, 2, 2, makeDisc(3, DiscKind.Numbered));
+    placeDisc(board, 3, 3, makeDisc(3, DiscKind.Numbered));
+    placeDisc(board, 4, 4, makeDisc(3, DiscKind.Numbered));
+
+    const steps = computeGravityTiltSteps(board, 45, GRAVITY_MODE);
+    const clear = steps.find(s => s.kind === StepKind.Clear) as ClearStep | undefined;
+
+    expect(clear).toBeDefined();
+    expect(clear!.cleared).toHaveLength(3);
+  });
+
+  test('non-adjacent discs of a matching value do not clear at 0deg — control case', () => {
+    const board = makeEmptyBoard();
+    // Already resting on the floor, far enough apart that no column/row/
+    // diagonal packing at any angle would ever bring them into contact.
+    placeDisc(board, 6, 0, makeDisc(3, DiscKind.Numbered));
+    placeDisc(board, 6, 3, makeDisc(3, DiscKind.Numbered));
+    placeDisc(board, 6, 6, makeDisc(3, DiscKind.Numbered));
+
+    const steps = computeGravityTiltSteps(board, 0, GRAVITY_MODE);
+    const clear = steps.find(s => s.kind === StepKind.Clear);
+
+    expect(clear).toBeUndefined();
   });
 });

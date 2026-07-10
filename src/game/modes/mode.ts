@@ -30,7 +30,25 @@ export interface GameModeConfig {
   readonly turnsPerLevelStep: number;
   /** Floor the shrinking turn budget cannot drop below, however high the level gets. */
   readonly minTurnsPerLevel: number;
-  isClearable(board: Board, row: number, col: number, disc: Disc): boolean;
+  /**
+   * Present only for Gravity mode. A drop always resolves immediately (edge
+   * opposite the current angle, settles under the current angle) — tilting
+   * is a separate, alternative turn action, not bundled into every drop. See
+   * {@link GameEngine.drop}/{@link GameEngine.tiltGravity}/{@link GameEngine.commitTilt}/{@link GameEngine.cancelTilt}.
+   */
+  readonly gravity?: {
+    readonly initialAngleDeg: number;
+    /** Maximum absolute tilt allowed from a tilt action's starting angle. */
+    readonly maxTiltDeltaDeg: number;
+  };
+  // angleDeg is the current gravity angle a Gravity-family mode's run check
+  // should measure runs along (see gravityRunLengths in gravity.ts, which
+  // snaps it to the nearest of 8 directions — a genuinely continuous run
+  // check isn't well-defined on a discrete grid) — always the same angle the
+  // caller just settled the board under, so a run means the same thing here
+  // as it does to the settling that produced this board. Omitted (defaults
+  // to grid-up/down) for modes with no gravity concept.
+  isClearable(board: Board, row: number, col: number, disc: Disc, angleDeg?: number): boolean;
   revealAdjacent(board: Board, cleared: GridPos[]): RevealStep;
   isGameOver(board: Board): boolean;
 }

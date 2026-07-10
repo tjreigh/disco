@@ -1,15 +1,23 @@
 import type { Board, Disc, GridPos } from './model.js';
 import { DiscKind } from './model.js';
 import type { GameModeConfig } from './modes/mode.js';
-import type { PhysicsStep, DropStep, ClearStep, PushStep } from './events.js';
+import type { PhysicsStep, DropStep, FallStep, ClearStep, PushStep } from './events.js';
 import { StepKind } from './events.js';
 import {
   cloneBoard, countHorizontalRun, countVerticalRun, deepCloneBoard,
   landingRow, placeDisc, removeDisc, applyGravity,
 } from './board.js';
+import type { EntryEdge } from './gravity.js';
+import {
+  entryEdgeForAngle, isLaneFull, entryPositionForLane, offBoardEntryPosition,
+  oppositeEdge, settleContinuous,
+} from './gravity.js';
 import { makeCrackedDisc } from './disc.js';
 import type { DiscFactory } from './disc.js';
 import { CLASSIC_MODE } from './modes/index.js';
+
+/** Compacts a board toward a gravity direction, producing a Fall step of every disc that moved. */
+export type SettleFn = (board: Board) => FallStep;
 
 // Returns every position that should clear this pass.
 // A disc clears according to the mode's isClearable predicate (for Classic:
@@ -38,7 +46,9 @@ export interface PhysicsTrace {
   frames: LogicFrame[];
 }
 
-function inspectClears(board: Board, mode: GameModeConfig): { clears: GridPos[]; checks: ClearCheck[] } {
+function inspectClears(
+  board: Board, mode: GameModeConfig, angleDeg: number,
+): { clears: GridPos[]; checks: ClearCheck[] } {
   const result: GridPos[] = [];
   const checks: ClearCheck[] = [];
 
@@ -57,7 +67,7 @@ function inspectClears(board: Board, mode: GameModeConfig): { clears: GridPos[];
           pos: { row, col }, discId: disc.id, value: disc.value,
           rowCount, colCount, clearsByRow, clearsByCol,
         });
-        if (!mode.isClearable(board, row, col, disc)) continue;
+        if (!mode.isClearable(board, row, col, disc, angleDeg)) continue;
         result.push({ row, col });
       }
     }
@@ -103,12 +113,15 @@ export function pointsForChain(
 // either both fire or neither does. Bonus steps — the board-clear bonus here
 // and the engine's level bonus — never emit a frame, since a bonus doesn't
 // change the board and so has nothing new to render.
-function resolveClearSteps(scratch: Board, mode: GameModeConfig, trace?: PhysicsTrace): PhysicsStep[] {
+function resolveClearSteps(
+  scratch: Board, mode: GameModeConfig, trace?: PhysicsTrace,
+  settle: SettleFn = applyGravity, angleDeg = 0,
+): PhysicsStep[] {
   const steps: PhysicsStep[] = [];
   let chainLevel = 0;
 
   while (true) {
-    const inspection = inspectClears(scratch, mode);
+    const inspection = inspectClears(scratch, mode, angleDeg);
     const clears = inspection.clears;
     trace?.scans.push({
       chainLevel,
@@ -134,7 +147,7 @@ function resolveClearSteps(scratch: Board, mode: GameModeConfig, trace?: Physics
       trace?.frames.push({ label: `Reveal ${reveal.positions.length} adjacent tile${reveal.positions.length === 1 ? '' : 's'}`, board: deepCloneBoard(scratch) });
     }
 
-    const fall = applyGravity(scratch);
+    const fall = settle(scratch);
     if (fall.moves.length > 0) {
       steps.push(fall);
       trace?.frames.push({ label: `Gravity: ${fall.moves.length} move${fall.moves.length === 1 ? '' : 's'}`, board: deepCloneBoard(scratch) });
@@ -156,9 +169,12 @@ function resolveClearSteps(scratch: Board, mode: GameModeConfig, trace?: Physics
 }
 
 /** Resolves clear chains after an in-place board change such as a row push. */
-export function computeClearSteps(board: Board, mode: GameModeConfig = CLASSIC_MODE, trace?: PhysicsTrace): PhysicsStep[] {
+export function computeClearSteps(
+  board: Board, mode: GameModeConfig = CLASSIC_MODE, trace?: PhysicsTrace,
+  settle: SettleFn = applyGravity, angleDeg = 0,
+): PhysicsStep[] {
   const scratch = cloneBoard(board);
-  const steps = resolveClearSteps(scratch, mode, trace);
+  const steps = resolveClearSteps(scratch, mode, trace, settle, angleDeg);
   commitBoard(board, scratch);
   return steps;
 }
@@ -174,6 +190,7 @@ export function computeDropSteps(
   col: number,
   mode: GameModeConfig = CLASSIC_MODE,
   trace?: PhysicsTrace,
+  settle: SettleFn = applyGravity,
 ): PhysicsStep[] {
   const steps: PhysicsStep[] = [];
   const scratch = cloneBoard(board);
@@ -184,9 +201,12 @@ export function computeDropSteps(
   placeDisc(scratch, row, col, disc);
   // The dropped board object may be revealed later in this same synchronous turn.
   // Preserve how it looked at drop time for animation playback.
-  steps.push({ kind: StepKind.Drop, disc: { ...disc }, col, toLandRow: row } satisfies DropStep);
+  steps.push({
+    kind: StepKind.Drop, disc: { ...disc },
+    entryPos: { row: -1, col }, landPos: { row, col },
+  } satisfies DropStep);
   trace?.frames.push({ label: `Drop #${disc.id} into r${row + 1}c${col + 1}`, board: deepCloneBoard(scratch) });
-  steps.push(...resolveClearSteps(scratch, mode, trace));
+  steps.push(...resolveClearSteps(scratch, mode, trace, settle));
 
   // Write the scratch result back into the caller's board array in-place.
   // Replacing the board reference entirely wouldn't work because GameState
@@ -196,28 +216,148 @@ export function computeDropSteps(
   return steps;
 }
 
-// Pushes a new row of cracked discs up from the bottom.
-// Game over is flagged if row 0 has any disc before the shift — those discs
-// would be pushed off the top and lost, which counts as overflow.
+// Gravity-mode equivalent of computeDropSteps: the disc enters through
+// whichever edge/lane corresponds to entryEdge, then the *whole* board
+// (including the new disc) settles once under finalAngleDeg — gravity mode
+// can rearrange already-placed discs, not just the new one. The new disc's
+// own move is folded into the Drop step's landPos (so it animates as one
+// smooth motion straight to its true resting cell, same as Classic); every
+// other disc's move is reported as a separate Fall step, reusing the
+// existing (already direction-agnostic) Fall animation untouched.
+export function computeGravityDropSteps(
+  board: Board,
+  disc: Disc,
+  lane: number,
+  entryEdge: EntryEdge,
+  finalAngleDeg: number,
+  mode: GameModeConfig = CLASSIC_MODE,
+  trace?: PhysicsTrace,
+): PhysicsStep[] {
+  const steps: PhysicsStep[] = [];
+  const scratch = cloneBoard(board);
+  const rows = scratch.length;
+  const cols = scratch[0]!.length;
+
+  if (isLaneFull(scratch, lane, entryEdge)) return steps; // lane full — game over handled by caller
+
+  const onEntryPos = entryPositionForLane(entryEdge, lane, rows, cols);
+  placeDisc(scratch, onEntryPos.row, onEntryPos.col, disc);
+
+  const settle: SettleFn = b => settleContinuous(b, finalAngleDeg);
+  const settleResult = settle(scratch);
+  const newDiscMove = settleResult.moves.find(m => m.disc.id === disc.id);
+  const landPos = newDiscMove ? newDiscMove.to : onEntryPos;
+  const otherMoves = settleResult.moves.filter(m => m.disc.id !== disc.id);
+
+  steps.push({
+    kind: StepKind.Drop, disc: { ...disc },
+    entryPos: offBoardEntryPosition(entryEdge, lane, rows, cols), landPos,
+  } satisfies DropStep);
+  trace?.frames.push({ label: `Drop #${disc.id} into r${landPos.row + 1}c${landPos.col + 1}`, board: deepCloneBoard(scratch) });
+
+  if (otherMoves.length > 0) {
+    steps.push({ kind: StepKind.Fall, moves: otherMoves } satisfies FallStep);
+    trace?.frames.push({ label: `Gravity: ${otherMoves.length} move${otherMoves.length === 1 ? '' : 's'}`, board: deepCloneBoard(scratch) });
+  }
+
+  steps.push(...resolveClearSteps(scratch, mode, trace, settle, finalAngleDeg));
+
+  commitBoard(board, scratch);
+  return steps;
+}
+
+// Gravity-mode tilt-only turn: no new disc, but the whole board resettles
+// under the (possibly changed) gravity angle, then normal clear/chain
+// resolution runs. Mirrors computeGravityDropSteps minus the disc entry.
+export function computeGravityTiltSteps(
+  board: Board,
+  finalAngleDeg: number,
+  mode: GameModeConfig = CLASSIC_MODE,
+  trace?: PhysicsTrace,
+): PhysicsStep[] {
+  const steps: PhysicsStep[] = [];
+  const scratch = cloneBoard(board);
+  const settle: SettleFn = b => settleContinuous(b, finalAngleDeg);
+
+  const fall = settle(scratch);
+  if (fall.moves.length > 0) {
+    steps.push(fall);
+    trace?.frames.push({ label: `Tilt: ${fall.moves.length} move${fall.moves.length === 1 ? '' : 's'}`, board: deepCloneBoard(scratch) });
+  }
+
+  steps.push(...resolveClearSteps(scratch, mode, trace, settle, finalAngleDeg));
+
+  commitBoard(board, scratch);
+  return steps;
+}
+
+/** True when any cell along this edge (the one about to be shifted off / discarded) is occupied. */
+function edgeHasDisc(board: Board, edge: EntryEdge): boolean {
+  const rows = board.length;
+  const cols = board[0]!.length;
+  switch (edge) {
+    case 'top': return board[0]!.some(cell => cell != null);
+    case 'bottom': return board[rows - 1]!.some(cell => cell != null);
+    case 'left': return board.some(row => row[0] != null);
+    case 'right': return board.some(row => row[cols - 1] != null);
+  }
+}
+
+// Pushes a new row (or column) of cracked discs in from whichever edge
+// gravity currently pulls TOWARD — Classic (angleDeg 0, entry edge 'top')
+// always enters from the bottom, same as before; Gravity mode's floor edge
+// changes with the tilt, same as a drop's entry edge does, via
+// entryEdgeForAngle/oppositeEdge. Game over is flagged if the OPPOSITE edge
+// (where a drop enters, and where a full pile would spill off the board) has
+// any disc before the shift — those discs would be pushed off and lost,
+// which counts as overflow. This is deliberately a direct edge-occupancy
+// check, not mode.isGameOver(board) (which for Gravity mode is a full-board
+// scan serving a different, more general purpose elsewhere) — a push's
+// overflow condition is specifically about the one edge THIS push discards.
 export function computePushStep(
   board: Board,
   discFactory: DiscFactory = makeCrackedDisc,
-  mode: GameModeConfig = CLASSIC_MODE,
+  angleDeg = 0,
 ): { step: PushStep; gameOver: boolean } {
   const rows = board.length;
   const cols = board[0]!.length;
 
-  const gameOver = mode.isGameOver(board);
+  const entryEdge = entryEdgeForAngle(angleDeg);
+  const floorEdge = oppositeEdge(entryEdge);
+  const gameOver = edgeHasDisc(board, entryEdge);
 
-  const newRow: Disc[] = Array.from({ length: cols }, discFactory);
+  let newDiscs: Disc[];
 
-  // Shift every row up by one index (row 0 content is discarded).
-  for (let r = 0; r < rows - 1; r++) {
-    board[r] = board[r + 1]!;
+  if (floorEdge === 'bottom' || floorEdge === 'top') {
+    newDiscs = Array.from({ length: cols }, discFactory);
+    if (floorEdge === 'bottom') {
+      for (let r = 0; r < rows - 1; r++) board[r] = board[r + 1]!;
+      board[rows - 1] = newDiscs;
+    } else {
+      for (let r = rows - 1; r > 0; r--) board[r] = board[r - 1]!;
+      board[0] = newDiscs;
+    }
+  } else {
+    newDiscs = Array.from({ length: rows }, discFactory);
+    if (floorEdge === 'right') {
+      for (let r = 0; r < rows; r++) {
+        const row = board[r]!;
+        for (let c = 0; c < cols - 1; c++) row[c] = row[c + 1]!;
+        row[cols - 1] = newDiscs[r]!;
+      }
+    } else {
+      for (let r = 0; r < rows; r++) {
+        const row = board[r]!;
+        for (let c = cols - 1; c > 0; c--) row[c] = row[c - 1]!;
+        row[0] = newDiscs[r]!;
+      }
+    }
   }
-  board[rows - 1] = newRow;
 
   // Clear resolution runs immediately after a push and can reveal these discs.
   // Keep the push event as a snapshot of what actually entered the board.
-  return { step: { kind: StepKind.Push, newRow: newRow.map(disc => ({ ...disc })) }, gameOver };
+  return {
+    step: { kind: StepKind.Push, edge: floorEdge, newDiscs: newDiscs.map(disc => ({ ...disc })) },
+    gameOver,
+  };
 }

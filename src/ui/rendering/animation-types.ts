@@ -21,6 +21,12 @@ export interface DiscAnimation {
   alpha: number;
   scale: number;
   progress: number;
+  // Canvas-space waypoints for a bent (non-straight-line) motion, e.g. a
+  // Falling disc that actually routed around obstacles. fromX/Y and toX/Y
+  // above always still hold the overall start/end, unchanged, for anything
+  // that only cares about the net motion. Present only when there's more
+  // than a single straight hop worth animating.
+  waypoints?: { x: number; y: number }[];
 }
 
 export interface RichDiscAnimation extends DiscAnimation {

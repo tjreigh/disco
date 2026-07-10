@@ -1,4 +1,4 @@
-import type { Disc, GridPos } from './model.js';
+import type { Disc, EntryEdge, GridPos } from './model.js';
 
 export enum StepKind {
   Drop = 'drop',
@@ -12,8 +12,10 @@ export enum StepKind {
 export interface DropStep {
   kind: StepKind.Drop;
   disc: Disc;
-  col: number;
-  toLandRow: number;
+  /** Off-board animation start position, one cell beyond the entry edge. */
+  entryPos: GridPos;
+  /** True final resting position on the board, already post-settle. */
+  landPos: GridPos;
 }
 
 export interface ClearStep {
@@ -45,7 +47,12 @@ export interface RevealStep {
 
 export interface PushStep {
   kind: StepKind.Push;
-  newRow: Disc[];
+  // The edge the new discs entered from — the edge gravity currently pulls
+  // TOWARD (Classic always 'bottom'; Gravity mode's floor edge, which
+  // changes with the tilt). 'top'/'bottom' means newDiscs is a new ROW
+  // (indexed by column); 'left'/'right' means a new COLUMN (indexed by row).
+  edge: EntryEdge;
+  newDiscs: Disc[];
 }
 
 export type BonusKind = 'level' | 'board-clear';

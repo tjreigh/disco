@@ -10,7 +10,7 @@ import { StepKind } from '../game/events.js';
 export function applyStepToVisualBoard(board: Board, step: PhysicsStep): void {
   switch (step.kind) {
     case StepKind.Drop:
-      board[step.toLandRow]![step.col] = { ...step.disc };
+      board[step.landPos.row]![step.landPos.col] = { ...step.disc };
       break;
     case StepKind.Clear:
       for (const pos of step.cleared) {
@@ -28,19 +28,51 @@ export function applyStepToVisualBoard(board: Board, step: PhysicsStep): void {
         if (cell != null) cell.kind = disc.kind;
       }
       break;
-    case StepKind.Fall:
+    case StepKind.Fall: {
+      // Read every source cell before writing any destination — a chained
+      // slide (e.g. the disc above falls into the cell the disc below is
+      // simultaneously vacating) has one move's `to` equal another's `from`.
+      // Applying moves one at a time in that case overwrites the second
+      // disc before it's ever read: it vanishes, and the first disc's data
+      // gets duplicated onto its cell instead.
+      const sourceDiscs = step.moves.map(move => board[move.from.row]![move.from.col]);
       for (const move of step.moves) {
-        board[move.to.row]![move.to.col] = board[move.from.row]![move.from.col]!;
-        if (move.from.row !== move.to.row || move.from.col !== move.to.col) {
-          board[move.from.row]![move.from.col] = null;
+        board[move.from.row]![move.from.col] = null;
+      }
+      step.moves.forEach((move, i) => {
+        board[move.to.row]![move.to.col] = sourceDiscs[i]!;
+      });
+      break;
+    }
+    case StepKind.Push: {
+      // Mirror computePushStep exactly: new discs enter from step.edge (the
+      // side gravity currently pulls toward), shifting the board toward the
+      // opposite edge. 'top'/'bottom' is a row shift (indexed by column);
+      // 'left'/'right' is a column shift (indexed by row).
+      const rows = board.length;
+      const cols = board[0]!.length;
+      const newDiscs = step.newDiscs.map(disc => ({ ...disc }));
+      if (step.edge === 'bottom') {
+        for (let r = 0; r < rows - 1; r++) board[r] = board[r + 1]!;
+        board[rows - 1] = newDiscs;
+      } else if (step.edge === 'top') {
+        for (let r = rows - 1; r > 0; r--) board[r] = board[r - 1]!;
+        board[0] = newDiscs;
+      } else if (step.edge === 'right') {
+        for (let r = 0; r < rows; r++) {
+          const row = board[r]!;
+          for (let c = 0; c < cols - 1; c++) row[c] = row[c + 1]!;
+          row[cols - 1] = newDiscs[r]!;
+        }
+      } else {
+        for (let r = 0; r < rows; r++) {
+          const row = board[r]!;
+          for (let c = cols - 1; c > 0; c--) row[c] = row[c - 1]!;
+          row[0] = newDiscs[r]!;
         }
       }
       break;
-    case StepKind.Push:
-      // Mirror what computePushStep does: shift rows up, place new row at bottom.
-      for (let row = 0; row < board.length - 1; row++) board[row] = board[row + 1]!;
-      board[board.length - 1] = step.newRow.map(disc => ({ ...disc }));
-      break;
+    }
     case StepKind.Bonus:
       break;
   }

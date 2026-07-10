@@ -1,11 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AnimationQueue, interpolateX, pushBoardOffsetY } from '../../ui/rendering/animation-queue.js';
+import {
+  AnimationQueue,
+  interpolateX,
+  interpolateY,
+  pushBoardOffsetX,
+  pushBoardOffsetY,
+  spawnScoreIndicator,
+  spawnScorePopups,
+  tickScoreIndicators,
+  tickScorePopups,
+} from '../../ui/rendering/animation-queue.js';
 import { AnimPhase } from '../../ui/rendering/animation-types.js';
 import type { RichDiscAnimation } from '../../ui/rendering/animation-types.js';
 import { cellCenterX, cellCenterY, gridCols, gridRows, setGridSize } from '../../ui/rendering/layout.js';
 import { makeDisc } from '../../game/disc.js';
 import { DiscKind } from '../../game/model.js';
-import type { DropStep, ClearStep, FallStep, PushStep, BonusStep } from '../../game/events.js';
+import type { DropStep, ClearStep, FallStep, PushStep, BonusStep, RevealStep } from '../../game/events.js';
 import { StepKind } from '../../game/events.js';
 
 // Mirrors the module's private easeOutCubic so expected mid-flight values are
@@ -25,7 +35,7 @@ afterEach(() => {
 });
 
 function makeQueue(
-  steps: Array<DropStep | ClearStep | FallStep | PushStep | BonusStep>,
+  steps: Array<DropStep | ClearStep | FallStep | PushStep | BonusStep | RevealStep>,
 ) {
   const stepStarts: Array<{ step: unknown; now: number }> = [];
   const stepCompletes: unknown[] = [];
@@ -62,7 +72,10 @@ function fakeAnim(phase: AnimPhase): RichDiscAnimation {
 
 describe('AnimationQueue sequencing', () => {
   it('runs steps strictly one at a time, firing callbacks in order', () => {
-    const dropStep: DropStep = { kind: StepKind.Drop, disc: makeDisc(3, DiscKind.Numbered), col: 2, toLandRow: 0 };
+    const dropStep: DropStep = {
+      kind: StepKind.Drop, disc: makeDisc(3, DiscKind.Numbered),
+      entryPos: { row: -1, col: 2 }, landPos: { row: 0, col: 2 },
+    };
     const clearStep: ClearStep = {
       kind: StepKind.Clear,
       cleared: [{ row: 0, col: 2 }],
@@ -78,7 +91,7 @@ describe('AnimationQueue sequencing', () => {
 
     const { queue, stepStarts, stepCompletes, completeCount } = makeQueue([dropStep, clearStep, fallStep]);
 
-    // Drop duration: max(120, 60 * (toLandRow + 1)) = max(120, 60) = 120.
+    // Drop duration: max(120, 60 * distance(entryPos, landPos)) = max(120, 60 * 1) = 120.
     queue.tick(0);
     expect(stepStarts).toEqual([{ step: dropStep, now: 0 }]);
     expect(stepCompletes).toEqual([]);
@@ -141,7 +154,10 @@ describe('AnimationQueue sequencing', () => {
   });
 
   it('continues active animations from the same visual progress after a time shift', () => {
-    const dropStep: DropStep = { kind: StepKind.Drop, disc: makeDisc(3, DiscKind.Numbered), col: 2, toLandRow: 1 };
+    const dropStep: DropStep = {
+      kind: StepKind.Drop, disc: makeDisc(3, DiscKind.Numbered),
+      entryPos: { row: -1, col: 2 }, landPos: { row: 1, col: 2 },
+    };
     const { queue, completeCount } = makeQueue([dropStep]);
 
     queue.tick(0);
@@ -160,6 +176,26 @@ describe('AnimationQueue sequencing', () => {
     expect(completeCount()).toBe(1);
   });
 
+  it('ignores non-positive or non-finite time shifts', () => {
+    const dropStep: DropStep = {
+      kind: StepKind.Drop, disc: makeDisc(3, DiscKind.Numbered),
+      entryPos: { row: -1, col: 2 }, landPos: { row: 1, col: 2 },
+    };
+    const { queue } = makeQueue([dropStep]);
+
+    queue.tick(0);
+    queue.tick(60);
+    const before = queue.getActiveAnimations()[0]!.startTime;
+
+    queue.shiftTime(0);
+    queue.shiftTime(-100);
+    queue.shiftTime(Number.NaN);
+    queue.shiftTime(Number.POSITIVE_INFINITY);
+
+    expect(queue.getActiveAnimations()[0]!.startTime).toBe(before);
+    expect(queue.getActiveAnimations()[0]!.progress).toBeCloseTo(0.5, 5);
+  });
+
   it('stores explicit X endpoints for vertical Classic movement', () => {
     const fallDisc = makeDisc(2, DiscKind.Numbered);
     const fallStep: FallStep = {
@@ -176,6 +212,48 @@ describe('AnimationQueue sequencing', () => {
     expect(anim.fromY).toBe(cellCenterY(0));
     expect(anim.toY).toBe(cellCenterY(2));
   });
+
+  // A move with a bent `path` (gravity mode routing around a pile across
+  // several settle passes) should animate along that real route, not a
+  // straight line from `from` to `to` — see settleContinuous's `path`.
+  it('builds waypoints from a bent path and scales duration by the real distance traveled', () => {
+    const fallDisc = makeDisc(6, DiscKind.Numbered);
+    const fallStep: FallStep = {
+      kind: StepKind.Fall,
+      moves: [{
+        from: { row: 4, col: 2 }, to: { row: 6, col: 4 }, disc: fallDisc,
+        path: [{ row: 4, col: 2 }, { row: 5, col: 3 }, { row: 6, col: 4 }],
+      }],
+    };
+    const { queue } = makeQueue([fallStep]);
+
+    queue.tick(0);
+
+    const anim = queue.getActiveAnimations()[0]!;
+    expect(anim.waypoints).toEqual([
+      { x: cellCenterX(2), y: cellCenterY(4) },
+      { x: cellCenterX(3), y: cellCenterY(5) },
+      { x: cellCenterX(4), y: cellCenterY(6) },
+    ]);
+    // Straight-line distance is 2 (chebyshev); the real bent path covers 1 + 1 = 2
+    // hops here too, but in general a bent path can be longer than the straight
+    // line — duration must be driven by the actual path, not gridDistance(from, to).
+    expect(anim.duration).toBe(Math.max(80, 55 * 2));
+  });
+
+  it('falls back to a straight two-point path when no `path` is given', () => {
+    const fallDisc = makeDisc(2, DiscKind.Numbered);
+    const fallStep: FallStep = {
+      kind: StepKind.Fall,
+      moves: [{ from: { row: 0, col: 1 }, to: { row: 3, col: 1 }, disc: fallDisc }],
+    };
+    const { queue } = makeQueue([fallStep]);
+
+    queue.tick(0);
+
+    const anim = queue.getActiveAnimations()[0]!;
+    expect(anim.waypoints).toBeUndefined();
+  });
 });
 
 // ─── 2D interpolation ───────────────────────────────────────────────────────
@@ -188,6 +266,47 @@ describe('interpolateX', () => {
     anim.progress = 0.5;
 
     expect(interpolateX(anim)).toBeCloseTo(10 + (30 - 10) * easeOutCubic(0.5), 5);
+  });
+
+  it('follows a bent waypoint path instead of a straight line when present', () => {
+    const anim = fakeAnim(AnimPhase.Falling);
+    // A right-angle bend: straight-line X at the midpoint would be 50. The
+    // real path instead holds X at 0 for the whole first (vertical) leg,
+    // then moves from 0 to 100 along the second (horizontal) leg.
+    anim.fromX = 0; anim.toX = 100;
+    anim.waypoints = [{ x: 0, y: 0 }, { x: 0, y: 100 }, { x: 100, y: 100 }];
+    anim.progress = 0.5;
+
+    // Both legs are 100px, so eased progress t maps to distance t*200 along
+    // the path; past the first 100px we're `t*200 - 100` into the second leg.
+    const t = easeOutCubic(0.5);
+    const expectedX = t * 200 - 100;
+    expect(interpolateX(anim)).toBeCloseTo(expectedX, 5);
+  });
+});
+
+describe('interpolateY', () => {
+  it('interpolates between explicit Y endpoints', () => {
+    const anim = fakeAnim(AnimPhase.Falling);
+    anim.fromY = 100;
+    anim.toY = 20;
+    anim.progress = 0.25;
+
+    expect(interpolateY(anim)).toBeCloseTo(100 + (20 - 100) * easeOutCubic(0.25), 5);
+  });
+
+  it('follows a bent waypoint path instead of a straight line when present', () => {
+    const anim = fakeAnim(AnimPhase.Falling);
+    anim.fromY = 0; anim.toY = 100;
+    anim.waypoints = [{ x: 0, y: 0 }, { x: 0, y: 100 }, { x: 100, y: 100 }];
+    anim.progress = 0.5;
+
+    // easeOutCubic(0.5) is already most of the way (~0.875) along the total
+    // 200px path, i.e. past the first (vertical) leg entirely — Y has
+    // already covered its whole span and stays flat at 100 through the
+    // second leg. A straight fromY/toY interpolation would instead show Y
+    // still rising toward 100 at this progress.
+    expect(interpolateY(anim)).toBeCloseTo(100, 5);
   });
 });
 
@@ -228,6 +347,109 @@ describe('AnimationQueue empty Fall step', () => {
   });
 });
 
+// ─── Reveal steps ───────────────────────────────────────────────────────────
+
+describe('AnimationQueue reveal steps', () => {
+  it('pulses revealed discs in place', () => {
+    const disc = makeDisc(4, DiscKind.Numbered);
+    const revealStep: RevealStep = {
+      kind: StepKind.Reveal,
+      positions: [{ row: 3, col: 5 }],
+      discs: [disc],
+    };
+    const { queue, stepStarts, stepCompletes, completeCount } = makeQueue([revealStep]);
+
+    queue.tick(10);
+    expect(stepStarts).toEqual([{ step: revealStep, now: 10 }]);
+
+    const anim = queue.getActiveAnimations()[0]!;
+    expect(anim).toMatchObject({
+      discId: disc.id,
+      disc,
+      phase: AnimPhase.Revealing,
+      startTime: 10,
+      duration: 350,
+      fromX: cellCenterX(5),
+      toX: cellCenterX(5),
+      fromY: cellCenterY(3),
+      toY: cellCenterY(3),
+      alpha: 1,
+    });
+
+    queue.tick(185); // halfway through the 350ms reveal
+    expect(queue.getActiveAnimations()[0]!.scale).toBeCloseTo(1.2, 5);
+    expect(stepCompletes).toEqual([]);
+
+    queue.tick(360);
+    expect(stepCompletes).toEqual([revealStep]);
+    expect(completeCount()).toBe(1);
+  });
+
+  it('auto-advances immediately when there are no revealed discs', () => {
+    const revealStep: RevealStep = { kind: StepKind.Reveal, positions: [], discs: [] };
+    const { queue, stepStarts, stepCompletes, completeCount } = makeQueue([revealStep]);
+
+    queue.tick(0);
+
+    expect(stepStarts).toEqual([{ step: revealStep, now: 0 }]);
+    expect(stepCompletes).toEqual([revealStep]);
+    expect(completeCount()).toBe(1);
+    expect(queue.getActiveAnimations()).toEqual([]);
+  });
+});
+
+// ─── Flashing clear properties ──────────────────────────────────────────────
+
+describe('AnimationQueue clear flash properties', () => {
+  it('keeps clear animations opaque during flash, then fades and shrinks them', () => {
+    const disc = makeDisc(6, DiscKind.Numbered);
+    const clearStep: ClearStep = {
+      kind: StepKind.Clear,
+      cleared: [{ row: 2, col: 1 }],
+      discs: [disc],
+      chainLevel: 1,
+      pointsAwarded: 24,
+    };
+    const { queue } = makeQueue([clearStep]);
+
+    queue.tick(0);
+    queue.tick(140); // first half of FLASH_MS
+
+    const flashing = queue.getActiveAnimations()[0]!;
+    expect(flashing.phase).toBe(AnimPhase.Flashing);
+    expect(flashing.alpha).toBe(1);
+    expect(flashing.scale).toBeCloseTo(1, 5);
+
+    queue.tick(440); // fade section: progress = 440 / 600, fade t = 0.5
+
+    const fading = queue.getActiveAnimations()[0]!;
+    expect(fading.alpha).toBeCloseTo(0.5, 5);
+    expect(fading.scale).toBeCloseTo(0.7, 5);
+  });
+});
+
+describe('AnimationQueue constructed with a genuinely empty steps array', () => {
+  // A Gravity-mode tilt commit that moves nothing and clears nothing (e.g.
+  // committing on an empty board) produces zero PhysicsSteps — not one empty
+  // step, an empty array. isDone() (stepIndex >= steps.length) is already
+  // true before the first tick ever runs, which used to mean onComplete
+  // never fired and callers relying on it (like the game controller flipping
+  // phase back to WaitingForDrop) hung forever.
+  it('still fires onComplete exactly once', () => {
+    const { queue, stepStarts, stepCompletes, completeCount } = makeQueue([]);
+
+    expect(queue.isDone()).toBe(true); // true even before any tick()
+
+    queue.tick(0);
+    expect(completeCount()).toBe(1);
+    expect(stepStarts).toEqual([]);
+    expect(stepCompletes).toEqual([]);
+
+    queue.tick(100); // further ticks must not double-fire onComplete
+    expect(completeCount()).toBe(1);
+  });
+});
+
 // ─── Push offset ─────────────────────────────────────────────────────────────
 
 describe('pushBoardOffsetY', () => {
@@ -237,9 +459,10 @@ describe('pushBoardOffsetY', () => {
     setGridSize(7, 7);
   });
 
-  function buildPushStep(): PushStep {
-    const newRow = Array.from({ length: gridCols() }, (_, i) => makeDisc(i + 1, DiscKind.DoubleCracked));
-    return { kind: StepKind.Push, newRow };
+  function buildPushStep(edge: PushStep['edge'] = 'bottom'): PushStep {
+    const count = edge === 'top' || edge === 'bottom' ? gridCols() : gridRows();
+    const newDiscs = Array.from({ length: count }, (_, i) => makeDisc(i + 1, DiscKind.DoubleCracked));
+    return { kind: StepKind.Push, edge, newDiscs };
   }
 
   it('is 0 before the push step starts moving', () => {
@@ -278,5 +501,131 @@ describe('pushBoardOffsetY', () => {
   it('returns 0 when no active animation is in the Pushing phase', () => {
     const anims = [fakeAnim(AnimPhase.Dropping), fakeAnim(AnimPhase.Falling), fakeAnim(AnimPhase.Flashing)];
     expect(pushBoardOffsetY(anims)).toBe(0);
+  });
+
+  // A push now enters from whichever edge gravity currently pulls toward
+  // (Classic always 'bottom'; Gravity mode's floor edge changes with the
+  // tilt — see computePushStep), not always the bottom.
+  it('top edge: slides down from one row above the grid into row 0', () => {
+    const { queue } = makeQueue([buildPushStep('top')]);
+    queue.tick(0);
+
+    const anim = queue.getActiveAnimations()[0]!;
+    expect(anim.fromY).toBe(cellCenterY(-1));
+    expect(anim.toY).toBe(cellCenterY(0));
+    expect(anim.fromX).toBe(anim.toX); // still a vertical (row) push
+  });
+
+  it('does not move Y at all for a left/right (column) push', () => {
+    const { queue } = makeQueue([buildPushStep('right')]);
+    queue.tick(0);
+    queue.tick(PUSH_MS / 2);
+    expect(pushBoardOffsetY(queue.getActiveAnimations())).toBe(0);
+  });
+});
+
+describe('pushBoardOffsetX', () => {
+  const PUSH_MS = 420;
+
+  beforeEach(() => {
+    setGridSize(7, 7);
+  });
+
+  function buildPushStep(edge: PushStep['edge']): PushStep {
+    const count = edge === 'top' || edge === 'bottom' ? gridCols() : gridRows();
+    const newDiscs = Array.from({ length: count }, (_, i) => makeDisc(i + 1, DiscKind.DoubleCracked));
+    return { kind: StepKind.Push, edge, newDiscs };
+  }
+
+  it('right edge: slides left from one column beyond the right edge into the rightmost column', () => {
+    const { queue } = makeQueue([buildPushStep('right')]);
+    queue.tick(0);
+
+    const anim = queue.getActiveAnimations()[0]!;
+    expect(anim.fromX).toBe(cellCenterX(gridCols()));
+    expect(anim.toX).toBe(cellCenterX(gridCols() - 1));
+    expect(anim.fromY).toBe(anim.toY); // still a horizontal (column) push
+  });
+
+  it('left edge: slides right from one column beyond the left edge into column 0', () => {
+    const { queue } = makeQueue([buildPushStep('left')]);
+    queue.tick(0);
+
+    const anim = queue.getActiveAnimations()[0]!;
+    expect(anim.fromX).toBe(cellCenterX(-1));
+    expect(anim.toX).toBe(cellCenterX(0));
+  });
+
+  it('is negative mid-flight for a right-edge push (board visually shifts left)', () => {
+    const { queue } = makeQueue([buildPushStep('right')]);
+    queue.tick(0);
+    queue.tick(PUSH_MS / 2);
+
+    expect(pushBoardOffsetX(queue.getActiveAnimations())).toBeLessThan(0);
+  });
+
+  it('does not move X at all for a top/bottom (row) push', () => {
+    const { queue } = makeQueue([buildPushStep('bottom')]);
+    queue.tick(0);
+    queue.tick(PUSH_MS / 2);
+    expect(pushBoardOffsetX(queue.getActiveAnimations())).toBe(0);
+  });
+
+  it('returns 0 for an empty animation list', () => {
+    expect(pushBoardOffsetX([])).toBe(0);
+  });
+});
+
+// ─── Score popups and indicators ────────────────────────────────────────────
+
+describe('score popups', () => {
+  it('spawns one popup per cleared cell and advances/fades them independently', () => {
+    const popups = spawnScorePopups([
+      { row: 1, col: 2 },
+      { row: 4, col: 5 },
+    ], 12, 100);
+
+    expect(popups).toEqual([
+      { value: 12, col: 2, row: 1, startTime: 100, duration: 800, progress: 0, alpha: 1, yOffset: 0 },
+      { value: 12, col: 5, row: 4, startTime: 100, duration: 800, progress: 0, alpha: 1, yOffset: 0 },
+    ]);
+
+    const midway = tickScorePopups(popups, 500);
+    expect(midway).toHaveLength(2);
+    expect(midway[0]!.progress).toBeCloseTo(0.5, 5);
+    expect(midway[0]!.alpha).toBeCloseTo(0.5, 5);
+    expect(midway[0]!.yOffset).toBeCloseTo(28 * easeOutCubic(0.5), 5);
+
+    expect(tickScorePopups(popups, 900)).toEqual([]);
+  });
+});
+
+describe('score indicators', () => {
+  it('spawns, scales, fades, and prunes score indicators', () => {
+    const indicator = spawnScoreIndicator('CHAIN 3', 'x9 +63', 200);
+
+    expect(indicator).toEqual({
+      title: 'CHAIN 3',
+      detail: 'x9 +63',
+      startTime: 200,
+      duration: 1_100,
+      progress: 0,
+      alpha: 1,
+      scale: 0.85,
+    });
+
+    const early = tickScoreIndicators([indicator], 310);
+    expect(early).toHaveLength(1);
+    expect(early[0]!.progress).toBeCloseTo(0.1, 5);
+    expect(early[0]!.alpha).toBe(1);
+    expect(early[0]!.scale).toBeGreaterThan(0.85);
+
+    const fading = tickScoreIndicators([indicator], 1_020);
+    expect(fading).toHaveLength(1);
+    expect(fading[0]!.progress).toBeCloseTo((1_020 - 200) / 1_100, 5);
+    expect(fading[0]!.alpha).toBeLessThan(1);
+    expect(fading[0]!.scale).toBeCloseTo(1, 5);
+
+    expect(tickScoreIndicators([indicator], 1_300)).toEqual([]);
   });
 });

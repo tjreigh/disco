@@ -3,8 +3,29 @@ import type { Board, Disc } from './model.js';
 export enum GamePhase {
   Menu = 'menu',
   WaitingForDrop = 'waiting',
+  /** Gravity mode only: a tilt is in progress (started via tiltGravity), not yet committed or cancelled. */
+  Aiming = 'aiming',
   Animating = 'animating',
   GameOver = 'game-over',
+}
+
+export interface GravityState {
+  /**
+   * Current gravity angle in degrees, continuous and unbounded (not
+   * normalized mod 360). 0 = straight down. Drags continuously during
+   * GamePhase.Aiming (see tiltGravity), but GameEngine.commitTilt snaps and
+   * persists it to the nearest of 8 directions (0/45/90/.../315) — so
+   * outside of Aiming this always holds one of those 8 exact values. See
+   * snapAngleToEightDirections in gravity.ts for why: settling only
+   * produces a shape the clear-checker fully recognizes as a line at those
+   * 8 angles, so leaving it unsnapped made piles that visibly looked like a
+   * line not clear.
+   */
+  angle: number;
+  /** Angle at the start of the in-progress tilt action — tiltGravity/cancelTilt use this as the reference point, not the raw angle. */
+  turnStartAngle: number;
+  /** Maximum absolute tilt allowed from turnStartAngle for one tilt action. */
+  maxTiltDelta: number;
 }
 
 export interface GameState {
@@ -21,6 +42,7 @@ export interface GameState {
   board: Board;
   currentDisc: Disc;
   nextDisc: Disc;
+  /** Column cursor for top/bottom entry; reinterpreted as a row cursor for left/right entry (Gravity mode only) — the axis is determined by the mode's current entry edge, not by this field's name. */
   cursorCol: number;
   score: number;
   dropCount: number;
@@ -29,4 +51,6 @@ export interface GameState {
   turnsPerLevel: number;
   /** Turns left within the current level's budget. */
   turnsRemaining: number;
+  /** Only present for Gravity mode. */
+  gravity?: GravityState | undefined;
 }

@@ -143,7 +143,7 @@ function stepText(result: TurnResult): string[] {
   return result.steps.map((step, index) => {
     switch (step.kind) {
       case StepKind.Drop:
-        return `${index + 1}. DROP #${step.disc.id} value=${step.disc.value} → ${position(step.toLandRow, step.col)}`;
+        return `${index + 1}. DROP #${step.disc.id} value=${step.disc.value} → ${position(step.landPos.row, step.landPos.col)}`;
       case StepKind.Clear:
         return `${index + 1}. CLEAR chain=${step.chainLevel} [${step.cleared.map(p => position(p.row, p.col)).join(', ')}] +${step.pointsAwarded}`;
       case StepKind.Reveal:
@@ -151,7 +151,7 @@ function stepText(result: TurnResult): string[] {
       case StepKind.Fall:
         return `${index + 1}. FALL ${step.moves.map(m => `${position(m.from.row, m.from.col)}→${position(m.to.row, m.to.col)}`).join(', ')}`;
       case StepKind.Push:
-        return `${index + 1}. PUSH ${step.newRow.length} cracked tiles`;
+        return `${index + 1}. PUSH ${step.newDiscs.length} cracked tiles from ${step.edge}`;
       case StepKind.Bonus:
         return `${index + 1}. BONUS ${step.bonusKind} +${step.pointsAwarded}`;
     }
