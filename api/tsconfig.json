@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "isolatedModules": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "strict": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"],
+    "sourceMap": true,
+    "declaration": false,
+    "removeComments": false,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*"]
+}

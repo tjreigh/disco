@@ -9,13 +9,24 @@ The headless rules live under `src/game/`. Rendering and DOM UI live under
 These adapters are coordinated by `src/app/game-controller.ts` around the
 synchronous `GameEngine` turn result.
 
+The browser game is a static Cloudflare Pages deploy. Its runtime has no
+client framework or bundled third-party game dependencies; `yarn build`
+compiles `src/` into `public/` and copies `index.html`.
+
+An optional account/statistics API lives under `api/`. It is a separate Fastify
+and SQLite Node service for VPS deployment, used for OIDC sign-in, cross-device
+stats sync, score submissions, and leaderboards. It has its own package,
+dependencies, tests, deployment notes, and lockfile so the API does not change
+the static Pages build surface. See `api/README.md` for API setup and VPS
+deployment details.
+
 Run all headless tests:
 
 ```sh
-npm test
+yarn test
 ```
 
-To run only the turn-level engine tests, use `npm run test:engine`.
+To run only the turn-level engine tests, use `yarn run test:engine`.
 
 The engine accepts injected disc factories, so tests can use exact sequences
 instead of mocking `Math.random()`:

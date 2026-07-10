@@ -207,6 +207,33 @@
       font-size: 42px;
       letter-spacing: .12em;
     }
+    .home-auth {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      width: min(340px, 92vw);
+      min-height: 34px;
+      color: #9fb3c8;
+      font-size: 12px;
+    }
+    .home-auth-status {
+      min-width: 0;
+      overflow-wrap: anywhere;
+      line-height: 1.35;
+    }
+    .home-auth-button {
+      flex: 0 0 auto;
+      border: 1px solid #486581;
+      border-radius: 5px;
+      padding: 7px 10px;
+      background: #102a43;
+      color: #d9e2ec;
+      font: 700 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: .08em;
+      cursor: pointer;
+    }
+    .home-auth-button:disabled { opacity: .6; cursor: default; }
     .home-mode-list {
       display: flex;
       flex-direction: column;

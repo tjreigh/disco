@@ -1,5 +1,6 @@
 import type { GameModeConfig } from '../game/modes/mode.js';
 import type { GameStats } from '../game/stats.js';
+import type { AccountStatsState } from '../platform/account-stats-store.js';
 
 // DOM overlay for mode selection, following the same plain-DOM construction
 // pattern as DebugPanel (document.createElement, no framework). Covers the
@@ -7,6 +8,7 @@ import type { GameStats } from '../game/stats.js';
 // underneath it because the overlay sits on top with position: fixed.
 export class HomeScreen {
   private readonly overlay: HTMLElement;
+  private readonly authBar: HTMLElement;
   private readonly cardsContainer: HTMLElement;
   private readonly backButton: HTMLButtonElement;
 
@@ -18,6 +20,9 @@ export class HomeScreen {
     private readonly modes: readonly GameModeConfig[],
     private readonly onSelectMode: (mode: GameModeConfig) => void,
     private readonly loadStats: (modeId: string) => GameStats,
+    private readonly getAuthState: () => AccountStatsState,
+    private readonly onLogin: () => void,
+    private readonly onLogout: () => void,
   ) {
     this.overlay = document.createElement('div');
     this.overlay.className = 'home-screen';
@@ -27,10 +32,13 @@ export class HomeScreen {
     title.className = 'home-title';
     title.textContent = 'DISCO';
 
+    this.authBar = document.createElement('div');
+    this.authBar.className = 'home-auth';
+
     this.cardsContainer = document.createElement('div');
     this.cardsContainer.className = 'home-mode-list';
 
-    this.overlay.append(title, this.cardsContainer);
+    this.overlay.append(title, this.authBar, this.cardsContainer);
     document.body.append(this.overlay);
 
     this.backButton = document.createElement('button');
@@ -41,6 +49,7 @@ export class HomeScreen {
     document.body.append(this.backButton);
 
     this.renderCards();
+    this.renderAuth();
   }
 
   open(): void {
@@ -56,6 +65,42 @@ export class HomeScreen {
 
   refreshStats(): void {
     this.renderCards();
+  }
+
+  refreshAuth(): void {
+    this.renderAuth();
+  }
+
+  private renderAuth(): void {
+    this.authBar.replaceChildren();
+    const auth = this.getAuthState();
+
+    const status = document.createElement('span');
+    status.className = 'home-auth-status';
+    if (auth.loading) {
+      status.textContent = 'Checking account...';
+    } else if (!auth.apiAvailable) {
+      status.textContent = 'Playing offline';
+    } else if (auth.account) {
+      status.textContent = auth.account.displayName ? `Signed in as ${auth.account.displayName}` : 'Signed in';
+    } else {
+      status.textContent = 'Guest stats stay on this device';
+    }
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'home-auth-button';
+    button.textContent = auth.account ? 'SIGN OUT' : 'SIGN IN';
+    button.disabled = auth.loading;
+    button.addEventListener('click', () => {
+      if (auth.account) {
+        this.onLogout();
+      } else {
+        this.onLogin();
+      }
+    });
+
+    this.authBar.append(status, button);
   }
 
   private renderCards(): void {

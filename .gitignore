@@ -3,3 +3,6 @@ dist/
 public/
 package-lock.json
 *.lock
+!api/yarn.lock
+api/data/
+api/dist/

@@ -20,7 +20,7 @@ import { AudioManager } from '../platform/audio-manager.js';
 import { HomeScreen } from '../ui/home-screen.js';
 import type { GameStats } from '../game/stats.js';
 import { recordCompletedGame, updateRecords } from '../game/stats.js';
-import { loadStats, saveStats } from '../platform/cookie-stats-store.js';
+import { AccountStatsStore } from '../platform/account-stats-store.js';
 import { applyStepToVisualBoard } from './visual-board.js';
 import { setGridSize } from '../ui/rendering/layout.js';
 
@@ -47,6 +47,8 @@ export class Game {
   private scorePopups: ScorePopup[] = [];
   private scoreIndicators: ScoreIndicator[] = [];
   private stats: GameStats;
+  private statsStore: AccountStatsStore;
+  private unsubscribeStatsStore: (() => void) | null = null;
   private longestStreakThisGame = 0;
   private gameRecorded = false;
 
@@ -59,10 +61,19 @@ export class Game {
     this.state.phase = GamePhase.Menu; // suppress gameplay until a mode is selected
     this.debug    = new DebugPanel(this.state);
     this.visualBoard = makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
-    this.stats = loadStats(this.mode.id);
+    this.statsStore = new AccountStatsStore(GAME_MODES);
+    this.stats = this.statsStore.loadStats(this.mode.id);
 
-    this.homeScreen = new HomeScreen(GAME_MODES, mode => this.startGame(mode), loadStats);
+    this.homeScreen = new HomeScreen(
+      GAME_MODES,
+      mode => this.startGame(mode),
+      modeId => this.statsStore.loadStats(modeId),
+      () => this.statsStore.getState(),
+      () => this.statsStore.login(),
+      () => void this.statsStore.logout(),
+    );
     this.homeScreen.onRequestMenu = () => this.returnToMenu();
+    this.unsubscribeStatsStore = this.statsStore.subscribe(() => this.handleStatsStoreUpdate());
     this.homeScreen.open();
 
     this.input = new InputHandler(
@@ -84,7 +95,7 @@ export class Game {
   private startGame(mode: GameModeConfig): void {
     this.mode = mode;
     this.engine.reconfigure(mode); // mutates engine.state in place; never replaces it
-    this.stats = loadStats(mode.id);
+    this.stats = this.statsStore.loadStats(mode.id);
     setGridSize(mode.board.cols, mode.board.rows);
     this.renderer.resize();
     this.visualBoard = makeEmptyBoard(mode.board.cols, mode.board.rows);
@@ -152,7 +163,7 @@ export class Game {
     );
     this.longestStreakThisGame = Math.max(this.longestStreakThisGame, longestStreakThisTurn);
     const recordsImproved = updateRecords(this.stats, this.state.score, this.longestStreakThisGame);
-    if (recordsImproved && !result.gameOver) saveStats(this.mode.id, this.stats);
+    if (recordsImproved && !result.gameOver) this.statsStore.saveStats(this.mode.id, this.stats);
     this.visualBoard = result.boardBefore;
     if (result.gameOver) this.recordGameEnd();
 
@@ -233,8 +244,21 @@ export class Game {
   private recordGameEnd(): void {
     if (!this.gameRecorded) {
       recordCompletedGame(this.stats, this.state.score);
-      saveStats(this.mode.id, this.stats);
+      this.statsStore.recordCompletedGame(
+        this.mode.id,
+        this.stats,
+        this.state.score,
+        this.longestStreakThisGame,
+      );
       this.gameRecorded = true;
+    }
+  }
+
+  private handleStatsStoreUpdate(): void {
+    this.homeScreen.refreshStats();
+    this.homeScreen.refreshAuth();
+    if (this.state.phase === GamePhase.Menu || this.state.phase === GamePhase.GameOver) {
+      this.stats = this.statsStore.loadStats(this.mode.id);
     }
   }
 
@@ -252,6 +276,7 @@ export class Game {
 
   destroy(): void {
     cancelAnimationFrame(this.rafId);
+    this.unsubscribeStatsStore?.();
     this.input.destroy();
   }
 
