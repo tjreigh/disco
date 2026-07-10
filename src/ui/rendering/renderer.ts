@@ -83,12 +83,13 @@ export class Renderer {
     ctx.clearRect(0, 0, canvasLogicalWidth(), canvasLogicalHeight());
     this.drawBackground();
     if (state.phase === GamePhase.Menu) return; // DOM overlay owns the screen entirely
-    this.drawGrid(state.cursorCol);
+    const showCursor = state.phase === GamePhase.WaitingForDrop;
+    this.drawGrid(state.cursorCol, showCursor);
     this.drawStaticDiscs(board, animations, animIds);
     this.drawAnimatedDiscs(animations);
     this.drawScorePopups(scorePopups);
     this.drawScoreIndicators(scoreIndicators);
-    if (state.phase === GamePhase.WaitingForDrop) {
+    if (showCursor) {
       this.drawGhost(state.cursorCol, state.currentDisc, board);
     }
     this.drawHUD(state, displayScore, initialTurnsPerLevel, levelProgress);
@@ -103,15 +104,17 @@ export class Renderer {
     this.ctx.fillRect(0, 0, canvasLogicalWidth(), canvasLogicalHeight());
   }
 
-  private drawGrid(cursorCol: number): void {
+  private drawGrid(cursorCol: number, showCursor: boolean): void {
     const { ctx } = this;
     const ox = gridOriginX();
     const oy = gridOriginY();
     const cs = cellSize();
 
-    // Column highlight drawn first so cell backgrounds paint over the edges.
-    ctx.fillStyle = COLOR_COL_HOVER;
-    ctx.fillRect(ox + cursorCol * cs, oy, cs, gridH());
+    if (showCursor) {
+      // Column highlight drawn first so cell backgrounds paint over the edges.
+      ctx.fillStyle = COLOR_COL_HOVER;
+      ctx.fillRect(ox + cursorCol * cs, oy, cs, gridH());
+    }
 
     for (let r = 0; r < gridRows(); r++) {
       for (let c = 0; c < gridCols(); c++) {
