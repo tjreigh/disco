@@ -2,28 +2,52 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Disco</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; }
     body {
       background: #1a1a2e;
-      display: flex;
-      justify-content: center;
-      align-items: center;
       min-height: 100vh;
+      min-height: 100dvh;
       overflow: hidden;
       font-family: system-ui, sans-serif;
     }
+    .app-shell {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      width: 100%;
+      height: 100vh;
+      height: 100dvh;
+      min-height: 0;
+      overflow: hidden;
+      background: #1a1a2e;
+    }
+    .shell-region {
+      min-height: 0;
+      pointer-events: none;
+    }
+    .shell-region--top { padding-top: env(safe-area-inset-top); }
+    .shell-region--bottom { padding-bottom: env(safe-area-inset-bottom); }
+    .game-stage {
+      position: relative;
+      display: grid;
+      place-items: center;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+    }
     canvas {
       display: block;
+      flex: none;
       touch-action: none;
       cursor: pointer;
     }
     .debug-toggle {
       position: fixed;
-      right: 12px;
-      top: 12px;
+      right: max(12px, env(safe-area-inset-right));
+      top: max(12px, env(safe-area-inset-top));
       z-index: 20;
       border: 1px solid #486581;
       border-radius: 5px;
@@ -37,10 +61,10 @@
     .debug-panel {
       position: fixed;
       z-index: 30;
-      top: 0;
-      right: 0;
+      top: env(safe-area-inset-top);
+      right: env(safe-area-inset-right);
+      bottom: env(safe-area-inset-bottom);
       width: min(440px, 100vw);
-      height: 100vh;
       display: flex;
       flex-direction: column;
       color: #d9e2ec;
@@ -181,7 +205,10 @@
     .debug-flag--active { border-color: #ffc857; background: #6b4f16; color: #fff2b2; }
     @media (max-width: 600px) {
       .debug-panel { width: 100vw; }
-      .debug-toggle { top: 6px; right: 6px; }
+      .debug-toggle {
+        top: max(6px, env(safe-area-inset-top));
+        right: max(6px, env(safe-area-inset-right));
+      }
     }
     .home-screen {
       position: fixed;
@@ -192,7 +219,7 @@
       align-items: center;
       justify-content: center;
       gap: 28px;
-      padding: 24px;
+      padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
       background: #1a1a2e;
       opacity: 0;
       pointer-events: none;
@@ -288,8 +315,8 @@
     .home-mode-card--disabled:hover { border-color: #486581; background: #102a43; }
     .home-back-button {
       position: fixed;
-      left: 12px;
-      top: 12px;
+      top: max(12px, env(safe-area-inset-top));
+      left: max(12px, env(safe-area-inset-left));
       z-index: 20;
       border: 1px solid #486581;
       border-radius: 5px;
@@ -313,7 +340,7 @@
       z-index: 35;
       display: grid;
       place-items: center;
-      padding: 24px;
+      padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
       background: rgba(10, 16, 32, .72);
       opacity: 0;
       pointer-events: none;

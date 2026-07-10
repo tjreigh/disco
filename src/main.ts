@@ -1,7 +1,24 @@
 import { Game } from './app/game-controller.js';
 
+const shell = document.createElement('main');
+shell.className = 'app-shell';
+
+const topRegion = document.createElement('div');
+topRegion.className = 'shell-region shell-region--top';
+topRegion.setAttribute('aria-hidden', 'true');
+
+const stage = document.createElement('div');
+stage.className = 'game-stage';
+
 const canvas = document.createElement('canvas');
-document.body.appendChild(canvas);
+stage.appendChild(canvas);
+
+const bottomRegion = document.createElement('div');
+bottomRegion.className = 'shell-region shell-region--bottom';
+bottomRegion.setAttribute('aria-hidden', 'true');
+
+shell.append(topRegion, stage, bottomRegion);
+document.body.appendChild(shell);
 
 const game = new Game(canvas);
 

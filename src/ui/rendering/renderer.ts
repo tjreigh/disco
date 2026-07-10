@@ -67,7 +67,12 @@ export class Renderer {
 
   resize(): void {
     // Recompute cell size first — all geometry functions depend on it.
-    updateCellSize();
+    const stage = this.canvas.parentElement;
+    const bounds = stage?.getBoundingClientRect();
+    const stageBounds = bounds && bounds.width > 0 && bounds.height > 0
+      ? { width: bounds.width, height: bounds.height }
+      : undefined;
+    updateCellSize(stageBounds);
     this.dpr = window.devicePixelRatio || 1;
     const lw = canvasLogicalWidth();
     const lh = canvasLogicalHeight();

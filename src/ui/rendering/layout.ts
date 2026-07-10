@@ -6,11 +6,18 @@ const GRID_PAD_V = 8;
 export const DEFAULT_BOARD_COLS = 7;
 export const DEFAULT_BOARD_ROWS = 7;
 
-// Module-level cell size, updated by updateCellSize() on every resize.
-// All geometry functions read from this so a single resize call propagates everywhere.
+// Module-level geometry, updated by updateCellSize() on every resize. All
+// geometry functions read from this so a single resize call propagates everywhere.
 let _cellSize = MAX_CELL_SIZE;
 let _gridCols = DEFAULT_BOARD_COLS;
 let _gridRows = DEFAULT_BOARD_ROWS;
+let _layoutWidth = 0;
+let _layoutHeight = 0;
+
+export interface LayoutBounds {
+  width: number;
+  height: number;
+}
 
 export function setGridSize(cols: number, rows: number): void {
   _gridCols = Math.max(1, Math.floor(cols));
@@ -25,11 +32,13 @@ export function gridRows(): number {
   return _gridRows;
 }
 
-// Recomputes the cell size to fit the current viewport. Should be called at
-// startup and on every window resize before the canvas dimensions are recalculated.
-export function updateCellSize(): void {
-  const availW = window.innerWidth;
-  const availH = window.innerHeight - HUD_TOP_HEIGHT - HUD_BOTTOM_HEIGHT - GRID_PAD_V * 2;
+// Recomputes the cell size to fit the game stage. The viewport fallback keeps
+// layout helpers usable before the DOM shell exists and in isolated tests.
+export function updateCellSize(bounds?: LayoutBounds): void {
+  _layoutWidth = Math.max(0, bounds?.width ?? window.innerWidth);
+  _layoutHeight = Math.max(0, bounds?.height ?? window.innerHeight);
+  const availW = _layoutWidth;
+  const availH = _layoutHeight - HUD_TOP_HEIGHT - HUD_BOTTOM_HEIGHT - GRID_PAD_V * 2;
   const byWidth  = Math.floor(availW / gridCols());
   const byHeight = Math.floor(availH / gridRows());
   _cellSize = Math.max(MIN_CELL_SIZE, Math.min(MAX_CELL_SIZE, byWidth, byHeight));
@@ -37,10 +46,10 @@ export function updateCellSize(): void {
 
 export function cellSize(): number { return _cellSize; }
 
-// Centers the grid horizontally — uses whatever space the viewport leaves after
-// fitting the cells. At least 4px so discs don't clip the canvas edge.
+// Centers the grid horizontally within the stage. Keeping the real remainder
+// (including values below 8px) prevents the canvas from exceeding a narrow stage.
 export function gridPadding(): number {
-  return Math.max(4, Math.floor((window.innerWidth - _cellSize * gridCols()) / 2));
+  return Math.max(0, Math.floor((_layoutWidth - _cellSize * gridCols()) / 2));
 }
 
 export function gridW(): number { return _cellSize * gridCols(); }
