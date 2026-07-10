@@ -27,3 +27,11 @@ export const COLOR_GHOST        = 'rgba(255,255,255,0.18)';
 export const COLOR_SCORE_POPUP  = '#ffd700'; // warm gold — floating "+N" score popups
 export const COLOR_COL_HOVER    = 'rgba(255,255,255,0.07)';
 export const COLOR_GAMEOVER_BG  = 'rgba(0,0,0,0.75)';
+export const COLOR_GRAVITY_ACCENT = '#62b0e8'; // gravity compass, tilt arc, direction gradient
+// Diagonal lane overlay (rgba form of COLOR_GRAVITY_ACCENT — canvas dashed
+// strokes need per-stroke alpha, which a hex constant alone can't express).
+// Only drawn at the 4 diagonal snap angles, where clearing checks a diagonal
+// axis but a pile packed against a wall can still visually read as a plain
+// column/row — the lattice makes the actual check axis visible on the board
+// itself instead of only inferable from the compass.
+export const COLOR_GRAVITY_LANE = 'rgba(98, 176, 232, 0.28)';

@@ -1,21 +1,26 @@
-import type { Board, Disc } from '../../game/model.js';
+import type { Board, Disc, EntryEdge, GridPos } from '../../game/model.js';
 import { DiscKind } from '../../game/model.js';
-import type { GameState } from '../../game/state.js';
+import type { GameState, GravityState } from '../../game/state.js';
 import { GamePhase } from '../../game/state.js';
+import {
+  computeGravityVector, entryEdgeForAngle,
+  offBoardEntryPosition, snapAngleToEightDirections,
+} from '../../game/gravity.js';
 import type { RichDiscAnimation, ScoreIndicator, ScorePopup } from './animation-types.js';
 import {
   DISC_COLORS,
   COLOR_BG, COLOR_GRID_CELL, COLOR_GRID_LINE,
   COLOR_CRACKED_FILL, COLOR_CRACKED_DARK, COLOR_CRACK_LINE,
   COLOR_TEXT, COLOR_TEXT_DIM, COLOR_GHOST, COLOR_COL_HOVER,
-  COLOR_GAMEOVER_BG, COLOR_SCORE_POPUP, HUD_TOP_HEIGHT, HUD_BOTTOM_HEIGHT,
+  COLOR_GAMEOVER_BG, COLOR_SCORE_POPUP, COLOR_GRAVITY_ACCENT, COLOR_GRAVITY_LANE,
+  HUD_TOP_HEIGHT, HUD_BOTTOM_HEIGHT,
 } from './theme.js';
 import {
   cellCenterX, cellCenterY, gridOriginX, gridOriginY,
   canvasLogicalWidth, canvasLogicalHeight, gridW, gridH,
   gridPadding, cellSize, updateCellSize, gridCols, gridRows,
 } from './layout.js';
-import { interpolateY, interpolateX, pushBoardOffsetY } from './animation-queue.js';
+import { interpolateY, interpolateX, pushBoardOffsetX, pushBoardOffsetY } from './animation-queue.js';
 import type { GameStats } from '../../game/stats.js';
 
 interface LevelProgressDisplay {
@@ -32,6 +37,20 @@ export interface TutorialVisualState {
 function discR(): number { return cellSize() / 2 - Math.max(3, cellSize() * 0.07); }
 
 const isTouchDevice = () => ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+
+// Row cursor/lanes when gravity currently enters from the side, column
+// cursor/lanes otherwise (Classic, or Gravity mode pointing mostly up/down).
+function axisForGravity(gravity: GravityState | undefined): 'col' | 'row' {
+  if (!gravity) return 'col';
+  const entryEdge = entryEdgeForAngle(gravity.angle);
+  return entryEdge === 'left' || entryEdge === 'right' ? 'row' : 'col';
+}
+
+// gravity.ts's angle convention (0 = down, clockwise) to canvas's arc()
+// convention (0 = positive X axis, clockwise via increasing angle).
+function canvasAngleRad(gravityAngleDeg: number): number {
+  return ((90 - gravityAngleDeg) * Math.PI) / 180;
+}
 
 export class Renderer {
   readonly canvas: HTMLCanvasElement;
@@ -78,6 +97,7 @@ export class Renderer {
     initialTurnsPerLevel: number,
     levelProgress: LevelProgressDisplay,
     tutorial?: TutorialVisualState | null,
+    previewLanding?: GridPos | null,
   ): void {
     const { ctx } = this;
     // Build a set of disc IDs currently being animated. drawStaticDiscs uses
@@ -88,16 +108,28 @@ export class Renderer {
     ctx.clearRect(0, 0, canvasLogicalWidth(), canvasLogicalHeight());
     this.drawBackground();
     if (state.phase === GamePhase.Menu) return; // DOM overlay owns the screen entirely
+    if (state.gravity) this.drawGravityAmbient(state.gravity);
     const showCursor = state.phase === GamePhase.WaitingForDrop;
-    this.drawGrid(state.cursorCol, showCursor, tutorial ?? null);
+    const axis = axisForGravity(state.gravity);
+    const entryEdge = state.gravity ? entryEdgeForAngle(state.gravity.angle) : null;
+    this.drawGrid(state.cursorCol, showCursor, axis, tutorial ?? null, entryEdge);
+    if (state.gravity) this.drawDiagonalLanesIfActive(state.gravity.angle);
+    // During Aiming, `board` is already the live settle preview (the caller
+    // substitutes it) — drawn through the same static-disc path as any other
+    // committed board, no separate staged-disc rendering needed.
     this.drawStaticDiscs(board, animations, animIds);
     this.drawAnimatedDiscs(animations);
     this.drawScorePopups(scorePopups);
     this.drawScoreIndicators(scoreIndicators);
     if (showCursor) {
-      this.drawGhost(state.cursorCol, state.currentDisc, board);
+      this.drawGhost(state, board, previewLanding ?? null);
     }
     this.drawHUD(state, displayScore, initialTurnsPerLevel, levelProgress);
+    if (state.gravity) {
+      // Anchored to the top HUD band, not the grid, so it never covers a
+      // playable cell — large and unmissable rather than a small icon.
+      this.drawGravityCompass(state, canvasLogicalWidth() - gridPadding() - 36, HUD_TOP_HEIGHT * 0.5);
+    }
 
     if (state.phase === GamePhase.GameOver) {
       this.drawGameOver(state.score, stats);
@@ -109,16 +141,45 @@ export class Renderer {
     this.ctx.fillRect(0, 0, canvasLogicalWidth(), canvasLogicalHeight());
   }
 
-  private drawGrid(cursorCol: number, showCursor: boolean, tutorial: TutorialVisualState | null): void {
+  // A directional wash across the grid so "down" reads at a glance without
+  // hunting for the compass — sweeps from transparent (anti-gravity edge) to
+  // a faint accent tint (gravity edge). Purely ambient, drawn under the grid
+  // cells/discs so it never competes with gameplay content for legibility.
+  private drawGravityAmbient(gravity: GravityState): void {
+    const { ctx } = this;
+    const { gx, gy } = computeGravityVector(gravity.angle);
+    const cx = gridOriginX() + gridW() / 2;
+    const cy = gridOriginY() + gridH() / 2;
+    const radius = Math.max(gridW(), gridH()) * 0.8;
+    const gradient = ctx.createLinearGradient(cx - gx * radius, cy - gy * radius, cx + gx * radius, cy + gy * radius);
+    // rgba form of COLOR_GRAVITY_ACCENT (#62b0e8) — canvas gradients need
+    // per-stop alpha, which a hex constant alone can't express.
+    gradient.addColorStop(0, 'rgba(98, 176, 232, 0)');
+    gradient.addColorStop(0.6, 'rgba(98, 176, 232, 0)');
+    gradient.addColorStop(1, 'rgba(98, 176, 232, 0.20)');
+    ctx.save();
+    ctx.fillStyle = gradient;
+    ctx.fillRect(gridOriginX(), gridOriginY(), gridW(), gridH());
+    ctx.restore();
+  }
+
+  private drawGrid(
+    cursorLane: number, showCursor: boolean, axis: 'col' | 'row',
+    tutorial: TutorialVisualState | null, entryEdge: EntryEdge | null,
+  ): void {
     const { ctx } = this;
     const ox = gridOriginX();
     const oy = gridOriginY();
     const cs = cellSize();
 
     if (showCursor) {
-      // Column highlight drawn first so cell backgrounds paint over the edges.
+      // Lane highlight drawn first so cell backgrounds paint over the edges.
       ctx.fillStyle = COLOR_COL_HOVER;
-      ctx.fillRect(ox + cursorCol * cs, oy, cs, gridH());
+      if (axis === 'row') {
+        ctx.fillRect(ox, oy + cursorLane * cs, gridW(), cs);
+      } else {
+        ctx.fillRect(ox + cursorLane * cs, oy, cs, gridH());
+      }
     }
 
     for (let r = 0; r < gridRows(); r++) {
@@ -130,7 +191,8 @@ export class Renderer {
       }
     }
 
-    if (tutorial) this.drawTutorialColumns(tutorial.allowedCols);
+    if (tutorial && axis === 'col') this.drawTutorialColumns(tutorial.allowedCols);
+    if (tutorial && axis === 'row') this.drawTutorialRows(tutorial.allowedCols, entryEdge === 'right' ? 'right' : 'left');
 
     ctx.strokeStyle = COLOR_GRID_LINE;
     ctx.lineWidth = 1;
@@ -146,6 +208,68 @@ export class Renderer {
       ctx.lineTo(ox + gridW(), oy + r * cs);
       ctx.stroke();
     }
+  }
+
+  // At a cardinal snap angle (0/90/180/270), clearing checks plain
+  // rows/columns — the grid drawn above already IS that lattice, no overlay
+  // needed. At a diagonal snap angle (45/135/225/315), clearing instead
+  // checks runs along the two diagonals, but nothing about the plain
+  // upright grid shows that — and a pile pressed against a wall naturally
+  // looks like a straight column/row there regardless of the true gravity
+  // angle, since walls are axis-aligned no matter which way gravity points.
+  // Drawing the actual diagonal lattice makes the real check axis visible on
+  // the board itself, the same way the ordinary grid already does for
+  // cardinal angles. Uses the SNAPPED angle (matching whatever commit/preview
+  // would actually settle+clear under), not the raw dragged angle, so this
+  // updates live while aiming to show exactly what committing now would use.
+  private drawDiagonalLanesIfActive(angleDeg: number): void {
+    const snapped = snapAngleToEightDirections(angleDeg);
+    if (snapped % 90 === 0) return; // cardinal — the plain grid already shows it
+    this.drawDiagonalLattice();
+  }
+
+  private drawDiagonalLattice(): void {
+    const { ctx } = this;
+    const ox = gridOriginX();
+    const oy = gridOriginY();
+    const cs = cellSize();
+    const cols = gridCols();
+    const rows = gridRows();
+
+    // Draws one straight segment from grid vertex (startRow,startCol) to
+    // wherever stepping by (dRow,dCol) each cell first exits the grid —
+    // vertex-aligned, so lines land exactly on cell boundaries like the
+    // ordinary grid lines above.
+    const drawLine = (startRow: number, startCol: number, dRow: 1, dCol: 1 | -1): void => {
+      let endRow = startRow;
+      let endCol = startCol;
+      while (endRow + dRow >= 0 && endRow + dRow <= rows && endCol + dCol >= 0 && endCol + dCol <= cols) {
+        endRow += dRow;
+        endCol += dCol;
+      }
+      if (endRow === startRow && endCol === startCol) return; // zero-length, e.g. a corner
+      ctx.beginPath();
+      ctx.moveTo(ox + startCol * cs, oy + startRow * cs);
+      ctx.lineTo(ox + endCol * cs, oy + endRow * cs);
+      ctx.stroke();
+    };
+
+    ctx.save();
+    ctx.strokeStyle = COLOR_GRAVITY_LANE;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 5]);
+
+    // "\" family (down-right / up-left diagonals, row-col=const): every
+    // top-edge and left-edge vertex, stepping (+1,+1).
+    for (let c = 0; c <= cols; c++) drawLine(0, c, 1, 1);
+    for (let r = 1; r < rows; r++) drawLine(r, 0, 1, 1);
+
+    // "/" family (down-left / up-right diagonals, row+col=const): every
+    // top-edge and right-edge vertex, stepping (+1,-1).
+    for (let c = 0; c <= cols; c++) drawLine(0, c, 1, -1);
+    for (let r = 1; r < rows; r++) drawLine(r, cols, 1, -1);
+
+    ctx.restore();
   }
 
   private drawTutorialColumns(allowedCols: readonly number[]): void {
@@ -181,13 +305,56 @@ export class Renderer {
     }
   }
 
+  // Mirrors drawTutorialColumns for a Gravity-mode tutorial step whose
+  // gravity is tilted enough that lanes are ROWS (entry edge left/right) —
+  // e.g. TutorialStep.gravityAngleDeg pre-tilting a step to 90deg. The entry
+  // marker dot sits on whichever side discs actually enter from, matching
+  // entryEdge, instead of always the left like the column version's always-top.
+  private drawTutorialRows(allowedCols: readonly number[], entryEdge: 'left' | 'right'): void {
+    const { ctx } = this;
+    const ox = gridOriginX();
+    const oy = gridOriginY();
+    const cs = cellSize();
+    const left = ox + 1;
+    const width = gridW() - 2;
+    const markerX = entryEdge === 'left' ? ox - 6 : ox + gridW() + 6;
+
+    for (const row of allowedCols) {
+      if (row < 0 || row >= gridRows()) continue;
+      const y = oy + row * cs;
+
+      const gradient = ctx.createLinearGradient(ox, y, ox, y + cs);
+      gradient.addColorStop(0, 'rgba(46, 204, 113, 0.04)');
+      gradient.addColorStop(0.5, 'rgba(46, 204, 113, 0.22)');
+      gradient.addColorStop(1, 'rgba(46, 204, 113, 0.04)');
+
+      ctx.save();
+      ctx.fillStyle = gradient;
+      ctx.fillRect(left, y + 1, width, cs - 2);
+
+      ctx.strokeStyle = 'rgba(129, 230, 177, 0.72)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(ox + 3, y + 3, gridW() - 6, cs - 6);
+
+      ctx.fillStyle = 'rgba(129, 230, 177, 0.95)';
+      ctx.beginPath();
+      ctx.arc(markerX, y + cs / 2, Math.max(3, Math.min(5, cs * 0.08)), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
   private drawStaticDiscs(board: Board, animations: readonly RichDiscAnimation[], animIds: Set<number>): void {
+    // A top/bottom push only ever produces offsetY, left/right only ever
+    // offsetX — see pushBoardOffsetX/Y — so applying both unconditionally is
+    // always correct, not just for the vertical case Classic always used.
+    const offsetX = pushBoardOffsetX(animations);
     const offsetY = pushBoardOffsetY(animations);
     for (let r = 0; r < board.length; r++) {
       for (let c = 0; c < board[r]!.length; c++) {
         const disc = board[r]![c];
         if (!disc || animIds.has(disc.id)) continue;
-        this.drawDisc(disc, cellCenterX(c), cellCenterY(r) + offsetY, discR(), 1, 1);
+        this.drawDisc(disc, cellCenterX(c) + offsetX, cellCenterY(r) + offsetY, discR(), 1, 1);
       }
     }
   }
@@ -240,7 +407,34 @@ export class Renderer {
     });
   }
 
-  private drawGhost(cursorCol: number, disc: Disc, board: Board): void {
+  // Gravity mode: previewLanding is the TRUE predicted resting cell (computed
+  // by the caller via GameEngine.previewDropLanding, which actually runs the
+  // settle), not just the entry edge — so the ghost shows exactly where a
+  // drop would end up, same as Classic's straight-down ghost does.
+  private drawGhostGravity(state: GameState, previewLanding: GridPos | null): void {
+    if (!previewLanding) return; // lane full, or nothing to preview
+    const gravity = state.gravity!;
+    const entryEdge = entryEdgeForAngle(gravity.angle);
+    const off = offBoardEntryPosition(entryEdge, state.cursorCol, gridRows(), gridCols());
+    const cx = cellCenterX(previewLanding.col);
+    const cy = cellCenterY(previewLanding.row);
+    this.drawDisc(state.currentDisc, cx, cy, discR(), 0.32, 1);
+
+    const { ctx } = this;
+    ctx.strokeStyle = COLOR_GHOST;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 5]);
+    ctx.beginPath();
+    ctx.moveTo(cellCenterX(off.col), cellCenterY(off.row));
+    ctx.lineTo(cx, cy);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  private drawGhost(state: GameState, board: Board, previewLanding: GridPos | null): void {
+    if (state.gravity) { this.drawGhostGravity(state, previewLanding); return; }
+
+    const cursorCol = state.cursorCol;
     // Reproduce the same bottom-up scan as landingRow() to show where the
     // current disc would actually land if the player drops here.
     let landRow = -1;
@@ -251,7 +445,7 @@ export class Renderer {
 
     const cx = cellCenterX(cursorCol);
     const cy = cellCenterY(landRow);
-    this.drawDisc(disc, cx, cy, discR(), 0.28, 1);
+    this.drawDisc(state.currentDisc, cx, cy, discR(), 0.28, 1);
 
     // Dashed guide line from the top of the grid down to just above the ghost.
     const { ctx } = this;
@@ -264,6 +458,7 @@ export class Renderer {
     ctx.stroke();
     ctx.setLineDash([]);
   }
+
 
   private drawHUD(
     state: GameState,
@@ -317,10 +512,75 @@ export class Renderer {
     ctx.fillStyle = COLOR_TEXT_DIM;
     ctx.textAlign = 'right';
     // Show tap hint on touch devices, keyboard hint on desktop.
+    const aiming = state.phase === GamePhase.Aiming;
     const hint = isTouchDevice()
-      ? 'tap column to drop'
-      : '← → move  ↓ / click drop  R restart';
+      ? (aiming ? 'Q/E adjust (keyboard needed to tilt)' : state.gravity ? 'tap lane to drop' : 'tap column to drop')
+      : aiming
+        ? 'Q/E adjust  ↓ / Enter confirm  Esc cancel'
+        : (state.gravity
+          ? '← → move  ↓ drop  Q/E tilt  R restart'
+          : '← → move  ↓ / click drop  R restart');
     ctx.fillText(hint, lw - gp, hudCy + 8);
+  }
+
+  // Compact always-visible indicator of the current gravity direction. During
+  // Aiming, also draws a faint arc showing how far the player may still tilt
+  // from the turn's starting angle.
+  private drawGravityCompass(state: GameState, cx: number, cy: number): void {
+    const gravity = state.gravity;
+    if (!gravity) return;
+    const { ctx } = this;
+    const radius = 26;
+
+    // Opaque backdrop so the dial reads clearly against the score/board
+    // behind it instead of blending into whatever's underneath.
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius + 6, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
+    ctx.fill();
+    ctx.strokeStyle = COLOR_GRAVITY_ACCENT;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    if (state.phase === GamePhase.Aiming) {
+      const a1 = canvasAngleRad(gravity.turnStartAngle - gravity.maxTiltDelta);
+      const a2 = canvasAngleRad(gravity.turnStartAngle + gravity.maxTiltDelta);
+      ctx.save();
+      ctx.globalAlpha = 0.55;
+      ctx.strokeStyle = COLOR_GRAVITY_ACCENT;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius + 12, Math.min(a1, a2), Math.max(a1, a2));
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = COLOR_TEXT_DIM;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    const { gx, gy } = computeGravityVector(gravity.angle);
+    const tipX = cx + gx * radius * 0.82;
+    const tipY = cy + gy * radius * 0.82;
+    ctx.strokeStyle = COLOR_GRAVITY_ACCENT;
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(tipX, tipY);
+    ctx.stroke();
+
+    const headAngle = Math.atan2(gy, gx);
+    const headLen = 9;
+    ctx.fillStyle = COLOR_GRAVITY_ACCENT;
+    ctx.beginPath();
+    ctx.moveTo(tipX, tipY);
+    ctx.lineTo(tipX - headLen * Math.cos(headAngle - Math.PI / 6), tipY - headLen * Math.sin(headAngle - Math.PI / 6));
+    ctx.lineTo(tipX - headLen * Math.cos(headAngle + Math.PI / 6), tipY - headLen * Math.sin(headAngle + Math.PI / 6));
+    ctx.closePath();
+    ctx.fill();
   }
 
   // Circle size and spacing are based on the first level's turn budget and stay

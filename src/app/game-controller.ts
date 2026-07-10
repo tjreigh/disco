@@ -6,7 +6,9 @@ import type { PhysicsStep } from '../game/events.js';
 import { StepKind } from '../game/events.js';
 import type { ScoreIndicator, ScorePopup } from '../ui/rendering/animation-types.js';
 import { deepCloneBoard, makeEmptyBoard } from '../game/board.js';
+import { entryEdgeForAngle } from '../game/gravity.js';
 import { GameEngine } from '../game/engine.js';
+import type { TurnResult } from '../game/engine.js';
 import { CLASSIC_MODE, GAME_MODES } from '../game/modes/index.js';
 import { DebugPanel } from '../ui/debug/debug-panel.js';
 import {
@@ -108,6 +110,7 @@ export class Game {
       intent => this.handleIntent(intent),
       () => this.state.phase === GamePhase.GameOver,
       () => this.state.cursorCol,
+      () => this.currentAxis(),
     );
     // Bind before the first rAF call — rAF invokes the callback without `this`,
     // so without binding, every method call inside loop() would fail.
@@ -171,6 +174,27 @@ export class Game {
     this.homeScreen.open();
   }
 
+  // Column count for top/bottom entry, row count for left/right entry — this
+  // already generalizes to a Gravity-mode tutorial step too (e.g. one loaded
+  // pre-tilted via TutorialStep.gravityAngleDeg), since it only reads
+  // state.gravity, which loadScriptedState now always keeps in sync with the
+  // active mode/step.
+  private currentLaneCount(): number {
+    if (this.state.gravity) {
+      const entryEdge = entryEdgeForAngle(this.state.gravity.angle);
+      if (entryEdge === 'left' || entryEdge === 'right') return this.state.board.length;
+    }
+    return this.state.board[0]!.length;
+  }
+
+  private currentAxis(): 'col' | 'row' {
+    if (this.state.gravity) {
+      const entryEdge = entryEdgeForAngle(this.state.gravity.angle);
+      if (entryEdge === 'left' || entryEdge === 'right') return 'row';
+    }
+    return 'col';
+  }
+
   private handleIntent(intent: InputIntent): void {
     if (this.homeScreen.isGameMenuOpen()) return;
     if (this.state.phase === GamePhase.Menu) return; // overlay owns input; mode
@@ -184,15 +208,46 @@ export class Game {
       return;
     }
 
-    // All other intents are ignored while animating or after game over.
-    if (this.state.phase !== GamePhase.WaitingForDrop) return;
+    // Tilting is its own turn action, separate from dropping: pressing Q/E
+    // from WaitingForDrop begins it (engine.tiltGravity flips to Aiming on
+    // first call), further presses keep adjusting — none of this touches
+    // state.board or costs a turn until commitTilt (see the 'drop' case
+    // below, which doubles as "confirm" during Aiming).
+    if (intent.kind === 'tilt') {
+      if (this.state.phase === GamePhase.WaitingForDrop || this.state.phase === GamePhase.Aiming) {
+        this.engine.tiltGravity(intent.delta);
+        this.debug.refresh();
+      }
+      return;
+    }
 
-    const lastCol = this.state.board[0]!.length - 1;
+    // Backs out of an in-progress tilt for free — nothing was committed yet.
+    if (intent.kind === 'cancel') {
+      if (this.state.phase === GamePhase.Aiming) {
+        this.engine.cancelTilt();
+        this.debug.refresh();
+      }
+      return;
+    }
+
     if (intent.kind === 'move') {
-      const col = Math.max(0, Math.min(lastCol, intent.col));
+      if (this.state.phase !== GamePhase.WaitingForDrop) return;
+      const lastLane = this.currentLaneCount() - 1;
+      const col = Math.max(0, Math.min(lastLane, intent.col));
       this.engine.moveCursor(col);
-    } else if (intent.kind === 'drop') {
-      const col = Math.max(0, Math.min(lastCol, intent.col));
+      return;
+    }
+
+    if (intent.kind === 'drop') {
+      // Same physical action (click/tap/Enter/Space) confirms a tilt while one is in progress.
+      if (this.state.phase === GamePhase.Aiming) {
+        this.handleCommitTilt();
+        return;
+      }
+      if (this.state.phase !== GamePhase.WaitingForDrop) return;
+
+      const lastLane = this.currentLaneCount() - 1;
+      const col = Math.max(0, Math.min(lastLane, intent.col));
       const tutorialStep = this.currentTutorialStep();
       if (tutorialStep && !tutorialStep.allowedCols.includes(col)) {
         this.engine.moveCursor(tutorialStep.allowedCols[0] ?? col);
@@ -206,6 +261,16 @@ export class Game {
   private handleDrop(col: number): void {
     const previousLevelProgress = this.snapshotLevelProgress();
     const result = this.engine.drop(col);
+    this.processTurnResult(result, previousLevelProgress);
+  }
+
+  private handleCommitTilt(): void {
+    const previousLevelProgress = this.snapshotLevelProgress();
+    const result = this.engine.commitTilt();
+    this.processTurnResult(result, previousLevelProgress);
+  }
+
+  private processTurnResult(result: TurnResult, previousLevelProgress: LevelProgressDisplay): void {
     if (!result.accepted) {
       this.debug.recordTurn(result);
       if (result.gameOver) {
@@ -493,9 +558,22 @@ export class Game {
 
     const anims = this.animQueue?.getActiveAnimations() ?? [];
     const tutorialStep = this.currentTutorialStep();
+    // While a tilt is in progress, show how the board WOULD land at the
+    // current angle rather than its actual (untouched) committed state —
+    // this is a pure preview, recomputed every frame, nothing is mutated
+    // until the tilt is confirmed.
+    const boardToDraw = this.state.phase === GamePhase.Aiming
+      ? this.engine.previewSettledBoard()
+      : this.visualBoard;
+    // Gravity mode's ghost preview shows the TRUE predicted landing cell
+    // (not just the entry edge) so a drop's outcome is never a surprise —
+    // only meaningful while a lane is actually selectable.
+    const previewLanding = this.state.phase === GamePhase.WaitingForDrop && this.mode.gravity
+      ? this.engine.previewDropLanding(this.state.cursorCol)
+      : null;
     this.renderer.draw(
       this.state,
-      this.visualBoard,
+      boardToDraw,
       anims,
       this.stats,
       this.displayedScore,
@@ -504,6 +582,7 @@ export class Game {
       this.mode.initialTurnsPerLevel,
       this.displayedLevelProgress,
       tutorialStep ? { allowedCols: tutorialStep.allowedCols } : null,
+      previewLanding,
     );
   }
 }

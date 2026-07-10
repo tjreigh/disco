@@ -1,15 +1,22 @@
-import { pixelToCol } from '../ui/rendering/layout.js';
+import { pixelToCol, pixelToRow } from '../ui/rendering/layout.js';
 
 export type InputIntent =
+  // `col` is the generic lane cursor: a column index normally, or a row index
+  // when the current entry edge is left/right (Gravity mode only).
   | { kind: 'drop'; col: number }
   | { kind: 'move'; col: number }
+  | { kind: 'tilt'; delta: number }
+  | { kind: 'cancel' }
   | { kind: 'restart' };
+
+const TILT_STEP_DEG = 5;
 
 export class InputHandler {
   private canvas: HTMLCanvasElement;
   private onIntent: (intent: InputIntent) => void;
   private isGameOver: () => boolean;
   private getCursorCol: () => number;
+  private getAxis: () => 'col' | 'row';
   private touchStartX = 0;
   private touchStartY = 0;
   private touchStartTime = 0;
@@ -22,25 +29,33 @@ export class InputHandler {
     onIntent: (intent: InputIntent) => void,
     isGameOver: () => boolean,
     getCursorCol: () => number,
+    getAxis: () => 'col' | 'row' = () => 'col',
   ) {
     this.canvas      = canvas;
     this.onIntent    = onIntent;
     this.isGameOver  = isGameOver;
     this.getCursorCol = getCursorCol;
+    this.getAxis = getAxis;
     this.attach();
+  }
+
+  // Column index for pointer position on the 'col' axis, row index on 'row'.
+  private pixelToLane(clientX: number, clientY: number): number | null {
+    const rect = this.canvas.getBoundingClientRect();
+    return this.getAxis() === 'row' ? pixelToRow(rect, clientY) : pixelToCol(rect, clientX);
   }
 
   private attach(): void {
     const sig = { signal: this.abortCtrl.signal };
 
     this.canvas.addEventListener('mousemove', (e: MouseEvent) => {
-      const col = pixelToCol(this.canvas.getBoundingClientRect(), e.clientX);
-      if (col !== null) this.emit({ kind: 'move', col });
+      const lane = this.pixelToLane(e.clientX, e.clientY);
+      if (lane !== null) this.emit({ kind: 'move', col: lane });
     }, sig);
 
     this.canvas.addEventListener('click', (e: MouseEvent) => {
-      const col = pixelToCol(this.canvas.getBoundingClientRect(), e.clientX);
-      if (col !== null) this.emit({ kind: 'drop', col });
+      const lane = this.pixelToLane(e.clientX, e.clientY);
+      if (lane !== null) this.emit({ kind: 'drop', col: lane });
     }, sig);
 
     document.addEventListener('keydown', (e: KeyboardEvent) => {
@@ -50,26 +65,58 @@ export class InputHandler {
       // as document.body or the canvas (both default to tabIndex -1).
       if (e.target instanceof HTMLElement && (e.target.isContentEditable || e.target.tabIndex >= 0)) return;
 
+      const axis = this.getAxis();
       switch (e.key) {
         case 'ArrowLeft':
         case 'h':
+          if (axis !== 'col') break;
           e.preventDefault();
           this.emit({ kind: 'move', col: this.getCursorCol() - 1 });
           break;
         case 'ArrowRight':
         case 'l':
+          if (axis !== 'col') break;
           e.preventDefault();
           this.emit({ kind: 'move', col: this.getCursorCol() + 1 });
           break;
+        case 'ArrowUp':
+        case 'k':
+          if (axis !== 'row') break;
+          e.preventDefault();
+          this.emit({ kind: 'move', col: this.getCursorCol() - 1 });
+          break;
         case 'ArrowDown':
+        case 'j':
+          if (axis === 'row') {
+            e.preventDefault();
+            this.emit({ kind: 'move', col: this.getCursorCol() + 1 });
+            break;
+          }
+          e.preventDefault();
+          this.emit({ kind: 'drop', col: this.getCursorCol() });
+          break;
         case ' ':
         case 'Enter':
           e.preventDefault();
           this.emit({ kind: 'drop', col: this.getCursorCol() });
           break;
+        case 'q':
+        case 'Q':
+          e.preventDefault();
+          this.emit({ kind: 'tilt', delta: -TILT_STEP_DEG });
+          break;
+        case 'e':
+        case 'E':
+          e.preventDefault();
+          this.emit({ kind: 'tilt', delta: TILT_STEP_DEG });
+          break;
         case 'r':
         case 'R':
           this.emit({ kind: 'restart' });
+          break;
+        case 'Escape':
+          e.preventDefault();
+          this.emit({ kind: 'cancel' });
           break;
       }
     }, sig);
@@ -84,16 +131,16 @@ export class InputHandler {
       this.touchStartX    = t.clientX;
       this.touchStartY    = t.clientY;
       this.touchStartTime = Date.now();
-      const col = pixelToCol(this.canvas.getBoundingClientRect(), t.clientX);
-      if (col !== null) this.emit({ kind: 'move', col });
+      const lane = this.pixelToLane(t.clientX, t.clientY);
+      if (lane !== null) this.emit({ kind: 'move', col: lane });
     }, { ...sig, passive: false });
 
     this.canvas.addEventListener('touchmove', (e: TouchEvent) => {
       e.preventDefault();
       const t = e.touches[0];
       if (!t) return;
-      const col = pixelToCol(this.canvas.getBoundingClientRect(), t.clientX);
-      if (col !== null) this.emit({ kind: 'move', col });
+      const lane = this.pixelToLane(t.clientX, t.clientY);
+      if (lane !== null) this.emit({ kind: 'move', col: lane });
     }, { ...sig, passive: false });
 
     this.canvas.addEventListener('touchend', (e: TouchEvent) => {
@@ -109,8 +156,8 @@ export class InputHandler {
           this.emit({ kind: 'restart' });
           return;
         }
-        const col = pixelToCol(this.canvas.getBoundingClientRect(), t.clientX);
-        if (col !== null) this.emit({ kind: 'drop', col });
+        const lane = this.pixelToLane(t.clientX, t.clientY);
+        if (lane !== null) this.emit({ kind: 'drop', col: lane });
       }
     }, sig);
   }

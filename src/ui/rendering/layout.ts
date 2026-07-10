@@ -80,3 +80,15 @@ export function pixelToCol(canvasRect: DOMRect, clientX: number): number | null 
   const col = Math.floor(x / renderedCell);
   return col >= 0 && col < gridCols() ? col : null;
 }
+
+// Converts a client Y coordinate to a grid row index, or null if outside the
+// grid. Mirrors pixelToCol — needed for lane selection when gravity mode's
+// entry edge is left/right (lanes are rows, not columns).
+export function pixelToRow(canvasRect: DOMRect, clientY: number): number | null {
+  const renderedGridH = canvasRect.height * (gridH() / canvasLogicalHeight());
+  const renderedOriginY = canvasRect.height * (gridOriginY() / canvasLogicalHeight());
+  const y = clientY - canvasRect.top - renderedOriginY;
+  const renderedCell = renderedGridH / gridRows();
+  const row = Math.floor(y / renderedCell);
+  return row >= 0 && row < gridRows() ? row : null;
+}
