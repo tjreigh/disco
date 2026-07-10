@@ -4,8 +4,8 @@ import {
   placeDisc, removeDisc,
   countInRow, countInCol,
   countHorizontalRun, countVerticalRun,
-  landingRow, isColumnFull,
-  applyGravity,
+  landingRow, isColumnFull, isBoardFull,
+  applyGravity, applyDirectionalGravity,
   DEFAULT_BOARD_COLS, DEFAULT_BOARD_ROWS,
 } from '../../game/board.js';
 import { makeDisc } from '../../game/disc.js';
@@ -142,6 +142,28 @@ describe('isColumnFull', () => {
   });
 });
 
+// ─── isBoardFull ─────────────────────────────────────────────────────────────
+
+describe('isBoardFull', () => {
+  test('false for empty board', () => {
+    expect(isBoardFull(makeEmptyBoard())).toBe(false);
+  });
+
+  test('false when row 0 is full but other cells are empty (would fool a row-0-only check)', () => {
+    const board = makeEmptyBoard();
+    for (let c = 0; c < DEFAULT_BOARD_COLS; c++) placeDisc(board, 0, c, makeDisc(1, DiscKind.Numbered));
+    expect(isBoardFull(board)).toBe(false);
+  });
+
+  test('true only when every cell is occupied', () => {
+    const board = makeEmptyBoard();
+    for (let r = 0; r < DEFAULT_BOARD_ROWS; r++) {
+      for (let c = 0; c < DEFAULT_BOARD_COLS; c++) placeDisc(board, r, c, makeDisc(1, DiscKind.Numbered));
+    }
+    expect(isBoardFull(board)).toBe(true);
+  });
+});
+
 // ─── applyGravity ────────────────────────────────────────────────────────────
 
 describe('applyGravity', () => {
@@ -175,6 +197,80 @@ describe('applyGravity', () => {
     // b was lower, ends up at row 6; a was higher, ends up at row 5
     expect(board[6]![0]).toBe(b);
     expect(board[5]![0]).toBe(a);
+  });
+});
+
+// ─── applyDirectionalGravity ─────────────────────────────────────────────────
+
+describe('applyDirectionalGravity', () => {
+  test('down matches applyGravity', () => {
+    const a = makeEmptyBoard();
+    const b = makeEmptyBoard();
+    const discA = makeDisc(1, DiscKind.Numbered);
+    const discB = makeDisc(2, DiscKind.Numbered);
+    placeDisc(a, 0, 3, discA);
+    placeDisc(a, 3, 3, discB);
+    placeDisc(b, 0, 3, { ...discA });
+    placeDisc(b, 3, 3, { ...discB });
+
+    applyGravity(a);
+    applyDirectionalGravity(b, 'down');
+    expect(b).toEqual(a);
+  });
+
+  test('up compacts discs to row 0, preserving relative order', () => {
+    const board = makeEmptyBoard();
+    const top = makeDisc(1, DiscKind.Numbered);
+    const bottom = makeDisc(2, DiscKind.Numbered);
+    placeDisc(board, 3, 2, top);
+    placeDisc(board, 6, 2, bottom);
+
+    const step = applyDirectionalGravity(board, 'up');
+    expect(board[0]![2]).toBe(top);
+    expect(board[1]![2]).toBe(bottom);
+    expect(step.moves).toHaveLength(2);
+  });
+
+  test('left compacts discs to col 0 within a row, preserving relative order', () => {
+    const board = makeEmptyBoard();
+    const nearer = makeDisc(1, DiscKind.Numbered);
+    const farther = makeDisc(2, DiscKind.Numbered);
+    placeDisc(board, 4, 2, nearer);
+    placeDisc(board, 4, 5, farther);
+
+    applyDirectionalGravity(board, 'left');
+    expect(board[4]![0]).toBe(nearer);
+    expect(board[4]![1]).toBe(farther);
+  });
+
+  test('right compacts discs to the last column within a row, leaving an already-settled disc unmoved', () => {
+    const board = makeEmptyBoard();
+    const nearer = makeDisc(1, DiscKind.Numbered);
+    const settled = makeDisc(2, DiscKind.Numbered);
+    placeDisc(board, 4, 2, nearer);
+    placeDisc(board, 4, 6, settled);
+
+    const step = applyDirectionalGravity(board, 'right');
+    expect(board[4]![6]).toBe(settled);
+    expect(board[4]![5]).toBe(nearer);
+    expect(step.moves.find(m => m.disc.id === settled.id)).toBeUndefined();
+  });
+
+  test('no moves when a lane is already settled', () => {
+    const board = makeEmptyBoard();
+    placeDisc(board, 4, 0, makeDisc(1, DiscKind.Numbered));
+    const step = applyDirectionalGravity(board, 'left');
+    expect(step.moves).toHaveLength(0);
+  });
+
+  test('moves report both row and col for horizontal gravity', () => {
+    const board = makeEmptyBoard();
+    const disc = makeDisc(1, DiscKind.Numbered);
+    placeDisc(board, 4, 2, disc);
+    const step = applyDirectionalGravity(board, 'right');
+    expect(step.moves).toEqual([
+      { from: { row: 4, col: 2 }, to: { row: 4, col: 6 }, disc: { ...disc } },
+    ]);
   });
 });
 

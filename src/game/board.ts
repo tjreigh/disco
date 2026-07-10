@@ -79,46 +79,84 @@ export function isColumnFull(board: Board, col: number): boolean {
   return board[0]![col] !== null;
 }
 
-/** True when every column has a disc in row 0 (the board has no legal drop left). */
+// A genuine full-board scan rather than a row-0 shortcut: for Classic, gravity
+// always fully compacts every column, so "row 0 full" happens to imply "board
+// full" — but a continuous-angle settle (Gravity mode) can leave gaps near
+// corners even with an edge row packed, so that shortcut isn't valid in general.
+/** True when every cell on the board is occupied (no legal drop remains, on any mode). */
 export function isBoardFull(board: Board): boolean {
-  return board[0]!.every(cell => cell !== null);
+  return board.every(row => row.every(cell => cell !== null));
 }
 
-/** Compact each column downward in-place. Returns a FallStep describing every disc that moved. */
-export function applyGravity(board: Board): FallStep {
+export type GravityDirection = 'down' | 'up' | 'left' | 'right';
+
+// vertical: gravity pulls along rows (down/up), lanes are columns.
+// forward: discs pack toward the highest index in their lane (down, right).
+const GRAVITY_AXES: Record<GravityDirection, { vertical: boolean; forward: boolean }> = {
+  down: { vertical: true, forward: true },
+  up: { vertical: true, forward: false },
+  right: { vertical: false, forward: true },
+  left: { vertical: false, forward: false },
+};
+
+/**
+ * Compacts every lane perpendicular to `direction` in-place, packing discs toward
+ * the gravity target while preserving their relative order within the lane.
+ * Down/up lanes are columns; left/right lanes are rows. Returns a FallStep
+ * describing every disc that moved.
+ */
+export function applyDirectionalGravity(board: Board, direction: GravityDirection): FallStep {
   const moves: FallStep['moves'] = [];
   const rows = board.length;
   const cols = board[0]!.length;
+  const { vertical, forward } = GRAVITY_AXES[direction];
+  const laneCount = vertical ? cols : rows;
+  const laneLength = vertical ? rows : cols;
 
-  for (let col = 0; col < cols; col++) {
-    // Collect all discs with their current row positions before touching the board.
+  for (let lane = 0; lane < laneCount; lane++) {
+    // Collect all discs with their current lane positions before touching the board.
     // If we moved discs in-place we'd lose track of where they started, which the
     // FallStep needs so the animation can interpolate from the correct position.
-    const discs: Array<{ disc: Disc; origRow: number }> = [];
-    for (let row = 0; row < rows; row++) {
+    const discs: Array<{ disc: Disc; origPos: number }> = [];
+    for (let i = 0; i < laneLength; i++) {
+      const row = vertical ? i : lane;
+      const col = vertical ? lane : i;
       const cell = board[row]![col];
       // Loose != covers both null and undefined; noUncheckedIndexedAccess makes
       // board[row]![col] type Cell | undefined, so !== null alone wouldn't narrow correctly.
-      if (cell != null) discs.push({ disc: cell, origRow: row });
+      if (cell != null) discs.push({ disc: cell, origPos: i });
     }
 
-    // Wipe the column, then write discs back from the bottom up.
-    for (let row = 0; row < rows; row++) {
+    // Wipe the lane, then write discs back starting from the gravity target end.
+    for (let i = 0; i < laneLength; i++) {
+      const row = vertical ? i : lane;
+      const col = vertical ? lane : i;
       board[row]![col] = null;
     }
 
-    let writeRow = rows - 1;
-    for (let i = discs.length - 1; i >= 0; i--) {
-      const { disc, origRow } = discs[i]!;
-      board[writeRow]![col] = disc;
-      if (origRow !== writeRow) {
+    let writePos = forward ? laneLength - 1 : 0;
+    const step = forward ? -1 : 1;
+    // Process discs nearest the gravity target first so relative order is preserved.
+    const ordered = forward ? [...discs].reverse() : discs;
+    for (const { disc, origPos } of ordered) {
+      const row = vertical ? writePos : lane;
+      const col = vertical ? lane : writePos;
+      board[row]![col] = disc;
+      if (origPos !== writePos) {
+        const origRow = vertical ? origPos : lane;
+        const origCol = vertical ? lane : origPos;
         // FallStep is a playback event. Do not retain a mutable board reference:
         // a later clear in the same turn may reveal this disc before animation runs.
-        moves.push({ from: { row: origRow, col }, to: { row: writeRow, col }, disc: { ...disc } });
+        moves.push({ from: { row: origRow, col: origCol }, to: { row, col }, disc: { ...disc } });
       }
-      writeRow--;
+      writePos += step;
     }
   }
 
   return { kind: StepKind.Fall, moves };
+}
+
+/** Compacts every column downward in-place. Returns a FallStep describing every disc that moved. */
+export function applyGravity(board: Board): FallStep {
+  return applyDirectionalGravity(board, 'down');
 }

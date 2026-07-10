@@ -19,3 +19,7 @@ export interface GridPos {
   row: number;
   col: number;
 }
+
+// Lives here (not gravity.ts) so events.ts can reference it on PushStep
+// without gravity.ts <-> events.ts becoming a circular import.
+export type EntryEdge = 'top' | 'right' | 'bottom' | 'left';
