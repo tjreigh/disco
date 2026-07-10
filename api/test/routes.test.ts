@@ -35,6 +35,28 @@ async function createAuthedApp() {
 }
 
 describe('API routes', () => {
+  it('allows credentialed JSON PUT preflights from the static site origin', async () => {
+    const config = createTestConfig();
+    db = createTestDb();
+    app = await buildApp(config, db);
+
+    const response = await app.inject({
+      method: 'OPTIONS',
+      url: '/stats/classic',
+      headers: {
+        origin: config.publicSiteOrigin,
+        'access-control-request-method': 'PUT',
+        'access-control-request-headers': 'content-type',
+      },
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(response.headers['access-control-allow-origin']).toBe(config.publicSiteOrigin);
+    expect(response.headers['access-control-allow-credentials']).toBe('true');
+    expect(response.headers['access-control-allow-methods']).toContain('PUT');
+    expect(response.headers['access-control-allow-headers']).toContain('content-type');
+  });
+
   it('returns health and an anonymous profile without a session', async () => {
     db = createTestDb();
     app = await buildApp(createTestConfig(), db);
