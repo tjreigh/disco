@@ -214,6 +214,14 @@ export class AnimationQueue {
     return this.active;
   }
 
+  shiftTime(deltaMs: number): void {
+    if (!Number.isFinite(deltaMs) || deltaMs <= 0) return;
+    if (this.stepStartTime >= 0) this.stepStartTime += deltaMs;
+    for (const anim of this.active) {
+      anim.startTime += deltaMs;
+    }
+  }
+
   isDone(): boolean {
     return this.stepIndex >= this.steps.length;
   }

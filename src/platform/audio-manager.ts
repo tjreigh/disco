@@ -1,5 +1,6 @@
 export class AudioManager {
   private ctx: AudioContext | null = null;
+  private enabled = true;
 
   private init(): AudioContext {
     if (!this.ctx) this.ctx = new AudioContext();
@@ -7,6 +8,7 @@ export class AudioManager {
   }
 
   private beep(freq: number, dur: number, gain: number, type: OscillatorType = 'sine'): void {
+    if (!this.enabled) return;
     try {
       const ctx  = this.init();
       const osc  = ctx.createOscillator();
@@ -45,5 +47,18 @@ export class AudioManager {
 
   playPush(): void {
     this.beep(160, 0.15, 0.2, 'square');
+  }
+
+  isEnabled(): boolean {
+    return this.enabled;
+  }
+
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+  }
+
+  toggleEnabled(): boolean {
+    this.enabled = !this.enabled;
+    return this.enabled;
   }
 }

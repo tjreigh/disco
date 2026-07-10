@@ -289,6 +289,52 @@
       opacity: 1;
       pointer-events: auto;
     }
+    .game-menu {
+      position: fixed;
+      inset: 0;
+      z-index: 35;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: rgba(10, 16, 32, .72);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 120ms ease-out;
+    }
+    .game-menu--open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .game-menu-panel {
+      width: min(280px, 88vw);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 18px;
+      border: 1px solid #486581;
+      border-radius: 8px;
+      background: #102a43;
+      box-shadow: 0 18px 44px rgba(0, 0, 0, .45);
+    }
+    .game-menu-panel h2 {
+      margin-bottom: 4px;
+      color: #f0f4f8;
+      font-size: 18px;
+      letter-spacing: .12em;
+      text-align: center;
+    }
+    .game-menu-button {
+      min-height: 42px;
+      border: 1px solid #486581;
+      border-radius: 5px;
+      padding: 9px 12px;
+      background: #0b2034;
+      color: #d9e2ec;
+      font: 700 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: .08em;
+      cursor: pointer;
+    }
+    .game-menu-button:hover { border-color: #62b0e8; background: #16324f; }
   </style>
 </head>
 <body>

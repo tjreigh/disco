@@ -18,6 +18,12 @@ import {
 import { interpolateY, interpolateX, pushBoardOffsetY } from './animation-queue.js';
 import type { GameStats } from '../../game/stats.js';
 
+interface LevelProgressDisplay {
+  level: number;
+  turnsPerLevel: number;
+  turnsRemaining: number;
+}
+
 // Computed each draw call so it stays proportional after a resize.
 function discR(): number { return cellSize() / 2 - Math.max(3, cellSize() * 0.07); }
 
@@ -66,6 +72,7 @@ export class Renderer {
     scorePopups: readonly ScorePopup[],
     scoreIndicators: readonly ScoreIndicator[],
     initialTurnsPerLevel: number,
+    levelProgress: LevelProgressDisplay,
   ): void {
     const { ctx } = this;
     // Build a set of disc IDs currently being animated. drawStaticDiscs uses
@@ -84,7 +91,7 @@ export class Renderer {
     if (state.phase === GamePhase.WaitingForDrop) {
       this.drawGhost(state.cursorCol, state.currentDisc, board);
     }
-    this.drawHUD(state, displayScore, initialTurnsPerLevel);
+    this.drawHUD(state, displayScore, initialTurnsPerLevel, levelProgress);
 
     if (state.phase === GamePhase.GameOver) {
       this.drawGameOver(state.score, stats);
@@ -215,7 +222,12 @@ export class Renderer {
     ctx.setLineDash([]);
   }
 
-  private drawHUD(state: GameState, displayScore: number, initialTurnsPerLevel: number): void {
+  private drawHUD(
+    state: GameState,
+    displayScore: number,
+    initialTurnsPerLevel: number,
+    levelProgress: LevelProgressDisplay,
+  ): void {
     const { ctx } = this;
     const lw = canvasLogicalWidth();
     const gp = gridPadding();
@@ -231,8 +243,8 @@ export class Renderer {
     // A push happens the instant these run out, so this line doubles as the
     // push countdown — no separate readout needed.
     this.drawTurnPips(
-      state.turnsRemaining,
-      state.turnsPerLevel,
+      levelProgress.turnsRemaining,
+      levelProgress.turnsPerLevel,
       initialTurnsPerLevel,
       HUD_TOP_HEIGHT * 0.6,
     );
@@ -241,7 +253,7 @@ export class Renderer {
     ctx.font = '13px system-ui, sans-serif';
     ctx.fillStyle = COLOR_TEXT_DIM;
     ctx.textAlign = 'center';
-    ctx.fillText(`LVL ${state.level}`, lw / 2, HUD_TOP_HEIGHT * 0.88);
+    ctx.fillText(`LVL ${levelProgress.level}`, lw / 2, HUD_TOP_HEIGHT * 0.88);
 
     const bottomY = gridOriginY() + gridH() + 8;
     const hudCy = bottomY + HUD_BOTTOM_HEIGHT / 2;

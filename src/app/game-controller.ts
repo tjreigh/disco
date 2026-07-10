@@ -24,6 +24,12 @@ import { AccountStatsStore } from '../platform/account-stats-store.js';
 import { applyStepToVisualBoard } from './visual-board.js';
 import { setGridSize } from '../ui/rendering/layout.js';
 
+interface LevelProgressDisplay {
+  level: number;
+  turnsPerLevel: number;
+  turnsRemaining: number;
+}
+
 export class Game {
   private state: GameState;
   private engine: GameEngine;
@@ -51,6 +57,9 @@ export class Game {
   private unsubscribeStatsStore: (() => void) | null = null;
   private longestStreakThisGame = 0;
   private gameRecorded = false;
+  private displayedLevelProgress: LevelProgressDisplay;
+  private isPaused = false;
+  private pauseStartedAt = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new Renderer(canvas);
@@ -59,6 +68,7 @@ export class Game {
     this.engine   = new GameEngine({ mode: this.mode });
     this.state    = this.engine.state;
     this.state.phase = GamePhase.Menu; // suppress gameplay until a mode is selected
+    this.displayedLevelProgress = this.snapshotLevelProgress();
     this.debug    = new DebugPanel(this.state);
     this.visualBoard = makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
     this.statsStore = new AccountStatsStore(GAME_MODES);
@@ -72,7 +82,12 @@ export class Game {
       () => this.statsStore.login(),
       () => void this.statsStore.logout(),
     );
-    this.homeScreen.onRequestMenu = () => this.returnToMenu();
+    this.homeScreen.onRequestGameMenu = () => this.openGameMenu();
+    this.homeScreen.onRequestResume = () => this.resumeGame();
+    this.homeScreen.onRequestRestart = () => this.restart();
+    this.homeScreen.onRequestHome = () => this.returnToMenu();
+    this.homeScreen.onRequestToggleSound = () => this.toggleSound();
+    this.homeScreen.setSoundEnabled(this.audio.isEnabled());
     this.unsubscribeStatsStore = this.statsStore.subscribe(() => this.handleStatsStoreUpdate());
     this.homeScreen.open();
 
@@ -100,15 +115,19 @@ export class Game {
     this.renderer.resize();
     this.visualBoard = makeEmptyBoard(mode.board.cols, mode.board.rows);
     this.displayedScore = this.state.score;
+    this.syncLevelProgressDisplay();
     this.scorePopups = [];
     this.scoreIndicators = [];
     this.longestStreakThisGame = 0;
     this.gameRecorded = false;
     this.debug.reset();
+    this.isPaused = false;
     this.homeScreen.close();
   }
 
   private returnToMenu(): void {
+    this.isPaused = false;
+    this.homeScreen.closeGameMenu();
     this.animQueue = null;
     this.scorePopups = [];
     this.scoreIndicators = [];
@@ -118,6 +137,7 @@ export class Game {
   }
 
   private handleIntent(intent: InputIntent): void {
+    if (this.homeScreen.isGameMenuOpen()) return;
     if (this.state.phase === GamePhase.Menu) return; // overlay owns input; mode
                                                         // selection and menu return go
                                                         // through HomeScreen's own DOM
@@ -144,6 +164,7 @@ export class Game {
   }
 
   private handleDrop(col: number): void {
+    const previousLevelProgress = this.snapshotLevelProgress();
     const result = this.engine.drop(col);
     if (!result.accepted) {
       this.debug.recordTurn(result);
@@ -165,6 +186,7 @@ export class Game {
     const recordsImproved = updateRecords(this.stats, this.state.score, this.longestStreakThisGame);
     if (recordsImproved && !result.gameOver) this.statsStore.saveStats(this.mode.id, this.stats);
     this.visualBoard = result.boardBefore;
+    this.setAnimatedLevelProgress(previousLevelProgress);
     if (result.gameOver) this.recordGameEnd();
 
     // The engine has already completed the turn synchronously. The browser
@@ -185,6 +207,7 @@ export class Game {
       },
       () => {
         this.displayedScore = this.state.score; // convergence safety net
+        this.syncLevelProgressDisplay();
         if (result.gameOver) {
           this.setGameOver();
         } else {
@@ -233,6 +256,7 @@ export class Game {
 
   private setGameOver(): void {
     this.state.phase = GamePhase.GameOver;
+    this.syncLevelProgressDisplay();
     this.recordGameEnd();
     this.debug.refresh();
     this.audio.playGameOver();
@@ -263,15 +287,75 @@ export class Game {
   }
 
   private restart(): void {
+    this.isPaused = false;
+    this.homeScreen.closeGameMenu();
     this.animQueue = null;
     this.engine.restart();
     this.debug.reset();
     this.visualBoard = makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
     this.displayedScore = this.state.score;
+    this.syncLevelProgressDisplay();
     this.scorePopups = [];
     this.scoreIndicators = [];
     this.longestStreakThisGame = 0;
     this.gameRecorded = false;
+  }
+
+  private openGameMenu(): void {
+    if (this.state.phase === GamePhase.Menu) return;
+    this.pausePlayback();
+    this.homeScreen.setSoundEnabled(this.audio.isEnabled());
+    this.homeScreen.openGameMenu();
+  }
+
+  private resumeGame(): void {
+    this.resumePlayback();
+    this.homeScreen.closeGameMenu();
+  }
+
+  private toggleSound(): void {
+    this.homeScreen.setSoundEnabled(this.audio.toggleEnabled());
+  }
+
+  private pausePlayback(): void {
+    if (this.isPaused) return;
+    if (this.state.phase !== GamePhase.WaitingForDrop && this.state.phase !== GamePhase.Animating) return;
+    this.isPaused = true;
+    this.pauseStartedAt = performance.now();
+  }
+
+  private resumePlayback(): void {
+    if (!this.isPaused) return;
+    const deltaMs = performance.now() - this.pauseStartedAt;
+    this.animQueue?.shiftTime(deltaMs);
+    this.scorePopups = this.scorePopups.map(popup => ({ ...popup, startTime: popup.startTime + deltaMs }));
+    this.scoreIndicators = this.scoreIndicators.map(indicator => ({ ...indicator, startTime: indicator.startTime + deltaMs }));
+    this.isPaused = false;
+    this.pauseStartedAt = 0;
+  }
+
+  private snapshotLevelProgress(): LevelProgressDisplay {
+    return {
+      level: this.state.level,
+      turnsPerLevel: this.state.turnsPerLevel,
+      turnsRemaining: this.state.turnsRemaining,
+    };
+  }
+
+  private syncLevelProgressDisplay(): void {
+    this.displayedLevelProgress = this.snapshotLevelProgress();
+  }
+
+  private setAnimatedLevelProgress(previous: LevelProgressDisplay): void {
+    if (this.state.level > previous.level) {
+      this.displayedLevelProgress = {
+        level: previous.level,
+        turnsPerLevel: previous.turnsPerLevel,
+        turnsRemaining: 0,
+      };
+    } else {
+      this.syncLevelProgressDisplay();
+    }
   }
 
   destroy(): void {
@@ -283,12 +367,14 @@ export class Game {
   private loop(now: DOMHighResTimeStamp): void {
     this.rafId = requestAnimationFrame(this.loop);
 
-    if (this.animQueue) {
+    if (!this.isPaused && this.animQueue) {
       this.animQueue.tick(now);
       if (this.animQueue.isDone()) this.animQueue = null;
     }
-    this.scorePopups = tickScorePopups(this.scorePopups, now);
-    this.scoreIndicators = tickScoreIndicators(this.scoreIndicators, now);
+    if (!this.isPaused) {
+      this.scorePopups = tickScorePopups(this.scorePopups, now);
+      this.scoreIndicators = tickScoreIndicators(this.scoreIndicators, now);
+    }
 
     const anims = this.animQueue?.getActiveAnimations() ?? [];
     this.renderer.draw(
@@ -300,6 +386,7 @@ export class Game {
       this.scorePopups,
       this.scoreIndicators,
       this.mode.initialTurnsPerLevel,
+      this.displayedLevelProgress,
     );
   }
 }

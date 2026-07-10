@@ -10,11 +10,18 @@ export class HomeScreen {
   private readonly overlay: HTMLElement;
   private readonly authBar: HTMLElement;
   private readonly cardsContainer: HTMLElement;
-  private readonly backButton: HTMLButtonElement;
+  private readonly menuButton: HTMLButtonElement;
+  private readonly gameMenu: HTMLElement;
+  private readonly soundButton: HTMLButtonElement;
+  private gameMenuOpen = false;
 
   // Set by Game after construction, avoiding a constructor-time forward
   // reference to a not-yet-defined method.
-  onRequestMenu?: () => void;
+  onRequestGameMenu?: () => void;
+  onRequestResume?: () => void;
+  onRequestRestart?: () => void;
+  onRequestHome?: () => void;
+  onRequestToggleSound?: () => void;
 
   constructor(
     private readonly modes: readonly GameModeConfig[],
@@ -41,12 +48,30 @@ export class HomeScreen {
     this.overlay.append(title, this.authBar, this.cardsContainer);
     document.body.append(this.overlay);
 
-    this.backButton = document.createElement('button');
-    this.backButton.type = 'button';
-    this.backButton.className = 'home-back-button';
-    this.backButton.textContent = 'MENU';
-    this.backButton.addEventListener('click', () => this.onRequestMenu?.());
-    document.body.append(this.backButton);
+    this.menuButton = document.createElement('button');
+    this.menuButton.type = 'button';
+    this.menuButton.className = 'home-back-button';
+    this.menuButton.textContent = 'MENU';
+    this.menuButton.addEventListener('click', () => this.onRequestGameMenu?.());
+
+    this.gameMenu = document.createElement('div');
+    this.gameMenu.className = 'game-menu';
+    this.gameMenu.setAttribute('aria-label', 'Game menu');
+
+    const panel = document.createElement('div');
+    panel.className = 'game-menu-panel';
+
+    const menuTitle = document.createElement('h2');
+    menuTitle.textContent = 'MENU';
+
+    const resumeButton = this.createGameMenuButton('RESUME', () => this.onRequestResume?.());
+    const restartButton = this.createGameMenuButton('RESTART', () => this.onRequestRestart?.());
+    this.soundButton = this.createGameMenuButton('SOUND ON', () => this.onRequestToggleSound?.());
+    const homeButton = this.createGameMenuButton('HOME', () => this.onRequestHome?.());
+
+    panel.append(menuTitle, resumeButton, restartButton, this.soundButton, homeButton);
+    this.gameMenu.append(panel);
+    document.body.append(this.menuButton, this.gameMenu);
 
     this.renderCards();
     this.renderAuth();
@@ -54,13 +79,36 @@ export class HomeScreen {
 
   open(): void {
     this.renderCards(); // refresh per-mode high scores every time the menu opens
+    this.closeGameMenu();
     this.overlay.classList.add('home-screen--open');
-    this.backButton.classList.remove('home-back-button--visible');
+    this.menuButton.classList.remove('home-back-button--visible');
   }
 
   close(): void {
     this.overlay.classList.remove('home-screen--open');
-    this.backButton.classList.add('home-back-button--visible');
+    this.menuButton.classList.add('home-back-button--visible');
+  }
+
+  openGameMenu(): void {
+    this.gameMenuOpen = true;
+    this.gameMenu.classList.add('game-menu--open');
+    this.menuButton.classList.remove('home-back-button--visible');
+  }
+
+  closeGameMenu(): void {
+    this.gameMenuOpen = false;
+    this.gameMenu.classList.remove('game-menu--open');
+    if (!this.overlay.classList.contains('home-screen--open')) {
+      this.menuButton.classList.add('home-back-button--visible');
+    }
+  }
+
+  isGameMenuOpen(): boolean {
+    return this.gameMenuOpen;
+  }
+
+  setSoundEnabled(enabled: boolean): void {
+    this.soundButton.textContent = enabled ? 'SOUND ON' : 'SOUND OFF';
   }
 
   refreshStats(): void {
@@ -101,6 +149,15 @@ export class HomeScreen {
     });
 
     this.authBar.append(status, button);
+  }
+
+  private createGameMenuButton(label: string, onClick: () => void): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'game-menu-button';
+    button.textContent = label;
+    button.addEventListener('click', onClick);
+    return button;
   }
 
   private renderCards(): void {

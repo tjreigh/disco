@@ -131,6 +131,26 @@ describe('AnimationQueue sequencing', () => {
     queue.tick(200);
     expect(completeCount()).toBe(1);
   });
+
+  it('continues active animations from the same visual progress after a time shift', () => {
+    const dropStep: DropStep = { kind: StepKind.Drop, disc: makeDisc(3, DiscKind.Numbered), col: 2, toLandRow: 1 };
+    const { queue, completeCount } = makeQueue([dropStep]);
+
+    queue.tick(0);
+    queue.tick(60);
+    expect(queue.getActiveAnimations()[0]!.progress).toBeCloseTo(0.5, 5);
+
+    queue.shiftTime(1_000);
+    queue.tick(1_060);
+
+    expect(queue.getActiveAnimations()[0]!.progress).toBeCloseTo(0.5, 5);
+    expect(queue.isDone()).toBe(false);
+    expect(completeCount()).toBe(0);
+
+    queue.tick(1_120);
+    expect(queue.isDone()).toBe(true);
+    expect(completeCount()).toBe(1);
+  });
 });
 
 // ─── Bonus steps ─────────────────────────────────────────────────────────────
