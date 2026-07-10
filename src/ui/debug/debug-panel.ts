@@ -7,6 +7,69 @@ import { StepKind } from '../../game/events.js';
 import { buildDebugReport } from './debug-report.js';
 
 export const MAX_TURN_HISTORY = 50;
+export type DebugPanelAccess = 'report' | 'full';
+
+const DEBUG_ACCESS_STORAGE_KEY = 'disco.debug.access';
+
+function isLocalHostname(hostname: string): boolean {
+  return hostname === '' ||
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '[::1]' ||
+    hostname === '::1';
+}
+
+function readStoredDebugAccess(storage: Storage | null): string | null {
+  try {
+    return storage?.getItem(DEBUG_ACCESS_STORAGE_KEY) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredDebugAccess(storage: Storage | null, value: string): void {
+  try {
+    storage?.setItem(DEBUG_ACCESS_STORAGE_KEY, value);
+  } catch {
+    // Storage can be unavailable in hardened/private browser contexts.
+  }
+}
+
+function removeStoredDebugAccess(storage: Storage | null): void {
+  try {
+    storage?.removeItem(DEBUG_ACCESS_STORAGE_KEY);
+  } catch {
+    // Storage can be unavailable in hardened/private browser contexts.
+  }
+}
+
+function browserStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+export function resolveDebugPanelAccess(
+  location: Pick<Location, 'hostname' | 'search'> = window.location,
+  storage: Storage | null = browserStorage(),
+): DebugPanelAccess {
+  if (isLocalHostname(location.hostname)) return 'full';
+
+  const requestedAccess = new URLSearchParams(location.search).get('debug')?.toLowerCase() ?? null;
+  if (requestedAccess === 'logic' || requestedAccess === 'full') {
+    writeStoredDebugAccess(storage, 'full');
+    return 'full';
+  }
+  if (requestedAccess === 'report' || requestedAccess === 'off') {
+    removeStoredDebugAccess(storage);
+    return 'report';
+  }
+
+  const storedAccess = readStoredDebugAccess(storage)?.toLowerCase() ?? null;
+  return storedAccess === 'logic' || storedAccess === 'full' ? 'full' : 'report';
+}
 
 function snapshot<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -113,6 +176,7 @@ export function snapshotTurnHistory(
 export class DebugPanel {
   private readonly panel: HTMLElement;
   private readonly content: HTMLElement;
+  private readonly access: DebugPanelAccess;
   private lastResult: TurnResult | null = null;
   private turnHistory: TurnResult[] = [];
   private truncatedTurns = 0;
@@ -120,20 +184,22 @@ export class DebugPanel {
   private issueNote = '';
   private readonly flags = new Map<string, string>();
 
-  constructor(private readonly state: GameState) {
+  constructor(private readonly state: GameState, access: DebugPanelAccess = resolveDebugPanelAccess()) {
+    this.access = access;
+
     const toggle = document.createElement('button');
     toggle.className = 'debug-toggle';
     toggle.type = 'button';
-    toggle.textContent = 'LOGIC';
-    toggle.title = 'Toggle logic debugger (D)';
+    toggle.textContent = this.access === 'full' ? 'LOGIC' : 'REPORT';
+    toggle.title = this.access === 'full' ? 'Toggle logic debugger (D)' : 'Export an issue report (D)';
 
     this.panel = document.createElement('aside');
     this.panel.className = 'debug-panel';
-    this.panel.setAttribute('aria-label', 'Game logic debugger');
+    this.panel.setAttribute('aria-label', this.access === 'full' ? 'Game logic debugger' : 'Issue report export');
 
     const header = document.createElement('header');
     const title = document.createElement('strong');
-    title.textContent = 'GAME LOGIC';
+    title.textContent = this.access === 'full' ? 'GAME LOGIC' : 'ISSUE REPORT';
     const close = document.createElement('button');
     close.type = 'button';
     close.textContent = '×';
@@ -211,6 +277,34 @@ export class DebugPanel {
     return button;
   }
 
+  private renderReportSection(): HTMLElement {
+    const report = document.createElement('section');
+    report.className = 'debug-report';
+    const reportHeading = this.heading('Issue report');
+    const help = document.createElement('p');
+    help.className = 'debug-muted';
+    help.textContent = this.access === 'full'
+      ? 'Select FLAG on an event or click any board cell that looks wrong. The export includes the most recent 50 turns and says how many earlier ones were omitted.'
+      : 'Describe what looked wrong, then export the report file. It includes the recent turn history needed to reproduce the issue.';
+    const note = document.createElement('textarea');
+    note.value = this.issueNote;
+    note.rows = 3;
+    note.placeholder = 'What did you expect, and what happened instead?';
+    note.setAttribute('aria-label', 'Issue description');
+    note.addEventListener('input', () => { this.issueNote = note.value; });
+    const actions = document.createElement('div');
+    actions.className = 'debug-report-actions';
+    const count = document.createElement('span');
+    count.textContent = `${this.turnHistory.length} turns${this.truncatedTurns ? ` (${this.truncatedTurns} earlier omitted)` : ''} · ${this.flags.size} flagged`;
+    const exportButton = document.createElement('button');
+    exportButton.type = 'button';
+    exportButton.textContent = 'EXPORT JSON';
+    exportButton.addEventListener('click', () => this.exportReport());
+    actions.append(count, exportButton);
+    report.append(reportHeading, help, note, actions);
+    return report;
+  }
+
   private exportReport(): void {
     const report = buildDebugReport(
       this.state,
@@ -233,6 +327,12 @@ export class DebugPanel {
   private render(): void {
     const scrollTop = this.content.scrollTop;
     this.content.replaceChildren();
+
+    if (this.access === 'report') {
+      this.content.append(this.renderReportSection());
+      this.content.scrollTop = scrollTop;
+      return;
+    }
 
     const summary = document.createElement('div');
     summary.className = 'debug-summary';
@@ -262,29 +362,7 @@ export class DebugPanel {
       : 'Clear audit: no numbered tile currently qualifies.';
     this.content.append(audit);
 
-    const report = document.createElement('section');
-    report.className = 'debug-report';
-    const reportHeading = this.heading('Issue report');
-    const help = document.createElement('p');
-    help.className = 'debug-muted';
-    help.textContent = 'Select FLAG on an event or click any board cell that looks wrong. The export includes the most recent 50 turns and says how many earlier ones were omitted.';
-    const note = document.createElement('textarea');
-    note.value = this.issueNote;
-    note.rows = 3;
-    note.placeholder = 'What did you expect, and what happened instead?';
-    note.setAttribute('aria-label', 'Issue description');
-    note.addEventListener('input', () => { this.issueNote = note.value; });
-    const actions = document.createElement('div');
-    actions.className = 'debug-report-actions';
-    const count = document.createElement('span');
-    count.textContent = `${this.turnHistory.length} turns${this.truncatedTurns ? ` (${this.truncatedTurns} earlier omitted)` : ''} · ${this.flags.size} flagged`;
-    const exportButton = document.createElement('button');
-    exportButton.type = 'button';
-    exportButton.textContent = 'EXPORT JSON';
-    exportButton.addEventListener('click', () => this.exportReport());
-    actions.append(count, exportButton);
-    report.append(reportHeading, help, note, actions);
-    this.content.append(report);
+    this.content.append(this.renderReportSection());
 
     if (!this.lastResult) {
       const empty = document.createElement('p');

@@ -4,7 +4,21 @@ import type { TurnResult } from '../../game/engine.js';
 import { DiscKind } from '../../game/model.js';
 import type { GameState } from '../../game/state.js';
 import { GamePhase } from '../../game/state.js';
-import { MAX_TURN_HISTORY, snapshotTurnHistory } from '../../ui/debug/debug-panel.js';
+import { MAX_TURN_HISTORY, resolveDebugPanelAccess, snapshotTurnHistory } from '../../ui/debug/debug-panel.js';
+
+const REMOTE_HOSTNAME = 'remote-host.test';
+
+function memoryStorage(): Storage {
+  const items = new Map<string, string>();
+  return {
+    get length() { return items.size; },
+    clear: () => items.clear(),
+    getItem: (key: string) => items.get(key) ?? null,
+    key: (index: number) => Array.from(items.keys())[index] ?? null,
+    removeItem: (key: string) => { items.delete(key); },
+    setItem: (key: string, value: string) => { items.set(key, value); },
+  };
+}
 
 describe('buildDebugReport', () => {
   it('exports a stable snapshot with notes and labeled flags', () => {
@@ -112,5 +126,25 @@ describe('buildDebugReport', () => {
     expect(report.truncatedTurns).toBe(10);
     expect(report.turnHistory[0]!.boardBefore[0]![0]).toBeNull();
     expect(report.lastTurn).toBe(report.turnHistory[MAX_TURN_HISTORY - 1]);
+  });
+});
+
+describe('resolveDebugPanelAccess', () => {
+  it('allows the full logic debugger on local hosts', () => {
+    expect(resolveDebugPanelAccess({ hostname: 'localhost', search: '' }, memoryStorage())).toBe('full');
+    expect(resolveDebugPanelAccess({ hostname: '127.0.0.1', search: '' }, memoryStorage())).toBe('full');
+  });
+
+  it('defaults remote players to report-only access', () => {
+    expect(resolveDebugPanelAccess({ hostname: REMOTE_HOSTNAME, search: '' }, memoryStorage())).toBe('report');
+  });
+
+  it('lets the owner gate enable and clear full access on remote hosts', () => {
+    const storage = memoryStorage();
+
+    expect(resolveDebugPanelAccess({ hostname: REMOTE_HOSTNAME, search: '?debug=logic' }, storage)).toBe('full');
+    expect(resolveDebugPanelAccess({ hostname: REMOTE_HOSTNAME, search: '' }, storage)).toBe('full');
+    expect(resolveDebugPanelAccess({ hostname: REMOTE_HOSTNAME, search: '?debug=report' }, storage)).toBe('report');
+    expect(resolveDebugPanelAccess({ hostname: REMOTE_HOSTNAME, search: '' }, storage)).toBe('report');
   });
 });
