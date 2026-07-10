@@ -20,9 +20,9 @@ describe('makeRandomDisc', () => {
     const board = makeEmptyBoard();
 
     vi.spyOn(Math, 'random')
-      .mockReturnValueOnce(0)    // value roll
+      .mockReturnValueOnce(0.2)  // value roll
       .mockReturnValueOnce(0.78) // below level 2's 79% numbered chance
-      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0.2)
       .mockReturnValueOnce(0.79);
 
     expect(factory(2, board).kind).toBe(DiscKind.Numbered);
@@ -85,6 +85,24 @@ describe('PlayableDiscGenerator', () => {
       expect(valueRate).toBeGreaterThan(0.12);
       expect(valueRate).toBeLessThan(0.16);
     }
+  });
+
+  test('does not deal a numbered 1 onto an empty board', () => {
+    const generator = new PlayableDiscGenerator(CLASSIC_MODE, () => 0);
+    const disc = generator.generate(1, makeEmptyBoard());
+
+    expect(disc.value).toBe(1);
+    expect(disc.kind).toBe(DiscKind.DoubleCracked);
+  });
+
+  test('can still deal numbered 1 once the board is not empty', () => {
+    const board = makeEmptyBoard();
+    board[6]![0] = makeDisc(7, DiscKind.DoubleCracked);
+    const generator = new PlayableDiscGenerator(CLASSIC_MODE, () => 0);
+    const disc = generator.generate(1, board);
+
+    expect(disc.value).toBe(1);
+    expect(disc.kind).toBe(DiscKind.Numbered);
   });
 
   test('is deterministic for a seed and keeps push rolls out of playable history', () => {

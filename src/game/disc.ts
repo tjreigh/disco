@@ -83,7 +83,7 @@ export class PlayableDiscGenerator {
 
   generate(level: number, board: Board = this.emptyBoard()): Disc {
     const value = this.chooseValue(board);
-    const kind = this.chooseKind(level);
+    const kind = this.chooseKind(level, value, board);
     const historyLimit = Math.max(this.mode.discGeneration.valueBalanceWindow, this.mode.discGeneration.kindBalanceWindow);
     this.values.push(value);
     this.kinds.push(kind);
@@ -97,6 +97,10 @@ export class PlayableDiscGenerator {
       { length: this.mode.board.rows },
       () => Array(this.mode.board.cols).fill(null),
     );
+  }
+
+  private isEmptyBoard(board: Board): boolean {
+    return board.every(row => row.every(cell => cell == null));
   }
 
   private chooseValue(board: Board): number {
@@ -181,12 +185,12 @@ export class PlayableDiscGenerator {
     return length;
   }
 
-  private chooseKind(level: number): DiscKind {
+  private chooseKind(level: number, value: number, board: Board): DiscKind {
     const config = this.mode.discGeneration;
     const numberedRun = trailingRun(this.kinds, DiscKind.Numbered);
     const crackedRun = trailingRun(this.kinds, DiscKind.DoubleCracked);
     if (numberedRun >= config.maxNumberedRun) return DiscKind.DoubleCracked;
-    if (crackedRun >= config.maxCrackedRun) return DiscKind.Numbered;
+    if (crackedRun >= config.maxCrackedRun) return this.withEmptyBoardOpeningGuard(DiscKind.Numbered, value, board);
 
     const target = 1 - unnumberedProbabilityForLevel(this.mode, level);
     const recent = this.kinds.slice(-config.kindBalanceWindow);
@@ -194,7 +198,15 @@ export class PlayableDiscGenerator {
       ? target
       : recent.filter(kind => kind === DiscKind.Numbered).length / recent.length;
     const probability = Math.max(0, Math.min(1, target + config.kindBalanceStrength * (target - observed)));
-    return this.random() < probability ? DiscKind.Numbered : DiscKind.DoubleCracked;
+    const kind = this.random() < probability ? DiscKind.Numbered : DiscKind.DoubleCracked;
+    return this.withEmptyBoardOpeningGuard(kind, value, board);
+  }
+
+  private withEmptyBoardOpeningGuard(kind: DiscKind, value: number, board: Board): DiscKind {
+    if (this.values.length === 0 && kind === DiscKind.Numbered && value === 1 && this.isEmptyBoard(board)) {
+      return DiscKind.DoubleCracked;
+    }
+    return kind;
   }
 }
 
