@@ -122,11 +122,21 @@ export class Game {
     this.renderer.resize();
   }
 
+  // Lets E2E tests get a deterministic disc sequence (?seed=123 in the URL)
+  // instead of the normal random-per-playthrough seed. Not otherwise surfaced
+  // in the UI — this is a testability hook, not a player-facing feature.
+  private debugSeedOverride(): number | undefined {
+    const raw = new URLSearchParams(window.location.search).get('seed');
+    if (raw === null) return undefined;
+    const parsed = Number(raw);
+    return Number.isInteger(parsed) ? parsed : undefined;
+  }
+
   private startGame(mode: GameModeConfig): void {
     this.activeTutorial = null;
     this.tutorialOverlay.hide();
     this.mode = mode;
-    this.engine.reconfigure(mode); // mutates engine.state in place; never replaces it
+    this.engine.reconfigure(mode, this.debugSeedOverride()); // mutates engine.state in place; never replaces it
     this.stats = this.statsStore.loadStats(mode.id);
     setGridSize(mode.board.cols, mode.board.rows);
     this.renderer.resize();

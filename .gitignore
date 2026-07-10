@@ -6,3 +6,5 @@ package-lock.json
 !api/yarn.lock
 api/data/
 api/dist/
+coverage/
+test-results/

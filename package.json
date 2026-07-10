@@ -9,12 +9,17 @@
     "serve": "npx --yes serve public -l 3000",
     "dev": "tsc --watch & npx --yes serve public -l 3000",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:engine": "vitest run src/test/game/engine.test.ts",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "typecheck": "tsc -p tsconfig.test.json"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@vitest/coverage-v8": "^4.1.10",
+    "happy-dom": "^20.10.6",
     "typescript": "^5.4.0",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.10"
   }
 }
