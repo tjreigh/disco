@@ -30,6 +30,13 @@ export class ApiUnauthorizedError extends Error {
   }
 }
 
+/** The server answered but rejected the request (4xx/5xx other than 401). */
+export class ApiRequestError extends Error {
+  constructor(readonly status: number) {
+    super(`API request failed with ${status}`);
+  }
+}
+
 export interface ApiBaseUrlEnvironment {
   metaBaseUrl?: string | null;
   storageBaseUrl?: string | null;
@@ -72,7 +79,7 @@ function configuredApiBaseUrl(): string {
 
 async function parseJson<T>(response: Response): Promise<T> {
   if (response.status === 401) throw new ApiUnauthorizedError();
-  if (!response.ok) throw new Error(`API request failed with ${response.status}`);
+  if (!response.ok) throw new ApiRequestError(response.status);
   return await response.json() as T;
 }
 

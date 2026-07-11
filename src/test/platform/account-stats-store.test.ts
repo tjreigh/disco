@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { GameModeConfig } from '../../game/modes/index.js';
 import type { GameStats } from '../../game/stats.js';
 import { AccountStatsStore, mergeLocalAndRemoteStats } from '../../platform/account-stats-store.js';
-import { ApiUnauthorizedError } from '../../platform/api-client.js';
+import { ApiRequestError, ApiUnauthorizedError } from '../../platform/api-client.js';
 
 const MODES = [
   { id: 'classic', name: 'Classic', tagline: 'Default mode' },
@@ -259,5 +259,42 @@ describe('AccountStatsStore', () => {
       loading: false,
       apiAvailable: true,
     });
+  });
+
+  test('a rejected sync (4xx) does not flip the account offline', async () => {
+    const api = createApi({});
+    api.putStats.mockRejectedValueOnce(new ApiRequestError(400));
+
+    const store = new AccountStatsStore(TEST_MODES, {
+      api,
+      loadCookieStats: () => stats(),
+      saveCookieStats: vi.fn(),
+      storage: makeMemoryStorage(),
+    });
+
+    await store.ready;
+    store.saveStats('classic', stats({ highScore: 10, gamesPlayed: 1, totalScore: 10, averageScore: 10 }));
+    await vi.waitFor(() => expect(api.putStats).toHaveBeenCalled());
+
+    expect(store.getState()).toMatchObject({
+      account: { id: 'account-1', displayName: 'Player One' },
+      apiAvailable: true,
+    });
+  });
+
+  test('a network failure during sync still flips the account offline', async () => {
+    const api = createApi({});
+    api.putStats.mockRejectedValueOnce(new TypeError('fetch failed'));
+
+    const store = new AccountStatsStore(TEST_MODES, {
+      api,
+      loadCookieStats: () => stats(),
+      saveCookieStats: vi.fn(),
+      storage: makeMemoryStorage(),
+    });
+
+    await store.ready;
+    store.saveStats('classic', stats({ highScore: 10, gamesPlayed: 1, totalScore: 10, averageScore: 10 }));
+    await vi.waitFor(() => expect(store.getState().apiAvailable).toBe(false));
   });
 });

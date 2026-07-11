@@ -2,7 +2,7 @@ import type { GameModeConfig } from '../game/modes/index.js';
 import { emptyStats } from '../game/stats.js';
 import type { GameStats } from '../game/stats.js';
 import { loadStats as loadCookieStats, saveStats as saveCookieStats } from './cookie-stats-store.js';
-import { ApiUnauthorizedError, DiscoApiClient } from './api-client.js';
+import { ApiRequestError, ApiUnauthorizedError, DiscoApiClient } from './api-client.js';
 import type { AuthState } from './api-client.js';
 
 export interface AccountStatsState extends AuthState {
@@ -213,6 +213,11 @@ export class AccountStatsStore {
   private handleApiError(error: unknown): void {
     if (error instanceof ApiUnauthorizedError) {
       this.state = { account: null, identities: [], loading: false, apiAvailable: true };
+    } else if (error instanceof ApiRequestError) {
+      // The server is reachable; it rejected this one request. Don't flip the
+      // whole UI to "Playing offline" (audit-2 finding #1) — keep the session
+      // and surface nothing. Cookie stats were already saved by the caller.
+      console.warn('disco: stats sync rejected by API', error.status);
     } else {
       this.state = { ...this.state, loading: false, apiAvailable: false };
     }
