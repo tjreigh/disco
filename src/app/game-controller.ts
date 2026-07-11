@@ -30,6 +30,7 @@ import type { TutorialDefinition, TutorialStep } from './tutorial.js';
 import { isTutorialStepSuccessful } from './tutorial.js';
 import { TutorialOverlay } from '../ui/tutorial-overlay.js';
 import { GameControls } from '../ui/game-controls.js';
+import { GameHud } from '../ui/game-hud.js';
 
 interface LevelProgressDisplay {
   level: number;
@@ -48,6 +49,7 @@ export class Game {
   private homeScreen: HomeScreen;
   private tutorialOverlay: TutorialOverlay;
   private gameControls: GameControls;
+  private gameHud: GameHud;
   private animQueue: AnimationQueue | null = null;
   private rafId = 0;
   // Tracks the board as it should look right now, advanced one physics step at a
@@ -83,6 +85,7 @@ export class Game {
     this.debug    = new DebugPanel(this.state);
     this.tutorialOverlay = new TutorialOverlay();
     this.gameControls = new GameControls(intent => this.handleIntent(intent));
+    this.gameHud = new GameHud();
     this.visualBoard = makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
     this.statsStore = new AccountStatsStore(GAME_MODES);
     this.stats = this.statsStore.loadStats(this.mode.id);
@@ -552,6 +555,7 @@ export class Game {
     this.unsubscribeStatsStore?.();
     this.input.destroy();
     this.gameControls.destroy();
+    this.gameHud.destroy();
   }
 
   private loop(now: DOMHighResTimeStamp): void {
@@ -581,6 +585,18 @@ export class Game {
       axis: this.currentAxis(),
       disabled: this.homeScreen.isGameMenuOpen() || this.isPaused,
     });
+    this.gameHud.render({
+      phase: this.state.phase,
+      score: this.displayedScore,
+      currentDisc: this.state.currentDisc,
+      nextDisc: this.state.nextDisc,
+      level: this.displayedLevelProgress.level,
+      initialTurnsPerLevel: this.mode.initialTurnsPerLevel,
+      turnsPerLevel: this.displayedLevelProgress.turnsPerLevel,
+      turnsRemaining: this.displayedLevelProgress.turnsRemaining,
+      hasGravity: Boolean(this.mode.gravity),
+      gravityAngle: this.state.gravity?.angle,
+    });
     const tutorialStep = this.currentTutorialStep();
     // While a tilt is in progress, show how the board WOULD land at the
     // current angle rather than its actual (untouched) committed state —
@@ -600,11 +616,8 @@ export class Game {
       boardToDraw,
       anims,
       this.stats,
-      this.displayedScore,
       this.scorePopups,
       this.scoreIndicators,
-      this.mode.initialTurnsPerLevel,
-      this.displayedLevelProgress,
       tutorialStep ? { allowedCols: tutorialStep.allowedCols } : null,
       previewLanding,
     );

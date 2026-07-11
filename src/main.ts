@@ -5,7 +5,6 @@ shell.className = 'app-shell';
 
 const topRegion = document.createElement('div');
 topRegion.className = 'shell-region shell-region--top';
-topRegion.setAttribute('aria-hidden', 'true');
 
 const stage = document.createElement('div');
 stage.className = 'game-stage';

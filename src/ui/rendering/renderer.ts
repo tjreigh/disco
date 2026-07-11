@@ -12,22 +12,15 @@ import {
   COLOR_BG, COLOR_GRID_CELL, COLOR_GRID_LINE,
   COLOR_CRACKED_FILL, COLOR_CRACKED_DARK, COLOR_CRACK_LINE,
   COLOR_TEXT, COLOR_TEXT_DIM, COLOR_GHOST, COLOR_COL_HOVER,
-  COLOR_GAMEOVER_BG, COLOR_SCORE_POPUP, COLOR_GRAVITY_ACCENT, COLOR_GRAVITY_LANE,
-  HUD_TOP_HEIGHT, HUD_BOTTOM_HEIGHT,
+  COLOR_GAMEOVER_BG, COLOR_SCORE_POPUP, COLOR_GRAVITY_LANE,
 } from './theme.js';
 import {
   cellCenterX, cellCenterY, gridOriginX, gridOriginY,
   canvasLogicalWidth, canvasLogicalHeight, gridW, gridH,
-  gridPadding, cellSize, updateCellSize, gridCols, gridRows,
+  cellSize, updateCellSize, gridCols, gridRows,
 } from './layout.js';
 import { interpolateY, interpolateX, pushBoardOffsetX, pushBoardOffsetY } from './animation-queue.js';
 import type { GameStats } from '../../game/stats.js';
-
-interface LevelProgressDisplay {
-  level: number;
-  turnsPerLevel: number;
-  turnsRemaining: number;
-}
 
 export interface TutorialVisualState {
   allowedCols: readonly number[];
@@ -44,12 +37,6 @@ function axisForGravity(gravity: GravityState | undefined): 'col' | 'row' {
   if (!gravity) return 'col';
   const entryEdge = entryEdgeForAngle(gravity.angle);
   return entryEdge === 'left' || entryEdge === 'right' ? 'row' : 'col';
-}
-
-// gravity.ts's angle convention (0 = down, clockwise) to canvas's arc()
-// convention (0 = positive X axis, clockwise via increasing angle).
-function canvasAngleRad(gravityAngleDeg: number): number {
-  return ((90 - gravityAngleDeg) * Math.PI) / 180;
 }
 
 export class Renderer {
@@ -82,6 +69,9 @@ export class Renderer {
     // CSS size stays at logical pixels so the canvas looks the right size on screen.
     this.canvas.style.width  = `${lw}px`;
     this.canvas.style.height = `${lh}px`;
+    stage?.style.setProperty('--game-canvas-width', `${lw}px`);
+    stage?.style.setProperty('--game-canvas-height', `${lh}px`);
+    stage?.style.setProperty('--game-grid-width', `${gridW()}px`);
     // setTransform (not scale) resets all existing transforms before applying DPR
     // scaling, preventing cumulative scaling if resize() is called more than once.
     this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -96,11 +86,8 @@ export class Renderer {
     board: Board,
     animations: readonly RichDiscAnimation[],
     stats: GameStats,
-    displayScore: number,
     scorePopups: readonly ScorePopup[],
     scoreIndicators: readonly ScoreIndicator[],
-    initialTurnsPerLevel: number,
-    levelProgress: LevelProgressDisplay,
     tutorial?: TutorialVisualState | null,
     previewLanding?: GridPos | null,
   ): void {
@@ -129,13 +116,6 @@ export class Renderer {
     if (showCursor) {
       this.drawGhost(state, board, previewLanding ?? null);
     }
-    this.drawHUD(state, displayScore, initialTurnsPerLevel, levelProgress);
-    if (state.gravity) {
-      // Anchored to the top HUD band, not the grid, so it never covers a
-      // playable cell — large and unmissable rather than a small icon.
-      this.drawGravityCompass(state, canvasLogicalWidth() - gridPadding() - 36, HUD_TOP_HEIGHT * 0.5);
-    }
-
     if (state.phase === GamePhase.GameOver) {
       this.drawGameOver(state.score, stats);
     }
@@ -462,158 +442,6 @@ export class Renderer {
     ctx.lineTo(cx, cy - discR() - 2);
     ctx.stroke();
     ctx.setLineDash([]);
-  }
-
-
-  private drawHUD(
-    state: GameState,
-    displayScore: number,
-    initialTurnsPerLevel: number,
-    levelProgress: LevelProgressDisplay,
-  ): void {
-    const { ctx } = this;
-    const lw = canvasLogicalWidth();
-    const gp = gridPadding();
-
-    // Score — centered across the top of the canvas.
-    ctx.fillStyle = COLOR_TEXT;
-    ctx.font = 'bold 24px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(displayScore.toLocaleString('en-US'), lw / 2, HUD_TOP_HEIGHT * 0.25);
-
-    // Turn pips — one circle per turn in the current level, filled while unused.
-    // A push happens the instant these run out, so this line doubles as the
-    // push countdown — no separate readout needed.
-    this.drawTurnPips(
-      levelProgress.turnsRemaining,
-      levelProgress.turnsPerLevel,
-      initialTurnsPerLevel,
-      HUD_TOP_HEIGHT * 0.6,
-    );
-
-    // Level, directly below the turn pips.
-    ctx.font = '13px system-ui, sans-serif';
-    ctx.fillStyle = COLOR_TEXT_DIM;
-    ctx.textAlign = 'center';
-    ctx.fillText(`LVL ${levelProgress.level}`, lw / 2, HUD_TOP_HEIGHT * 0.88);
-
-    const bottomY = gridOriginY() + gridH() + 8;
-    const hudCy = bottomY + HUD_BOTTOM_HEIGHT / 2;
-    const r = discR();
-
-    ctx.fillStyle = COLOR_TEXT_DIM;
-    ctx.font = '11px system-ui, sans-serif';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-
-    ctx.fillText('NOW', gp, hudCy - 16);
-    this.drawDisc(state.currentDisc, gp + r + 4, hudCy + 2, r * 0.55, 1, 1);
-
-    ctx.fillText('NEXT', gp + r * 2 + 16, hudCy - 16);
-    this.drawDisc(state.nextDisc, gp + r * 3 + 20, hudCy + 2, r * 0.4, 1, 1);
-
-    ctx.font = '10px system-ui, sans-serif';
-    ctx.fillStyle = COLOR_TEXT_DIM;
-    ctx.textAlign = 'right';
-    // Show tap hint on touch devices, keyboard hint on desktop.
-    const aiming = state.phase === GamePhase.Aiming;
-    const hint = isTouchDevice()
-      ? (aiming ? 'Q/E adjust (keyboard needed to tilt)' : state.gravity ? 'tap lane to drop' : 'tap column to drop')
-      : aiming
-        ? 'Q/E adjust  ↓ / Enter confirm  Esc cancel'
-        : (state.gravity
-          ? '← → move  ↓ drop  Q/E tilt  R restart'
-          : '← → move  ↓ / click drop  R restart');
-    ctx.fillText(hint, lw - gp, hudCy + 8);
-  }
-
-  // Compact always-visible indicator of the current gravity direction. During
-  // Aiming, also draws a faint arc showing how far the player may still tilt
-  // from the turn's starting angle.
-  private drawGravityCompass(state: GameState, cx: number, cy: number): void {
-    const gravity = state.gravity;
-    if (!gravity) return;
-    const { ctx } = this;
-    const radius = 26;
-
-    // Opaque backdrop so the dial reads clearly against the score/board
-    // behind it instead of blending into whatever's underneath.
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius + 6, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
-    ctx.fill();
-    ctx.strokeStyle = COLOR_GRAVITY_ACCENT;
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-
-    if (state.phase === GamePhase.Aiming) {
-      const a1 = canvasAngleRad(gravity.turnStartAngle - gravity.maxTiltDelta);
-      const a2 = canvasAngleRad(gravity.turnStartAngle + gravity.maxTiltDelta);
-      ctx.save();
-      ctx.globalAlpha = 0.55;
-      ctx.strokeStyle = COLOR_GRAVITY_ACCENT;
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.arc(cx, cy, radius + 12, Math.min(a1, a2), Math.max(a1, a2));
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-    ctx.strokeStyle = COLOR_TEXT_DIM;
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    const { gx, gy } = computeGravityVector(gravity.angle);
-    const tipX = cx + gx * radius * 0.82;
-    const tipY = cy + gy * radius * 0.82;
-    ctx.strokeStyle = COLOR_GRAVITY_ACCENT;
-    ctx.lineWidth = 4;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.lineTo(tipX, tipY);
-    ctx.stroke();
-
-    const headAngle = Math.atan2(gy, gx);
-    const headLen = 9;
-    ctx.fillStyle = COLOR_GRAVITY_ACCENT;
-    ctx.beginPath();
-    ctx.moveTo(tipX, tipY);
-    ctx.lineTo(tipX - headLen * Math.cos(headAngle - Math.PI / 6), tipY - headLen * Math.sin(headAngle - Math.PI / 6));
-    ctx.lineTo(tipX - headLen * Math.cos(headAngle + Math.PI / 6), tipY - headLen * Math.sin(headAngle + Math.PI / 6));
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  // Circle size and spacing are based on the first level's turn budget and stay
-  // fixed for the whole game. Later levels therefore occupy less width as their
-  // budgets shrink instead of stretching fewer pips back across the full grid.
-  // Filled = not yet taken, hollow = already used; pips deplete right to left.
-  private drawTurnPips(remaining: number, total: number, scaleTotal: number, cy: number): void {
-    if (total <= 0 || scaleTotal <= 0) return;
-    const { ctx } = this;
-    const gx0 = gridOriginX();
-    const width = gridW();
-    const r = Math.min(7, Math.max(2.5, width / scaleTotal / 2 - 1.5));
-    const step = scaleTotal > 1 ? (width - r * 2) / (scaleTotal - 1) : 0;
-    const usedCount = total - remaining;
-
-    for (let i = 0; i < total; i++) {
-      const cx = gx0 + r + step * i;
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      if (i >= total - usedCount) {
-        ctx.strokeStyle = COLOR_TEXT_DIM;
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-      } else {
-        ctx.fillStyle = COLOR_TEXT;
-        ctx.fill();
-      }
-    }
   }
 
   private drawGameOver(score: number, stats: GameStats): void {

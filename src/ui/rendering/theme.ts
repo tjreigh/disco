@@ -1,8 +1,8 @@
 // Maximum cell size on large screens; shrinks on small viewports.
 export const MAX_CELL_SIZE = 72;
 export const MIN_CELL_SIZE = 40;
-export const HUD_TOP_HEIGHT   = 96;  // px for score / turn pips / level bar above grid
-export const HUD_BOTTOM_HEIGHT = 80; // px for current-disc / next-disc bar below grid
+export const HUD_TOP_HEIGHT   = 96;
+export const HUD_BOTTOM_HEIGHT = 80;
 
 // One color per disc value 1–7 (index 0 = value 1).
 export const DISC_COLORS = [

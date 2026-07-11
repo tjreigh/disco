@@ -10,11 +10,10 @@ import { DiscKind } from '../../game/model.js';
 import type { Board } from '../../game/model.js';
 import {
   cellCenterX, cellCenterY, canvasLogicalWidth, canvasLogicalHeight,
-  gridPadding, gridOriginY, gridW, gridH, cellSize, setGridSize,
+  gridOriginX, gridOriginY, gridW, gridH, cellSize, setGridSize,
 } from '../../ui/rendering/layout.js';
-import { computeGravityVector } from '../../game/gravity.js';
 import {
-  COLOR_COL_HOVER, COLOR_GAMEOVER_BG, COLOR_GRAVITY_ACCENT, COLOR_GRAVITY_LANE, HUD_TOP_HEIGHT,
+  COLOR_COL_HOVER, COLOR_GAMEOVER_BG, COLOR_GRAVITY_LANE,
 } from '../../ui/rendering/theme.js';
 import type { GameStats } from '../../game/stats.js';
 
@@ -124,8 +123,7 @@ function callDraw(
   opts: { previewLanding?: { row: number; col: number } | null } = {},
 ): void {
   renderer.draw(
-    state, board, [], makeStats(), state.score, [], [],
-    30, { level: state.level, turnsPerLevel: state.turnsPerLevel, turnsRemaining: state.turnsRemaining },
+    state, board, [], makeStats(), [], [],
     null, opts.previewLanding ?? null,
   );
 }
@@ -158,6 +156,24 @@ describe('resize', () => {
 
     const lastTransform = [...ctx.calls].reverse().find(c => c.method === 'setTransform');
     expect(lastTransform?.args).toEqual([2, 0, 0, 2, 0, 0]);
+  });
+
+  test('publishes canvas and board dimensions for the DOM HUD overlay', () => {
+    const localCtx = makeFakeContext();
+    const localCanvas = makeCanvas(localCtx);
+    const stage = document.createElement('div');
+    stage.getBoundingClientRect = () => ({
+      width: 375, height: 667, top: 0, left: 0, right: 375, bottom: 667,
+      x: 0, y: 0, toJSON: () => {},
+    });
+    stage.append(localCanvas);
+    document.body.append(stage);
+
+    new Renderer(localCanvas);
+
+    expect(stage.style.getPropertyValue('--game-canvas-width')).toBe(`${canvasLogicalWidth()}px`);
+    expect(stage.style.getPropertyValue('--game-canvas-height')).toBe(`${canvasLogicalHeight()}px`);
+    expect(stage.style.getPropertyValue('--game-grid-width')).toBe(`${gridW()}px`);
   });
 });
 
@@ -195,7 +211,7 @@ describe('cursor highlight axis', () => {
   test('Classic (no gravity): highlights a full-height column at the cursor', () => {
     callDraw(renderer, makeState({ cursorCol: 2 }));
     const highlight = ctx.calls.find(c => c.method === 'fillRect' && c.fillStyle === COLOR_COL_HOVER);
-    expect(highlight?.args).toEqual([gridPadding() + 2 * cellSize(), gridOriginY(), cellSize(), gridH()]);
+    expect(highlight?.args).toEqual([gridOriginX() + 2 * cellSize(), gridOriginY(), cellSize(), gridH()]);
   });
 
   test('Gravity mode pointing right (entry from left): highlights a full-width row', () => {
@@ -306,73 +322,18 @@ describe('ghost preview', () => {
   });
 });
 
-// ─── Gravity compass ────────────────────────────────────────────────────────
-
-describe('gravity compass', () => {
-  test('arrow direction matches computeGravityVector for the current angle', () => {
-    const angle = 130;
-    const state = makeState({ gravity: makeGravity({ angle }) });
-    callDraw(renderer, state);
-
-    const cx = canvasLogicalWidth() - gridPadding() - 36;
-    const cy = HUD_TOP_HEIGHT * 0.5;
-    const radius = 26;
-    const { gx, gy } = computeGravityVector(angle);
-    const expectedTipX = cx + gx * radius * 0.82;
-    const expectedTipY = cy + gy * radius * 0.82;
-
-    const shaft = ctx.calls.find(c =>
-      c.method === 'lineTo' && c.strokeStyle === COLOR_GRAVITY_ACCENT && c.lineWidth === 4
-      && Math.abs((c.args[0] as number) - expectedTipX) < 1e-6
-      && Math.abs((c.args[1] as number) - expectedTipY) < 1e-6,
-    );
-    expect(shaft).toBeDefined();
-  });
-
-  test('is not drawn at all for a mode without gravity', () => {
-    callDraw(renderer, makeState());
-    expect(ctx.calls.some(c => c.strokeStyle === COLOR_GRAVITY_ACCENT)).toBe(false);
-  });
-
-  // strokeStyle/lineWidth are only "live" at the moment stroke() actually
-  // runs, not at the earlier arc()/moveTo() path-building calls (canvas 2D
-  // reads style state lazily) — and the compass ARROW's shaft stroke also
-  // uses lineWidth 4 + the accent color, so lineWidth/strokeStyle alone can't
-  // distinguish it from the tilt-range arc's stroke. Distinguish by what
-  // path-building call immediately preceded the stroke: an arc() means the
-  // curved tilt-range arc, a lineTo() means the straight arrow shaft.
-  function tiltArcStrokeCount(): number {
-    return ctx.calls.filter((c, i) =>
-      c.method === 'stroke' && c.strokeStyle === COLOR_GRAVITY_ACCENT && c.lineWidth === 4
-      && ctx.calls[i - 1]?.method === 'arc',
-    ).length;
-  }
-
-  test('draws the tilt-range arc only during Aiming, not WaitingForDrop', () => {
-    const base = { gravity: makeGravity({ angle: 10, turnStartAngle: 0, maxTiltDelta: 45 }) };
-
-    callDraw(renderer, makeState({ ...base, phase: GamePhase.WaitingForDrop }));
-    expect(tiltArcStrokeCount()).toBe(0);
-
-    ctx.calls.length = 0;
-    callDraw(renderer, makeState({ ...base, phase: GamePhase.Aiming }));
-    expect(tiltArcStrokeCount()).toBe(1);
-  });
-});
-
 // ─── HUD ────────────────────────────────────────────────────────────────────
 
-describe('HUD', () => {
-  test('draws the locale-formatted display score', () => {
+describe('canvas HUD removal', () => {
+  test('does not draw the score as canvas text', () => {
     callDraw(renderer, makeState({ score: 12_345 }));
-    expect(ctx.calls.some(c => c.method === 'fillText' && c.args[0] === (12_345).toLocaleString('en-US'))).toBe(true);
+    expect(ctx.calls.some(c => c.method === 'fillText' && c.args[0] === (12_345).toLocaleString('en-US'))).toBe(false);
   });
 
-  test('draws one turn pip per turn in the level', () => {
+  test('does not draw turn pips in canvas', () => {
     callDraw(renderer, makeState({ turnsPerLevel: 30, turnsRemaining: 30 }));
-    // Pips are drawn via arc() with a small radius (<=7); discs use discR() (much larger).
     const pipArcs = ctx.calls.filter(c => c.method === 'arc' && (c.args[2] as number) <= 7);
-    expect(pipArcs.length).toBeGreaterThanOrEqual(30);
+    expect(pipArcs.length).toBe(0);
   });
 });
 

@@ -2,7 +2,9 @@
 
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { InputHandler, type InputIntent } from '../../platform/input-handler.js';
-import { canvasLogicalHeight, canvasLogicalWidth, setGridSize, updateCellSize } from '../../ui/rendering/layout.js';
+import {
+  canvasLogicalHeight, canvasLogicalWidth, cellCenterX, cellCenterY, setGridSize, updateCellSize,
+} from '../../ui/rendering/layout.js';
 
 function setViewport(width: number, height: number): void {
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
@@ -56,8 +58,8 @@ describe('InputHandler', () => {
     const canvas = createCanvas();
     new InputHandler(canvas, intent => intents.push(intent), () => false, () => 3);
 
-    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 350, clientY: 120, bubbles: true }));
-    canvas.dispatchEvent(new MouseEvent('click', { clientX: 350, clientY: 120, bubbles: true }));
+    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: cellCenterX(3), clientY: cellCenterY(0), bubbles: true }));
+    canvas.dispatchEvent(new MouseEvent('click', { clientX: cellCenterX(3), clientY: cellCenterY(0), bubbles: true }));
 
     expect(intents).toEqual([
       { kind: 'move', col: 3 },
@@ -70,7 +72,7 @@ describe('InputHandler', () => {
     const canvas = createCanvas();
     new InputHandler(canvas, intent => intents.push(intent), () => false, () => 2, () => 'row');
 
-    canvas.dispatchEvent(new MouseEvent('click', { clientX: 120, clientY: 320, bubbles: true }));
+    canvas.dispatchEvent(new MouseEvent('click', { clientX: cellCenterX(0), clientY: cellCenterY(3), bubbles: true }));
 
     expect(intents).toEqual([{ kind: 'drop', col: 3 }]);
   });
@@ -134,38 +136,38 @@ describe('InputHandler', () => {
     new InputHandler(canvas, intent => intents.push(intent), () => gameOver, () => 3);
 
     canvas.dispatchEvent(new TouchEvent('touchstart', {
-      touches: [touch({ clientX: 250, clientY: 120 })],
+      touches: [touch({ clientX: cellCenterX(2), clientY: cellCenterY(0) })],
       bubbles: true,
       cancelable: true,
     }));
     canvas.dispatchEvent(new TouchEvent('touchend', {
-      changedTouches: [touch({ clientX: 250, clientY: 120 })],
+      changedTouches: [touch({ clientX: cellCenterX(2), clientY: cellCenterY(0) })],
       bubbles: true,
     }));
 
     canvas.dispatchEvent(new TouchEvent('touchstart', {
-      touches: [touch({ clientX: 250, clientY: 120 })],
+      touches: [touch({ clientX: cellCenterX(2), clientY: cellCenterY(0) })],
       bubbles: true,
       cancelable: true,
     }));
     canvas.dispatchEvent(new TouchEvent('touchmove', {
-      touches: [touch({ clientX: 350, clientY: 120 })],
+      touches: [touch({ clientX: cellCenterX(3), clientY: cellCenterY(0) })],
       bubbles: true,
       cancelable: true,
     }));
     canvas.dispatchEvent(new TouchEvent('touchend', {
-      changedTouches: [touch({ clientX: 500, clientY: 120 })],
+      changedTouches: [touch({ clientX: cellCenterX(5), clientY: cellCenterY(0) })],
       bubbles: true,
     }));
 
     gameOver = true;
     canvas.dispatchEvent(new TouchEvent('touchstart', {
-      touches: [touch({ clientX: 350, clientY: 120 })],
+      touches: [touch({ clientX: cellCenterX(3), clientY: cellCenterY(0) })],
       bubbles: true,
       cancelable: true,
     }));
     canvas.dispatchEvent(new TouchEvent('touchend', {
-      changedTouches: [touch({ clientX: 350, clientY: 120 })],
+      changedTouches: [touch({ clientX: cellCenterX(3), clientY: cellCenterY(0) })],
       bubbles: true,
     }));
 
@@ -185,7 +187,7 @@ describe('InputHandler', () => {
     const input = new InputHandler(canvas, intent => intents.push(intent), () => false, () => 3);
 
     input.destroy();
-    canvas.dispatchEvent(new MouseEvent('click', { clientX: 350, clientY: 120, bubbles: true }));
+    canvas.dispatchEvent(new MouseEvent('click', { clientX: cellCenterX(3), clientY: cellCenterY(0), bubbles: true }));
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'r', bubbles: true }));
 
     expect(intents).toEqual([]);

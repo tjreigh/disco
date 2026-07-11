@@ -29,7 +29,99 @@
       min-height: 0;
       pointer-events: none;
     }
-    .shell-region--top { padding-top: env(safe-area-inset-top); }
+    .shell-region--top {
+      min-height: env(safe-area-inset-top);
+    }
+    .game-hud {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      color: #f0f4f8;
+      pointer-events: none;
+    }
+    .game-hud[hidden] { display: none; }
+    .game-hud__top,
+    .game-hud__bottom {
+      position: absolute;
+      left: 50%;
+      width: min(100%, var(--game-canvas-width, 680px));
+      transform: translateX(-50%);
+    }
+    .game-hud__top {
+      top: calc(50% - var(--game-canvas-height, 0px) / 2);
+      height: 96px;
+      padding: 10px max(16px, env(safe-area-inset-left)) 0 max(16px, env(safe-area-inset-right));
+    }
+    .game-hud__bottom {
+      top: calc(50% + var(--game-canvas-height, 0px) / 2 - 80px);
+      height: 80px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-left: max(16px, env(safe-area-inset-left), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2));
+      padding-right: max(16px, env(safe-area-inset-right), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2));
+    }
+    .game-hud__summary {
+      display: grid;
+      justify-items: center;
+      align-content: start;
+      gap: 0;
+      height: 100%;
+      font: 700 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .game-hud__score { margin-bottom: 12px; font-size: 24px; line-height: 1.1; color: #ffffff; }
+    .game-hud__level { margin-top: 7px; color: #a0aec0; white-space: nowrap; }
+    .game-hud__turns { display: grid; justify-items: center; gap: 7px; color: #a0aec0; white-space: nowrap; }
+    .game-hud__pips {
+      display: flex;
+      justify-content: space-between;
+      width: var(--game-grid-width, 504px);
+      max-width: min(var(--game-grid-width, 504px), calc(100vw - 32px));
+      padding-inline: 1px;
+    }
+    .game-hud__pip {
+      flex: 0 0 auto;
+      width: clamp(9px, calc(var(--game-grid-width, 504px) / 32), 16px);
+      height: clamp(9px, calc(var(--game-grid-width, 504px) / 32), 16px);
+      border: 1px solid #718096;
+      border-radius: 50%;
+    }
+    .game-hud__pip--remaining { background: #f0f4f8; border-color: #f0f4f8; }
+    .game-hud__pip--placeholder { visibility: hidden; }
+    .game-hud__queue {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .game-hud__disc-slot { display: inline-flex; align-items: center; gap: 6px; color: #cbd5e1; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .game-hud__disc-caption { text-transform: uppercase; }
+    .game-hud__disc { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid rgba(255,255,255,.35); border-radius: 50%; color: #fff; font: 700 15px system-ui, sans-serif; box-shadow: inset 3px 3px 5px rgba(255,255,255,.22), 0 2px 5px rgba(0,0,0,.35); }
+    .game-hud__disc[data-kind="numbered"][data-value="1"] { background: #e74c3c; }
+    .game-hud__disc[data-kind="numbered"][data-value="2"] { background: #e67e22; }
+    .game-hud__disc[data-kind="numbered"][data-value="3"] { background: #f1c40f; }
+    .game-hud__disc[data-kind="numbered"][data-value="4"] { background: #2ecc71; }
+    .game-hud__disc[data-kind="numbered"][data-value="5"] { background: #3498db; }
+    .game-hud__disc[data-kind="numbered"][data-value="6"] { background: #9b59b6; }
+    .game-hud__disc[data-kind="numbered"][data-value="7"] { background: #1abc9c; }
+    .game-hud__disc[data-kind="single-cracked"], .game-hud__disc[data-kind="double-cracked"] { background: #4a5568; }
+    .game-hud__gravity { position: absolute; top: 8px; right: 8px; color: #62b0e8; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .game-hud__hint { max-width: 55%; color: #a0aec0; font-size: 10px; text-align: right; }
+    @media (max-width: 720px), (pointer: coarse) {
+      .game-hud__summary {
+        font-size: 12px;
+      }
+      .game-hud__score {
+        font-size: 22px;
+      }
+      .game-hud__hint { max-width: 58%; }
+    }
+    @media (max-width: 420px) {
+      .game-hud__top { height: 96px; }
+      .game-hud__bottom { height: 80px; }
+      .game-hud__disc { width: 27px; height: 27px; font-size: 14px; }
+      .game-hud__disc-slot { gap: 4px; font-size: 9px; }
+      .game-hud__hint { max-width: 54%; font-size: 9px; }
+    }
     .shell-region--bottom {
       display: grid;
       place-items: center;

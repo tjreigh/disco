@@ -2,8 +2,8 @@
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
-  canvasLogicalHeight, canvasLogicalWidth, cellSize, gridPadding,
-  gridW, setGridSize, updateCellSize,
+  canvasLogicalHeight, canvasLogicalWidth, cellCenterX, cellCenterY, cellSize,
+  gridCols, gridPadding, gridRows, gridW, setGridSize, updateCellSize,
 } from '../../ui/rendering/layout.js';
 
 function setViewport(width: number, height: number): void {
@@ -18,8 +18,8 @@ describe('responsive stage layout', () => {
   test('iPhone SE stage fits the board and canvas without horizontal overflow', () => {
     updateCellSize({ width: 375, height: 667 });
 
-    expect(cellSize()).toBe(53);
-    expect(gridPadding()).toBe(2);
+    expect(cellSize()).toBe(46);
+    expect(gridPadding()).toBe(3);
     expect(canvasLogicalWidth()).toBeLessThanOrEqual(375);
     expect(canvasLogicalHeight()).toBeLessThanOrEqual(667);
   });
@@ -27,7 +27,7 @@ describe('responsive stage layout', () => {
   test('modern phone stage uses its measured bounds', () => {
     updateCellSize({ width: 393, height: 852 });
 
-    expect(cellSize()).toBe(56);
+    expect(cellSize()).toBe(49);
     expect(canvasLogicalWidth()).toBeLessThanOrEqual(393);
     expect(canvasLogicalHeight()).toBeLessThanOrEqual(852);
   });
@@ -38,8 +38,17 @@ describe('responsive stage layout', () => {
 
     expect(cellSize()).toBe(72);
     expect(gridW()).toBe(504);
-    expect(gridPadding()).toBe(468);
+    expect(gridPadding()).toBe(432);
     expect(canvasLogicalWidth()).toBe(1440);
-    expect(canvasLogicalHeight()).toBe(696);
+    expect(canvasLogicalHeight()).toBe(768);
+  });
+
+  test('keeps the playable grid and entry lanes inside the canvas on every edge', () => {
+    updateCellSize({ width: 375, height: 667 });
+
+    expect(cellCenterX(-1)).toBeGreaterThan(0);
+    expect(cellCenterX(gridCols())).toBeLessThan(canvasLogicalWidth());
+    expect(cellCenterY(-1)).toBeGreaterThan(0);
+    expect(cellCenterY(gridRows())).toBeLessThan(canvasLogicalHeight());
   });
 });

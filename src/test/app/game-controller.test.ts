@@ -133,12 +133,12 @@ function isEmptyBoard(board: Board): boolean {
   return board.every(row => row.every(cell => cell === null));
 }
 
-// draw()'s 11-arg positional signature is awkward to destructure inline
+// draw()'s positional signature is awkward to destructure inline
 // (especially to reach the trailing tutorial/previewLanding args) — pull out
 // just the args a given test cares about, by name, off the most recent call.
 function lastDraw(renderer: any): { state: any; board: Board; tutorial: { allowedCols: readonly number[] } | null } {
   const call = lastOf(renderer.draw.mock.calls);
-  return { state: call[0], board: call[1], tutorial: call[9] };
+  return { state: call[0], board: call[1], tutorial: call[6] };
 }
 
 let rafCallback: FrameRequestCallback | null = null;
