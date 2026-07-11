@@ -1,6 +1,7 @@
 import type { GameModeConfig } from '../game/modes/mode.js';
 import type { GameStats } from '../game/stats.js';
 import type { AccountStatsState } from '../platform/account-stats-store.js';
+import { blurOnClick } from './dom-utils.js';
 
 // DOM overlay for mode selection, following the same plain-DOM construction
 // pattern as DebugPanel (document.createElement, no framework). Covers the
@@ -54,6 +55,7 @@ export class HomeScreen {
     this.menuButton.className = 'home-back-button';
     this.menuButton.textContent = 'MENU';
     this.menuButton.addEventListener('click', () => this.onRequestGameMenu?.());
+    blurOnClick(this.menuButton);
 
     this.gameMenu = document.createElement('div');
     this.gameMenu.className = 'game-menu';
@@ -148,6 +150,7 @@ export class HomeScreen {
         this.onLogin();
       }
     });
+    blurOnClick(button);
 
     this.authBar.append(status, button);
   }
@@ -158,6 +161,7 @@ export class HomeScreen {
     button.className = 'game-menu-button';
     button.textContent = label;
     button.addEventListener('click', onClick);
+    blurOnClick(button);
     return button;
   }
 
@@ -179,6 +183,7 @@ export class HomeScreen {
         if (event.key !== 'Enter' && event.key !== ' ') return;
         event.preventDefault();
         this.onSelectMode(mode);
+        card.blur();
       });
 
       const name = document.createElement('strong');
@@ -199,6 +204,7 @@ export class HomeScreen {
       playButton.className = 'home-mode-action home-mode-action--play';
       playButton.textContent = 'PLAY';
       playButton.addEventListener('click', () => this.onSelectMode(mode));
+      blurOnClick(playButton);
 
       const tutorialButton = document.createElement('button');
       tutorialButton.type = 'button';
@@ -208,6 +214,7 @@ export class HomeScreen {
         event.stopPropagation();
         this.onRequestTutorial?.(mode);
       });
+      blurOnClick(tutorialButton);
 
       actions.append(playButton, tutorialButton);
       card.append(name, tagline, best, actions);

@@ -85,6 +85,17 @@ describe('TutorialOverlay', () => {
     expect(onContinue).toHaveBeenCalledTimes(2);
   });
 
+  test('clicking retry hands focus back so game keys stay alive', () => {
+    const overlay = new TutorialOverlay();
+    overlay.show(CLASSIC_TUTORIAL, 0);
+
+    const retryButton = document.querySelector<HTMLButtonElement>('.tutorial-button')!;
+    retryButton.focus();
+    retryButton.click();
+
+    expect(document.activeElement).not.toBe(retryButton);
+  });
+
   test('complete prompt names whichever mode the tutorial was actually for', () => {
     const overlay = new TutorialOverlay();
     overlay.showComplete(CLASSIC_TUTORIAL, 'Gravity');

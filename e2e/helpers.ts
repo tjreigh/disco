@@ -1,25 +1,15 @@
-import { expect, type Locator, type Page } from '@playwright/test';
-
-// Clicking a <button> leaves it focused; InputHandler's keydown listener
-// ignores keys while focus is on any element with tabIndex >= 0 (so the
-// debug panel's own focusable controls don't steal game input) — which
-// means a real click on PLAY or the debug toggle would silently swallow
-// the next keyboard-driven game action unless we blur it back off first.
-export async function clickAndBlur(locator: Locator): Promise<void> {
-  await locator.click();
-  await locator.evaluate(el => (el as HTMLElement).blur());
-}
+import { expect, type Page } from '@playwright/test';
 
 export async function playMode(page: Page, modeName: string): Promise<void> {
   const card = page.locator('.home-mode-card', { hasText: modeName });
-  await clickAndBlur(card.locator('.home-mode-action--play'));
+  await card.locator('.home-mode-action--play').click();
 }
 
 export async function openDebugPanel(page: Page): Promise<void> {
   const panel = page.locator('.debug-panel');
   const isOpen = await panel.evaluate(el => el.classList.contains('debug-panel--open'));
   if (!isOpen) {
-    await clickAndBlur(page.locator('.debug-toggle'));
+    await page.locator('.debug-toggle').click();
   }
 }
 

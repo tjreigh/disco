@@ -1,4 +1,5 @@
 import type { TutorialDefinition, TutorialStep } from '../app/tutorial.js';
+import { blurOnClick } from './dom-utils.js';
 
 export class TutorialOverlay {
   private readonly root: HTMLElement;
@@ -90,6 +91,7 @@ export class TutorialOverlay {
     button.className = 'tutorial-button';
     button.textContent = label;
     button.addEventListener('click', onClick);
+    blurOnClick(button);
     return button;
   }
 

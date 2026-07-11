@@ -5,6 +5,7 @@ import { DiscKind } from '../../game/model.js';
 import type { GameState } from '../../game/state.js';
 import { StepKind } from '../../game/events.js';
 import { buildDebugReport } from './debug-report.js';
+import { blurOnClick } from '../dom-utils.js';
 
 export const MAX_TURN_HISTORY = 50;
 export type DebugPanelAccess = 'report' | 'full';
@@ -216,6 +217,8 @@ export class DebugPanel {
     };
     toggle.addEventListener('click', () => setOpen(!this.panel.classList.contains('debug-panel--open')));
     close.addEventListener('click', () => setOpen(false));
+    blurOnClick(toggle);
+    blurOnClick(close);
     document.addEventListener('keydown', event => {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
       if (event.key === 'd' || event.key === 'D') setOpen(!this.panel.classList.contains('debug-panel--open'));

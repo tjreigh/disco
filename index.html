@@ -207,10 +207,11 @@
       border-left: 1px solid #334e68;
       box-shadow: -12px 0 30px rgba(0, 0, 0, .45);
       transform: translateX(102%);
-      transition: transform 150ms ease-out;
+      visibility: hidden;
+      transition: transform 150ms ease-out, visibility 0s linear 150ms;
       font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
     }
-    .debug-panel--open { transform: translateX(0); }
+    .debug-panel--open { transform: translateX(0); visibility: visible; transition: transform 150ms ease-out; }
     .debug-panel > header {
       display: flex;
       align-items: center;
@@ -358,11 +359,14 @@
       background: #1a1a2e;
       opacity: 0;
       pointer-events: none;
-      transition: opacity 150ms ease-out;
+      visibility: hidden;
+      transition: opacity 150ms ease-out, visibility 0s linear 150ms;
     }
     .home-screen--open {
       opacity: 1;
       pointer-events: auto;
+      visibility: visible;
+      transition: opacity 150ms ease-out;
     }
     .home-title {
       color: #f0f4f8;
@@ -463,11 +467,14 @@
       cursor: pointer;
       opacity: 0;
       pointer-events: none;
-      transition: opacity 120ms ease-out;
+      visibility: hidden;
+      transition: opacity 120ms ease-out, visibility 0s linear 120ms;
     }
     .home-back-button--visible {
       opacity: 1;
       pointer-events: auto;
+      visibility: visible;
+      transition: opacity 120ms ease-out;
     }
     .game-menu {
       position: fixed;
@@ -479,11 +486,14 @@
       background: rgba(10, 16, 32, .72);
       opacity: 0;
       pointer-events: none;
-      transition: opacity 120ms ease-out;
+      visibility: hidden;
+      transition: opacity 120ms ease-out, visibility 0s linear 120ms;
     }
     .game-menu--open {
       opacity: 1;
       pointer-events: auto;
+      visibility: visible;
+      transition: opacity 120ms ease-out;
     }
     .game-menu-panel {
       width: min(280px, 88vw);
@@ -530,12 +540,15 @@
       opacity: 0;
       pointer-events: none;
       transform: translate(-50%, 8px);
-      transition: opacity 120ms ease-out, transform 120ms ease-out;
+      visibility: hidden;
+      transition: opacity 120ms ease-out, transform 120ms ease-out, visibility 0s linear 120ms;
     }
     .tutorial-overlay--visible {
       opacity: 1;
       pointer-events: auto;
       transform: translate(-50%, 0);
+      visibility: visible;
+      transition: opacity 120ms ease-out, transform 120ms ease-out;
     }
     .tutorial-eyebrow {
       color: #62b0e8;

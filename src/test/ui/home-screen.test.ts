@@ -156,6 +156,17 @@ describe('HomeScreen', () => {
     expect(home.isGameMenuOpen()).toBe(false);
   });
 
+  test('clicking the play button hands focus back so game keys stay alive', () => {
+    const home = createHome();
+    home.open();
+
+    const playButton = document.querySelector<HTMLButtonElement>('.home-mode-action--play')!;
+    playButton.focus();
+    playButton.click();
+
+    expect(document.activeElement).not.toBe(playButton);
+  });
+
   test('mode actions are buttons but mode cards are not nested buttons', () => {
     createHome();
 
