@@ -49,4 +49,26 @@ describe('GameHud', () => {
     });
     expect(hud.root.hidden).toBe(true);
   });
+
+  test('uses the initial turn budget as the pip spacing scale on later levels', () => {
+    const hud = new GameHud();
+    hud.render({
+      phase: GamePhase.WaitingForDrop, score: 0,
+      currentDisc: disc(5), nextDisc: disc(6), level: 1,
+      initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 30, hasGravity: false,
+    });
+    const levelOnePips = hud.root.querySelectorAll('.game-hud__pip');
+    expect(levelOnePips).toHaveLength(30);
+    expect(hud.root.querySelectorAll('.game-hud__pip--placeholder')).toHaveLength(0);
+
+    hud.render({
+      phase: GamePhase.WaitingForDrop, score: 0,
+      currentDisc: disc(5), nextDisc: disc(6), level: 3,
+      initialTurnsPerLevel: 30, turnsPerLevel: 12, turnsRemaining: 7, hasGravity: false,
+    });
+    expect(hud.root.querySelectorAll('.game-hud__pip')).toHaveLength(30);
+    expect(hud.root.querySelectorAll('.game-hud__pip--remaining')).toHaveLength(7);
+    expect(hud.root.querySelectorAll('.game-hud__pip--placeholder')).toHaveLength(18);
+    expect(hud.root.querySelector('.game-hud__pips')!.lastElementChild?.classList.contains('game-hud__pip--placeholder')).toBe(true);
+  });
 });

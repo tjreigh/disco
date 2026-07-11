@@ -41,4 +41,10 @@ test.describe('Classic mode', () => {
     const summary = await readSummary(page);
     expect(summary.phase).not.toBe('aiming');
   });
+
+  test('desktop keeps touch controls hidden while the DOM HUD remains visible', async ({ page }) => {
+    await expect(page.locator('.game-hud')).toBeVisible();
+    await expect(page.locator('.game-controls')).toBeHidden();
+    await expect(page.locator('.game-hud__score')).toBeVisible();
+  });
 });
