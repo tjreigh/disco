@@ -1,8 +1,9 @@
-import type { Board, Disc } from './model.js';
+import type { Board, Disc, GridPos } from './model.js';
 import { DiscKind } from './model.js';
 import type { GameModeConfig } from './modes/mode.js';
 import { unnumberedProbabilityForLevel } from './modes/mode.js';
 import type { RandomSource } from './random.js';
+import { cloneBoard, landingRow, placeDisc, removeDisc, applyGravity } from './board.js';
 
 // Module-level counter keeps IDs unique across game restarts within a session,
 // so a new disc never accidentally shares an ID with a disc from a previous game
@@ -74,6 +75,44 @@ function weightedChoice<T>(candidates: readonly T[], weights: readonly number[],
   return candidates.at(-1)!;
 }
 
+// Standalone chain-clear simulation used only to evaluate "would dealing this
+// value let the board resolve to fully empty right now" during generation.
+// Reimplements the small fixed-point loop shape resolveClearSteps
+// (physics.ts) already has, rather than importing it — physics.ts imports
+// from this module, so the reverse import would be circular.
+function resolvesToEmptyBoard(mode: GameModeConfig, board: Board): boolean {
+  while (true) {
+    const clears: GridPos[] = [];
+    for (let row = 0; row < board.length; row++) {
+      for (let col = 0; col < board[row]!.length; col++) {
+        const disc = board[row]![col];
+        if (disc && disc.kind === DiscKind.Numbered && mode.isClearable(board, row, col, disc, 0)) {
+          clears.push({ row, col });
+        }
+      }
+    }
+    if (clears.length === 0) break;
+    for (const pos of clears) removeDisc(board, pos);
+    applyGravity(board);
+  }
+  return board.every(row => row.every(cell => cell == null));
+}
+
+// True if dropping a fresh Numbered disc of this value into any legal column,
+// right now, would resolve (through the normal clear/reveal/gravity chain)
+// to a completely empty board.
+function wouldEmptyBoardIfDropped(mode: GameModeConfig, board: Board, value: number): boolean {
+  const cols = board[0]?.length ?? 0;
+  for (let col = 0; col < cols; col++) {
+    const row = landingRow(board, col);
+    if (row === null) continue;
+    const scratch = cloneBoard(board);
+    placeDisc(scratch, row, col, makeDisc(value, DiscKind.Numbered));
+    if (resolvesToEmptyBoard(mode, scratch)) return true;
+  }
+  return false;
+}
+
 /** Stateful generation for the player's incoming queue. */
 export class PlayableDiscGenerator {
   private readonly values: number[] = [];
@@ -82,8 +121,8 @@ export class PlayableDiscGenerator {
   constructor(private readonly mode: GameModeConfig, private readonly random: RandomSource = () => Math.random()) {}
 
   generate(level: number, board: Board = this.emptyBoard()): Disc {
-    const value = this.chooseValue(board);
-    const kind = this.chooseKind(level, value, board);
+    const value = this.chooseValue(level, board);
+    const kind = this.chooseKind(level);
     const historyLimit = Math.max(this.mode.discGeneration.valueBalanceWindow, this.mode.discGeneration.kindBalanceWindow);
     this.values.push(value);
     this.kinds.push(kind);
@@ -99,17 +138,18 @@ export class PlayableDiscGenerator {
     );
   }
 
-  private isEmptyBoard(board: Board): boolean {
-    return board.every(row => row.every(cell => cell == null));
-  }
-
-  private chooseValue(board: Board): number {
+  private chooseValue(level: number, board: Board): number {
     const config = this.mode.discGeneration;
     const valueCount = this.mode.discValueMax - this.mode.discValueMin + 1;
-    const candidates = Array.from(
+    const guardActive = level < this.mode.minLevelForBoardClearBonus;
+    let candidates = Array.from(
       { length: valueCount },
       (_, index) => this.mode.discValueMin + index,
     ).filter(value => trailingRun(this.values, value) < config.maxSameValueRun);
+    if (guardActive) {
+      const safe = candidates.filter(value => !wouldEmptyBoardIfDropped(this.mode, board, value));
+      if (safe.length > 0) candidates = safe; // never exhaust the pool entirely
+    }
     const recent = this.values.slice(-config.valueBalanceWindow);
     const expected = recent.length / valueCount;
     const pressure = this.boardPressure(board);
@@ -185,12 +225,12 @@ export class PlayableDiscGenerator {
     return length;
   }
 
-  private chooseKind(level: number, value: number, board: Board): DiscKind {
+  private chooseKind(level: number): DiscKind {
     const config = this.mode.discGeneration;
     const numberedRun = trailingRun(this.kinds, DiscKind.Numbered);
     const crackedRun = trailingRun(this.kinds, DiscKind.DoubleCracked);
     if (numberedRun >= config.maxNumberedRun) return DiscKind.DoubleCracked;
-    if (crackedRun >= config.maxCrackedRun) return this.withEmptyBoardOpeningGuard(DiscKind.Numbered, value, board);
+    if (crackedRun >= config.maxCrackedRun) return DiscKind.Numbered;
 
     const target = 1 - unnumberedProbabilityForLevel(this.mode, level);
     const recent = this.kinds.slice(-config.kindBalanceWindow);
@@ -198,15 +238,7 @@ export class PlayableDiscGenerator {
       ? target
       : recent.filter(kind => kind === DiscKind.Numbered).length / recent.length;
     const probability = Math.max(0, Math.min(1, target + config.kindBalanceStrength * (target - observed)));
-    const kind = this.random() < probability ? DiscKind.Numbered : DiscKind.DoubleCracked;
-    return this.withEmptyBoardOpeningGuard(kind, value, board);
-  }
-
-  private withEmptyBoardOpeningGuard(kind: DiscKind, value: number, board: Board): DiscKind {
-    if (this.values.length === 0 && kind === DiscKind.Numbered && value === 1 && this.isEmptyBoard(board)) {
-      return DiscKind.DoubleCracked;
-    }
-    return kind;
+    return this.random() < probability ? DiscKind.Numbered : DiscKind.DoubleCracked;
   }
 }
 

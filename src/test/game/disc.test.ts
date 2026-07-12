@@ -3,7 +3,7 @@ import { createDiscFactories, DiscQueue, makeCrackedDisc, makeDisc, makeRandomDi
 import type { Board } from '../../game/model.js';
 import { DiscKind } from '../../game/model.js';
 import { CLASSIC_MODE } from '../../game/modes/index.js';
-import { createSeededRandom } from '../../game/random.js';
+import { createGameSeed, createSeededRandom } from '../../game/random.js';
 import { makeEmptyBoard } from '../../game/board.js';
 
 afterEach(() => vi.restoreAllMocks());
@@ -76,9 +76,14 @@ describe('PlayableDiscGenerator', () => {
 
   test('keeps long-run kind frequency near the level target', () => {
     const generator = new PlayableDiscGenerator(CLASSIC_MODE, createSeededRandom(54321));
-    const discs = Array.from({ length: 20_000 }, () => generator.generate(1));
+    // Level 2 (past minLevelForBoardClearBonus): generate(level) with no board
+    // defaults to a fresh empty board on every single call, which at level 1
+    // would keep the empty-board value guard permanently active and distort
+    // this steady-state distribution check — an artificial worst case, not
+    // how real play (a board that actually fills up) exercises the guard.
+    const discs = Array.from({ length: 20_000 }, () => generator.generate(2));
     const numberedRate = discs.filter(disc => disc.kind === DiscKind.Numbered).length / discs.length;
-    expect(numberedRate).toBeGreaterThan(0.77);
+    expect(numberedRate).toBeGreaterThan(0.76);
     expect(numberedRate).toBeLessThan(0.83);
     for (let value = 1; value <= 7; value++) {
       const valueRate = discs.filter(disc => disc.value === value).length / discs.length;
@@ -87,12 +92,63 @@ describe('PlayableDiscGenerator', () => {
     }
   });
 
-  test('does not deal a numbered 1 onto an empty board', () => {
+  test('re-rolls a value that would immediately clear an empty board, without touching kind', () => {
     const generator = new PlayableDiscGenerator(CLASSIC_MODE, () => 0);
     const disc = generator.generate(1, makeEmptyBoard());
 
-    expect(disc.value).toBe(1);
-    expect(disc.kind).toBe(DiscKind.DoubleCracked);
+    // On a genuinely empty board only value 1 could chain-clear it straight
+    // back to empty, so it's excluded from the candidate pool entirely — the
+    // roll lands on a different, still-uniformly-weighted value instead of
+    // surviving and then having its kind forced down to DoubleCracked.
+    expect(disc.value).not.toBe(1);
+    expect(disc.kind).toBe(DiscKind.Numbered); // kind still follows the mode's normal probability
+  });
+
+  // The guard is gated by `level < mode.minLevelForBoardClearBonus`
+  // (minLevelForBoardClearBonus is 2 for Classic), so it's active only at
+  // level 1 and lifts from level 2 onward. Both tests below drive real
+  // production seeds (createGameSeed, the same crypto-backed 32-bit source
+  // GameEngine uses to start a real game) through createSeededRandom, rather
+  // than small hand-picked literals — a handful of low integers like 1, 2,
+  // 42 sample only a negligible sliver of the ~4.29 billion-value seed space
+  // production actually draws from.
+  test('level 1: never deals a value-1 Numbered disc that would empty the board, across many real production seeds', () => {
+    // Mirrors DiscQueue's real prefill: several discs generated back-to-back
+    // against the same still-empty board before any drop happens. This is
+    // exactly the shape of the reported bug (a lone 2 next to a lone 1, both
+    // dealt onto an empty board, chain-clearing on contact) — the guard has
+    // to hold for every disc dealt while level 1's board stays empty, not
+    // just the very first one.
+    const seeds = Array.from({ length: 500 }, () => createGameSeed());
+
+    for (const seed of seeds) {
+      const generator = new PlayableDiscGenerator(CLASSIC_MODE, createSeededRandom(seed));
+      const board = makeEmptyBoard();
+      for (let i = 0; i < 5; i++) {
+        const disc = generator.generate(1, board);
+        if (disc.kind === DiscKind.Numbered) expect(disc.value).not.toBe(1);
+      }
+    }
+  });
+
+  test('above minLevelForBoardClearBonus: a value-1 Numbered disc can be dealt onto a still-empty board again, across many real production seeds', () => {
+    // Proves the guard is genuinely level-scoped rather than a de facto
+    // permanent exclusion of value 1 on an empty board: once level reaches
+    // the mode's threshold, the same still-empty-board setup that's exercised
+    // above must be able to produce a value-1 Numbered disc again.
+    const seeds = Array.from({ length: 500 }, () => createGameSeed());
+    let sawNumberedOne = false;
+
+    for (const seed of seeds) {
+      const generator = new PlayableDiscGenerator(CLASSIC_MODE, createSeededRandom(seed));
+      const board = makeEmptyBoard();
+      for (let i = 0; i < 5; i++) {
+        const disc = generator.generate(CLASSIC_MODE.minLevelForBoardClearBonus, board);
+        if (disc.kind === DiscKind.Numbered && disc.value === 1) sawNumberedOne = true;
+      }
+    }
+
+    expect(sawNumberedOne).toBe(true);
   });
 
   test('can still deal numbered 1 once the board is not empty', () => {
@@ -103,6 +159,22 @@ describe('PlayableDiscGenerator', () => {
 
     expect(disc.value).toBe(1);
     expect(disc.kind).toBe(DiscKind.Numbered);
+  });
+
+  test('the empty-board value guard only applies below minLevelForBoardClearBonus', () => {
+    const generator = new PlayableDiscGenerator(CLASSIC_MODE, () => 0);
+    const disc = generator.generate(CLASSIC_MODE.minLevelForBoardClearBonus, makeEmptyBoard());
+
+    expect(disc.value).toBe(1); // guard is off at/after this level, so the raw uniform roll can land on 1 again
+  });
+
+  test('falls back to the unfiltered candidate pool if every remaining value would be unsafe', () => {
+    const singleValueMode = { ...CLASSIC_MODE, discValueMin: 1, discValueMax: 1 };
+    const generator = new PlayableDiscGenerator(singleValueMode, () => 0);
+
+    const disc = generator.generate(1, makeEmptyBoard());
+
+    expect(disc.value).toBe(1); // the only value in range — generation must not throw or stall
   });
 
   test('is deterministic for a seed and keeps push rolls out of playable history', () => {
@@ -132,8 +204,12 @@ describe('PlayableDiscGenerator', () => {
     const lowGenerator = new PlayableDiscGenerator(CLASSIC_MODE, createSeededRandom(9876));
     const highGenerator = new PlayableDiscGenerator(CLASSIC_MODE, createSeededRandom(9876));
 
-    const lowValues = Array.from({ length: 20_000 }, () => lowGenerator.generate(1, lowBoard).value);
-    const highValues = Array.from({ length: 20_000 }, () => highGenerator.generate(1, highBoard).value);
+    // Level 2 (past minLevelForBoardClearBonus): lowBoard is reused untouched
+    // across every call, so at level 1 the empty-board value guard would fire
+    // on every single draw and permanently exclude value 1 — an artificial
+    // worst case unrelated to what this test is checking (board pressure).
+    const lowValues = Array.from({ length: 20_000 }, () => lowGenerator.generate(2, lowBoard).value);
+    const highValues = Array.from({ length: 20_000 }, () => highGenerator.generate(2, highBoard).value);
     const mean = (values: readonly number[]) => values.reduce((sum, value) => sum + value, 0) / values.length;
 
     expect(mean(lowValues)).toBeGreaterThan(3.9);

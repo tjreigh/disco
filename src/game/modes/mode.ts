@@ -24,6 +24,8 @@ export interface GameModeConfig {
   readonly levelBonus: number;
   /** Flat bonus awarded once when the board is fully cleared. */
   readonly boardClearBonus: number;
+  /** Below this level, a disc value can't be dealt in a way that would let it immediately complete a board-emptying clear. */
+  readonly minLevelForBoardClearBonus: number;
   /** Turn budget for level 1. See {@link turnsForLevel}. */
   readonly initialTurnsPerLevel: number;
   /** Amount the turn budget shrinks per level (linear decay) as levels progress. */

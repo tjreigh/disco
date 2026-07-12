@@ -83,6 +83,7 @@ export const CLASSIC_MODE: GameModeConfig = {
   chainExponent: 2.5,
   levelBonus: 7_000,
   boardClearBonus: 70_000,
+  minLevelForBoardClearBonus: 2,
   initialTurnsPerLevel: 30,
   turnsPerLevelStep: 1,
   minTurnsPerLevel: 8,
