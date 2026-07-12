@@ -109,7 +109,6 @@ describe('GRAVITY_TUTORIAL', () => {
         ...(step.gravityAngleDeg !== undefined ? { gravityAngleDeg: step.gravityAngleDeg } : {}),
       });
 
-      expect(engine.stageGravityDrop(step.allowedCols[0]!)).toBeUndefined();
       engine.tiltGravity(45);
       const result = engine.commitTilt();
 

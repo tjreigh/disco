@@ -56,6 +56,42 @@ describe('makeRandomDisc', () => {
 });
 
 describe('PlayableDiscGenerator', () => {
+  test('restores history for an identical continuation and snapshots defensively', () => {
+    const first = new PlayableDiscGenerator(CLASSIC_MODE, createSeededRandom(111));
+    const secondRandom = createSeededRandom(111);
+    const second = new PlayableDiscGenerator(CLASSIC_MODE, secondRandom);
+    const board = makeEmptyBoard();
+
+    Array.from({ length: 12 }, () => first.generate(2, board));
+    Array.from({ length: 12 }, () => second.generate(2, board));
+    const history = first.snapshot();
+    const randomState = secondRandom.snapshot();
+
+    Array.from({ length: 5 }, () => second.generate(2, board));
+
+    second.restore(history);
+    secondRandom.restore(randomState);
+    history.recentValues.fill(99);
+    history.recentKinds.fill(DiscKind.SingleCracked);
+
+    const signature = (disc: ReturnType<typeof makeDisc>) => [disc.value, disc.kind];
+    expect(Array.from({ length: 20 }, () => signature(second.generate(2, board))))
+      .toEqual(Array.from({ length: 20 }, () => signature(first.generate(2, board))));
+  });
+
+  test('returns snapshot arrays that cannot mutate generator history', () => {
+    const random = createSeededRandom(222);
+    const generator = new PlayableDiscGenerator(CLASSIC_MODE, random);
+    Array.from({ length: 10 }, () => generator.generate(2));
+    const before = generator.snapshot();
+    const exposed = generator.snapshot();
+
+    exposed.recentValues.fill(99);
+    exposed.recentKinds.fill(DiscKind.SingleCracked);
+
+    expect(generator.snapshot()).toEqual(before);
+  });
+
   test('enforces value and kind streak limits', () => {
     const generator = new PlayableDiscGenerator(CLASSIC_MODE, createSeededRandom(12345));
     const discs = Array.from({ length: 10_000 }, () => generator.generate(1));
@@ -276,6 +312,53 @@ describe('PlayableDiscGenerator', () => {
 });
 
 describe('DiscQueue', () => {
+  test('snapshots exactly three queued discs without runtime IDs', () => {
+    let value = 0;
+    const queue = new DiscQueue(
+      () => makeDisc(++value, DiscKind.Numbered),
+      1,
+      makeEmptyBoard(),
+    );
+
+    expect(queue.snapshot()).toEqual([
+      { value: 1, kind: DiscKind.Numbered },
+      { value: 2, kind: DiscKind.Numbered },
+      { value: 3, kind: DiscKind.Numbered },
+    ]);
+  });
+
+  test('restores defensive queue copies with fresh runtime IDs', () => {
+    const queue = new DiscQueue(
+      () => makeDisc(7, DiscKind.Numbered),
+      1,
+      makeEmptyBoard(),
+    );
+    const snapshot = queue.snapshot();
+    const oldIds = [queue.peek().id, queue.peekNext().id];
+
+    queue.restore(snapshot);
+    snapshot[0].value = 99;
+
+    expect(queue.peek()).toMatchObject({ value: 7, kind: DiscKind.Numbered });
+    expect(queue.peekNext()).toMatchObject({ value: 7, kind: DiscKind.Numbered });
+    expect(oldIds).not.toContain(queue.peek().id);
+    expect(oldIds).not.toContain(queue.peekNext().id);
+  });
+
+  test('rejects snapshots that do not contain exactly three entries', () => {
+    const queue = new DiscQueue(
+      () => makeDisc(7, DiscKind.Numbered),
+      1,
+      makeEmptyBoard(),
+    );
+
+    expect(() => queue.restore([])).toThrow('exactly three discs');
+    expect(() => queue.restore([
+      { value: 1, kind: DiscKind.Numbered },
+      { value: 2, kind: DiscKind.Numbered },
+    ])).toThrow('exactly three discs');
+  });
+
   test('generates only the appended tail with the newly supplied level', () => {
     const generatedAt: number[] = [];
     const board = makeEmptyBoard();

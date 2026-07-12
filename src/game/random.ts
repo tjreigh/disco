@@ -1,9 +1,15 @@
 export type RandomSource = () => number;
 
+/** A callable random source whose exact continuation point can be persisted. */
+export interface SnapshotRandomSource extends RandomSource {
+  snapshot(): number;
+  restore(state: number): void;
+}
+
 /** Stable 32-bit PRNG used to make a complete game reproducible from its seed. */
-export function createSeededRandom(seed: number): RandomSource {
+export function createSeededRandom(seed: number): SnapshotRandomSource {
   let state = seed >>> 0;
-  return () => {
+  const random = () => {
     // mulberry32 algorithm. 0x6d2b79f5 is odd, so adding it repeatedly cycles
     // through all 2^32 values before repeating (unlike e.g. adding 2, which
     // would only hit half of them).
@@ -16,6 +22,11 @@ export function createSeededRandom(seed: number): RandomSource {
     value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
     return ((value ^ (value >>> 14)) >>> 0) / 0x1_0000_0000; // divide by 2^32 to land in [0, 1)
   };
+  random.snapshot = () => state;
+  random.restore = (nextState: number) => {
+    state = nextState >>> 0;
+  };
+  return random;
 }
 
 /** Produces a fresh unsigned 32-bit seed for a normal game. */

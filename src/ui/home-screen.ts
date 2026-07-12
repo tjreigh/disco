@@ -3,6 +3,11 @@ import type { GameStats } from '../game/stats.js';
 import type { AccountStatsState } from '../platform/account-stats-store.js';
 import { blurOnClick } from './dom-utils.js';
 
+export interface SavedGameSummary {
+  modeName: string;
+  score: number;
+}
+
 // DOM overlay for mode selection, following the same plain-DOM construction
 // pattern as DebugPanel (document.createElement, no framework). Covers the
 // canvas entirely while open; the canvas's own pointer listeners never fire
@@ -11,6 +16,8 @@ export class HomeScreen {
   private readonly overlay: HTMLElement;
   private readonly authBar: HTMLElement;
   private readonly cardsContainer: HTMLElement;
+  private readonly savedGameAction: HTMLElement;
+  private readonly savedGameContext: HTMLElement;
   private readonly menuButton: HTMLButtonElement;
   private readonly gameMenu: HTMLElement;
   private readonly soundButton: HTMLButtonElement;
@@ -24,6 +31,7 @@ export class HomeScreen {
   onRequestHome?: () => void;
   onRequestToggleSound?: () => void;
   onRequestTutorial?: (mode: GameModeConfig) => void;
+  onRequestResumeSavedGame?: () => void;
 
   constructor(
     private readonly modes: readonly GameModeConfig[],
@@ -47,7 +55,23 @@ export class HomeScreen {
     this.cardsContainer = document.createElement('div');
     this.cardsContainer.className = 'home-mode-list';
 
-    this.overlay.append(title, this.authBar, this.cardsContainer);
+    this.savedGameAction = document.createElement('section');
+    this.savedGameAction.className = 'home-saved-game';
+    this.savedGameAction.hidden = true;
+    this.savedGameAction.setAttribute('aria-label', 'Saved game');
+
+    const savedGameButton = document.createElement('button');
+    savedGameButton.type = 'button';
+    savedGameButton.className = 'home-saved-game-button';
+    savedGameButton.textContent = 'RESUME SAVED GAME';
+    savedGameButton.addEventListener('click', () => this.onRequestResumeSavedGame?.());
+    blurOnClick(savedGameButton);
+
+    this.savedGameContext = document.createElement('span');
+    this.savedGameContext.className = 'home-saved-game-context';
+    this.savedGameAction.append(savedGameButton, this.savedGameContext);
+
+    this.overlay.append(title, this.authBar, this.savedGameAction, this.cardsContainer);
     document.body.append(this.overlay);
 
     this.menuButton = document.createElement('button');
@@ -120,6 +144,13 @@ export class HomeScreen {
 
   refreshAuth(): void {
     this.renderAuth();
+  }
+
+  setSavedGame(summary: SavedGameSummary | null): void {
+    this.savedGameAction.hidden = summary === null;
+    this.savedGameContext.textContent = summary
+      ? `${summary.modeName} · Score ${summary.score.toLocaleString('en-US')}`
+      : '';
   }
 
   private renderAuth(): void {

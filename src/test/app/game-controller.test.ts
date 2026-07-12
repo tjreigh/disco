@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 const {
   rendererInstances, audioInstances, inputHandlerInstances,
-  homeScreenInstances, debugPanelInstances, statsStoreInstances,
+  homeScreenInstances, debugPanelInstances, statsStoreInstances, saveStoreInstances, saveStoreState,
 } = vi.hoisted(() => ({
   rendererInstances: [] as any[],
   audioInstances: [] as any[],
@@ -19,6 +19,8 @@ const {
   homeScreenInstances: [] as any[],
   debugPanelInstances: [] as any[],
   statsStoreInstances: [] as any[],
+  saveStoreInstances: [] as any[],
+  saveStoreState: { current: null as any },
 }));
 
 vi.mock('../../ui/rendering/renderer.js', () => ({
@@ -67,6 +69,7 @@ vi.mock('../../ui/home-screen.js', () => ({
     onRequestHome?: () => void;
     onRequestToggleSound?: () => void;
     onRequestTutorial?: (mode: unknown) => void;
+    onRequestResumeSavedGame?: () => void;
     open = vi.fn();
     close = vi.fn();
     openGameMenu = vi.fn();
@@ -75,9 +78,21 @@ vi.mock('../../ui/home-screen.js', () => ({
     refreshStats = vi.fn();
     refreshAuth = vi.fn();
     setSoundEnabled = vi.fn();
+    setSavedGame = vi.fn();
     constructor(_modes: unknown, onSelectMode: (mode: unknown) => void) {
       this.onSelectMode = onSelectMode;
       homeScreenInstances.push(this);
+    }
+  },
+}));
+
+vi.mock('../../platform/local-save-store.js', () => ({
+  LocalSaveStore: class {
+    read = vi.fn(() => saveStoreState.current);
+    write = vi.fn((save: unknown) => { saveStoreState.current = save; });
+    remove = vi.fn(() => { saveStoreState.current = null; });
+    constructor(_modes: unknown) {
+      saveStoreInstances.push(this);
     }
   },
 }));
@@ -118,6 +133,7 @@ import { makeDisc } from '../../game/disc.js';
 import { CLASSIC_MODE, GRAVITY_MODE, STACK_MODE } from '../../game/modes/index.js';
 import { CLASSIC_TUTORIAL, GRAVITY_TUTORIAL } from '../../app/tutorial.js';
 import { StepKind } from '../../game/events.js';
+import { GameEngine } from '../../game/engine.js';
 
 // Untyped deliberately: every caller passes an array of mock instances or
 // mock.calls tuples, both of which are convenience-typed `any` throughout
@@ -151,6 +167,8 @@ beforeEach(() => {
   homeScreenInstances.length = 0;
   debugPanelInstances.length = 0;
   statsStoreInstances.length = 0;
+  saveStoreInstances.length = 0;
+  saveStoreState.current = null;
   rafCallback = null;
   vi.stubGlobal('requestAnimationFrame', vi.fn((cb: FrameRequestCallback) => { rafCallback = cb; return 1; }));
   vi.stubGlobal('cancelAnimationFrame', vi.fn());
@@ -241,6 +259,7 @@ describe('starting normal play', () => {
     const [state, board] = lastOf(renderer.draw.mock.calls);
     expect(state.phase).toBe(GamePhase.WaitingForDrop);
     expect(isEmptyBoard(board)).toBe(true);
+    expect(lastOf(saveStoreInstances).remove).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -267,6 +286,23 @@ describe('DOM controls', () => {
 // ─── Normal drop flow ───────────────────────────────────────────────────────
 
 describe('normal drop flow', () => {
+  test('autosaves the stable post-turn state before animation completion', () => {
+    createGame();
+    const homeScreen = lastOf(homeScreenInstances);
+    const saveStore = lastOf(saveStoreInstances);
+    homeScreen.onSelectMode(CLASSIC_MODE);
+    saveStore.write.mockClear();
+
+    lastOf(inputHandlerInstances).onIntent({ kind: 'drop', col: 3 });
+
+    expect(saveStore.write).toHaveBeenCalledTimes(1);
+    const save = saveStore.write.mock.calls[0]![0];
+    expect(save.state.phase).toBe('waiting');
+    expect(save.state.dropCount).toBe(1);
+    frame(0);
+    expect(lastDraw(lastOf(rendererInstances)).state.phase).toBe(GamePhase.Animating);
+  });
+
   test('an accepted drop enters Animating, plays the drop sound, records the turn, then returns to WaitingForDrop', () => {
     createGame();
     const homeScreen = lastOf(homeScreenInstances);
@@ -364,6 +400,7 @@ describe('game over during the final turn\'s animation', () => {
     const renderer = lastOf(rendererInstances);
     const [state] = lastOf(renderer.draw.mock.calls);
     expect(state.phase).toBe(GamePhase.GameOver);
+    expect(lastOf(saveStoreInstances).remove).toHaveBeenCalled();
   });
 });
 
@@ -506,6 +543,50 @@ describe('restart', () => {
     expect(state.score).toBe(0);
     expect(state.dropCount).toBe(0);
     expect(isEmptyBoard(board)).toBe(true);
+    expect(lastOf(saveStoreInstances).remove).toHaveBeenCalled();
+  });
+});
+
+describe('saved game resume', () => {
+  test('advertises a valid save and restores its mode, engine state, streak, and clean presentation', () => {
+    const source = new GameEngine({ mode: STACK_MODE, seed: 91 });
+    source.drop(2);
+    const save = source.exportSave({ longestStreak: 7, savedAt: 123 });
+    saveStoreState.current = save;
+
+    const { game } = createGame();
+    const homeScreen = lastOf(homeScreenInstances);
+    expect(homeScreen.setSavedGame).toHaveBeenCalledWith({ modeName: STACK_MODE.name, score: save.state.score });
+
+    homeScreen.onRequestResumeSavedGame?.();
+    frame(0);
+
+    const renderer = lastOf(rendererInstances);
+    const call = lastOf(renderer.draw.mock.calls);
+    expect(call[0]).toMatchObject({
+      phase: GamePhase.WaitingForDrop,
+      score: save.state.score,
+      dropCount: save.state.dropCount,
+      level: save.state.level,
+    });
+    expect(call[1]).toEqual(call[0].board);
+    expect(call[2]).toEqual([]);
+    expect(call[4]).toEqual([]);
+    expect(call[5]).toEqual([]);
+    expect(call[8]).toBe(true);
+    expect((game as unknown as { longestStreakThisGame: number }).longestStreakThisGame).toBe(7);
+    expect(homeScreen.close).toHaveBeenCalled();
+  });
+
+  test('missing save hides the action and safely leaves the home screen open', () => {
+    createGame();
+    const homeScreen = lastOf(homeScreenInstances);
+    homeScreen.setSavedGame.mockClear();
+
+    homeScreen.onRequestResumeSavedGame?.();
+
+    expect(homeScreen.setSavedGame).toHaveBeenCalledWith(null);
+    expect(homeScreen.close).not.toHaveBeenCalled();
   });
 });
 

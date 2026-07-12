@@ -8,14 +8,22 @@ import { deepCloneBoard, isBoardFull, isColumnFull, makeEmptyBoard, placeDisc } 
 import {
   entryEdgeForAngle, entryPositionForLane, isLaneFull, settleContinuous, snapAngleToEightDirections,
 } from './gravity.js';
-import { createDiscFactories, DiscFactory, DiscQueue } from './disc.js';
+import {
+  createDiscFactories, DiscFactory, DiscQueue, PlayableDiscGenerator,
+} from './disc.js';
 import {
   computeClearSteps, computeDropSteps, computeGravityDropSteps, computeGravityTiltSteps,
   computePushStep, PhysicsTrace, pointsForStack,
 } from './physics.js';
 import { CLASSIC_MODE } from './modes/index.js';
 import { turnsForLevel } from './modes/mode.js';
-import { createGameSeed, createSeededRandom, deriveSeed } from './random.js';
+import {
+  createGameSeed, createSeededRandom, deriveSeed, SnapshotRandomSource,
+} from './random.js';
+import {
+  deserializeBoard, parseSaveGame, SAVE_GAME_RULES_VERSION, SAVE_GAME_VERSION,
+  serializeBoard, type SaveGameV1,
+} from './save.js';
 
 export type RejectedTurnReason = 'game-over' | 'wrong-phase' | 'invalid-column' | 'full-column';
 
@@ -64,6 +72,17 @@ export interface ScriptedGameStateOptions {
   gravityAngleDeg?: number;
 }
 
+export interface ExportSaveOptions {
+  longestStreak?: number;
+  savedAt?: number;
+  appBuild?: string;
+}
+
+interface SeededFactories extends ReturnType<typeof createDiscFactories> {
+  playableRandom: SnapshotRandomSource;
+  pushRandom: SnapshotRandomSource;
+}
+
 /**
  * Synchronous, headless game rules. It has no dependency on the DOM, rendering,
  * audio, input, animation frames, or wall-clock time.
@@ -75,6 +94,9 @@ export class GameEngine {
   private crackedDiscFactory: DiscFactory;
   private customDiscFactory: DiscFactory | undefined;
   private customCrackedDiscFactory: DiscFactory | undefined;
+  private playableRandom: SnapshotRandomSource | undefined;
+  private pushRandom: SnapshotRandomSource | undefined;
+  private playableGenerator: PlayableDiscGenerator | undefined;
 
   constructor(options: GameEngineOptions = {}) {
     this.mode = options.mode ?? CLASSIC_MODE;
@@ -82,6 +104,7 @@ export class GameEngine {
     this.customCrackedDiscFactory = options.crackedDiscFactory;
     const seed = options.seed === undefined ? createGameSeed() : options.seed >>> 0;
     const factories = this.createSeededFactories(seed);
+    this.retainSeededGeneration(factories);
     const initialBoard = options.board
       ? deepCloneBoard(options.board)
       : makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
@@ -106,6 +129,97 @@ export class GameEngine {
       turnsRemaining: turnsForLevel(this.mode, 1),
       gravity: this.initialGravityState(),
     };
+  }
+
+  /**
+   * Captures an authoritative, stable turn boundary. Presentation-only phases,
+   * game-over states, and injected/tutorial generation cannot be resumed
+   * deterministically and are deliberately rejected.
+   */
+  exportSave(options: ExportSaveOptions = {}): SaveGameV1 {
+    if (this.state.generationSource !== 'seeded'
+      || !this.playableRandom || !this.pushRandom || !this.playableGenerator) {
+      throw new Error('Cannot save a game that uses injected disc generation');
+    }
+    if (this.state.phase !== GamePhase.WaitingForDrop) {
+      throw new Error('Can only save at a stable waiting-for-drop turn boundary');
+    }
+
+    const save: SaveGameV1 = {
+      version: SAVE_GAME_VERSION,
+      rulesVersion: SAVE_GAME_RULES_VERSION,
+      savedAt: options.savedAt ?? Date.now(),
+      modeId: this.mode.id,
+      state: {
+        phase: 'waiting',
+        board: serializeBoard(this.state.board),
+        cursorCol: this.state.cursorCol,
+        score: this.state.score,
+        dropCount: this.state.dropCount,
+        level: this.state.level,
+        turnsPerLevel: this.state.turnsPerLevel,
+        turnsRemaining: this.state.turnsRemaining,
+        ...(this.state.gravity ? { gravity: { angle: this.state.gravity.angle } } : {}),
+      },
+      generation: {
+        source: 'seeded',
+        seed: this.state.generationSeed,
+        queue: [...this.queue.snapshot()],
+        playableGenerator: this.playableGenerator.snapshot(),
+        random: {
+          playableState: this.playableRandom.snapshot(),
+          pushState: this.pushRandom.snapshot(),
+        },
+      },
+      session: { longestStreak: options.longestStreak ?? 0 },
+      meta: { source: 'autosave' },
+    };
+    if (options.appBuild !== undefined) save.appBuild = options.appBuild;
+    return save;
+  }
+
+  /**
+   * Validates and restores an untrusted save using the supplied mode rules.
+   * The existing GameState object remains alive for controller/render clients.
+   * Returns the validated copy so controller-owned session metadata is easy to
+   * restore alongside the engine state.
+   */
+  loadSave(value: unknown, mode: GameModeConfig): SaveGameV1 {
+    const save = parseSaveGame(value, mode);
+    if (!save) throw new Error('Invalid or incompatible save game');
+
+    this.mode = mode;
+    this.customDiscFactory = undefined;
+    this.customCrackedDiscFactory = undefined;
+    const factories = this.createSeededFactories(save.generation.seed);
+    this.retainSeededGeneration(factories);
+
+    const board = deserializeBoard(save.state.board);
+    this.queue = new DiscQueue(factories.discFactory, save.state.level, board);
+    this.queue.restore(save.generation.queue);
+    factories.playableGenerator.restore(save.generation.playableGenerator);
+    factories.playableRandom.restore(save.generation.random.playableState);
+    factories.pushRandom.restore(save.generation.random.pushState);
+    this.crackedDiscFactory = factories.crackedDiscFactory;
+
+    this.state.generationSeed = save.generation.seed;
+    this.state.generationSource = 'seeded';
+    this.state.phase = GamePhase.WaitingForDrop;
+    this.state.board = board;
+    this.state.currentDisc = this.queue.peek();
+    this.state.nextDisc = this.queue.peekNext();
+    this.state.cursorCol = save.state.cursorCol;
+    this.state.score = save.state.score;
+    this.state.dropCount = save.state.dropCount;
+    this.state.level = save.state.level;
+    this.state.turnsPerLevel = save.state.turnsPerLevel;
+    this.state.turnsRemaining = save.state.turnsRemaining;
+    this.state.gravity = save.state.gravity ? {
+      angle: save.state.gravity.angle,
+      turnStartAngle: save.state.gravity.angle,
+      maxTiltDelta: mode.gravity!.maxTiltDeltaDeg,
+    } : undefined;
+    return save;
   }
 
   // `col` is the generic lane cursor: a column index for top/bottom entry
@@ -361,6 +475,7 @@ export class GameEngine {
     this.customCrackedDiscFactory = undefined;
     const seed = seedOverride === undefined ? createGameSeed() : seedOverride >>> 0;
     const factories = this.createSeededFactories(seed);
+    this.retainSeededGeneration(factories);
     const board = makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
     this.state.board = board;
     this.queue = new DiscQueue(factories.discFactory, 1, board);
@@ -379,6 +494,7 @@ export class GameEngine {
     this.state.generationSeed = seed;
     this.state.generationSource = this.customDiscFactory || this.customCrackedDiscFactory ? 'injected' : 'seeded';
     const factories = this.createSeededFactories(seed);
+    this.retainSeededGeneration(factories);
     const board = makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
     this.state.board = board;
     if (this.customDiscFactory) {
@@ -397,6 +513,9 @@ export class GameEngine {
     this.mode = options.mode ?? this.mode;
     this.customDiscFactory = undefined;
     this.customCrackedDiscFactory = options.crackedDiscFactory;
+    this.playableRandom = undefined;
+    this.pushRandom = undefined;
+    this.playableGenerator = undefined;
     const board = deepCloneBoard(options.board);
     const level = options.level ?? 1;
     const scriptedQueue = [
@@ -438,6 +557,7 @@ export class GameEngine {
     this.customCrackedDiscFactory = undefined;
     const normalizedSeed = seed >>> 0;
     const factories = this.createSeededFactories(normalizedSeed);
+    this.retainSeededGeneration(factories);
     this.queue = new DiscQueue(factories.discFactory, this.state.level, this.state.board);
     this.crackedDiscFactory = factories.crackedDiscFactory;
     this.state.generationSeed = normalizedSeed;
@@ -446,10 +566,20 @@ export class GameEngine {
     this.state.nextDisc = this.queue.peekNext();
   }
 
-  private createSeededFactories(seed: number): ReturnType<typeof createDiscFactories> {
+  private createSeededFactories(seed: number): SeededFactories {
     const playableRandom = createSeededRandom(deriveSeed(seed, 0x504c4159));
     const pushRandom = createSeededRandom(deriveSeed(seed, 0x50555348));
-    return createDiscFactories(this.mode, playableRandom, pushRandom);
+    return {
+      ...createDiscFactories(this.mode, playableRandom, pushRandom),
+      playableRandom,
+      pushRandom,
+    };
+  }
+
+  private retainSeededGeneration(factories: SeededFactories): void {
+    this.playableRandom = factories.playableRandom;
+    this.pushRandom = factories.pushRandom;
+    this.playableGenerator = factories.playableGenerator;
   }
 
   // Column count for top/bottom entry, row count for left/right entry. Classic

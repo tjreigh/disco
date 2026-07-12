@@ -6,7 +6,7 @@ import { DiscKind } from '../../game/model.js';
 import { GamePhase } from '../../game/state.js';
 import { StepKind } from '../../game/events.js';
 import type { GameModeConfig } from '../../game/modes/mode.js';
-import { CLASSIC_MODE, GRAVITY_MODE } from '../../game/modes/index.js';
+import { CLASSIC_MODE, GRAVITY_MODE, STACK_MODE } from '../../game/modes/index.js';
 import { doubleCrackedFactory } from '../helpers.js';
 
 function numberedFactory(...values: number[]): () => ReturnType<typeof makeDisc> {
@@ -840,6 +840,85 @@ describe('GameEngine', () => {
 
       engine.reconfigure(CLASSIC_MODE);
       expect(engine.state.gravity).toBeUndefined();
+    });
+  });
+
+  describe('save-game integration', () => {
+    test('exports metadata explicitly and restores state in place with fresh queue IDs', () => {
+      const startingBoard = makeEmptyBoard();
+      const sourceBoardDisc = makeDisc(7, DiscKind.DoubleCracked);
+      placeDisc(startingBoard, 6, 6, sourceBoardDisc);
+      const source = new GameEngine({ seed: 0x12345678, board: startingBoard });
+      source.drop(2);
+      const save = source.exportSave({
+        longestStreak: 4,
+        savedAt: 1234,
+        appBuild: 'test-build',
+      });
+      const restored = new GameEngine({ seed: 9 });
+      const stateRef = restored.state;
+      const sourceCurrentId = source.state.currentDisc.id;
+
+      const validated = restored.loadSave(save, CLASSIC_MODE);
+
+      expect(validated.session.longestStreak).toBe(4);
+      expect(save).toMatchObject({ savedAt: 1234, appBuild: 'test-build' });
+      expect(restored.state).toBe(stateRef);
+      expect(restored.state.phase).toBe(GamePhase.WaitingForDrop);
+      expect(restored.state.currentDisc.id).not.toBe(sourceCurrentId);
+      expect(restored.state.board[6]![6]?.id).not.toBe(sourceBoardDisc.id);
+      expect(restored.state.currentDisc).toBe((restored as unknown as { queue: { peek(): unknown } }).queue.peek());
+      expect(restored.state.nextDisc).toBe((restored as unknown as { queue: { peekNext(): unknown } }).queue.peekNext());
+      expect(restored.exportSave({ longestStreak: 4, savedAt: 1234, appBuild: 'test-build' })).toEqual(save);
+    });
+
+    test('continues deterministically across a level push, restoring both random streams', () => {
+      const twoTurnMode: GameModeConfig = {
+        ...CLASSIC_MODE,
+        id: 'save-push-continuation-test',
+        initialTurnsPerLevel: 2,
+        turnsPerLevelStep: 0,
+        minTurnsPerLevel: 2,
+      };
+      const uninterrupted = new GameEngine({ mode: twoTurnMode, seed: 0xdeadbeef });
+      expect(uninterrupted.drop(0).accepted).toBe(true);
+      const checkpoint = uninterrupted.exportSave({ savedAt: 100 });
+      const restored = new GameEngine({ mode: twoTurnMode, seed: 1 });
+      restored.loadSave(checkpoint, twoTurnMode);
+
+      const originalTurn = uninterrupted.drop(6);
+      const restoredTurn = restored.drop(6);
+
+      expect(originalTurn.steps.some(step => step.kind === StepKind.Push)).toBe(true);
+      expect(restoredTurn.steps.map(step => step.kind)).toEqual(originalTurn.steps.map(step => step.kind));
+      expect(restored.exportSave({ savedAt: 200 })).toEqual(
+        uninterrupted.exportSave({ savedAt: 200 }),
+      );
+    });
+
+    test('rejects invalid, mode-mismatched, scripted, and unstable saves', () => {
+      const source = new GameEngine({ seed: 3 });
+      const save = source.exportSave({ savedAt: 1 });
+      const target = new GameEngine({ seed: 4 });
+      const before = target.exportSave({ savedAt: 2 });
+
+      expect(() => target.loadSave({ ...save, rulesVersion: 99 }, CLASSIC_MODE)).toThrow(/invalid|incompatible/i);
+      expect(() => target.loadSave(save, STACK_MODE)).toThrow(/invalid|incompatible/i);
+      expect(target.exportSave({ savedAt: 2 })).toEqual(before);
+
+      const scripted = new GameEngine({ discFactory: numberedFactory(3) });
+      expect(() => scripted.exportSave()).toThrow(/injected/i);
+
+    });
+
+    test('round-trips Stack', () => {
+      const stack = new GameEngine({ mode: STACK_MODE, seed: 12 });
+      stack.drop(1);
+      const stackSave = stack.exportSave({ savedAt: 12 });
+      const restoredStack = new GameEngine({ seed: 1 });
+      restoredStack.loadSave(stackSave, STACK_MODE);
+      expect(restoredStack.exportSave({ savedAt: 12 })).toEqual(stackSave);
+
     });
   });
 });

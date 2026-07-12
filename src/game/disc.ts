@@ -59,6 +59,18 @@ function makeCrackedDiscWithRandom(spawn: DiscSpawnConfig, random: RandomSource)
 export type DiscFactory = () => Disc;
 export type LevelDiscFactory = (level: number, board: Board) => Disc;
 
+export interface PlayableDiscGeneratorSnapshot {
+  recentValues: number[];
+  recentKinds: DiscKind[];
+}
+
+export interface QueuedDiscSnapshot {
+  value: number;
+  kind: DiscKind;
+}
+
+export type DiscQueueSnapshot = readonly [QueuedDiscSnapshot, QueuedDiscSnapshot, QueuedDiscSnapshot];
+
 function trailingRun<T>(history: readonly T[], value: T): number {
   let length = 0;
   for (let index = history.length - 1; index >= 0 && history[index] === value; index--) length++;
@@ -129,6 +141,18 @@ export class PlayableDiscGenerator {
     if (this.values.length > historyLimit) this.values.shift();
     if (this.kinds.length > historyLimit) this.kinds.shift();
     return makeDisc(value, kind);
+  }
+
+  snapshot(): PlayableDiscGeneratorSnapshot {
+    return {
+      recentValues: [...this.values],
+      recentKinds: [...this.kinds],
+    };
+  }
+
+  restore(snapshot: PlayableDiscGeneratorSnapshot): void {
+    this.values.splice(0, this.values.length, ...snapshot.recentValues);
+    this.kinds.splice(0, this.kinds.length, ...snapshot.recentKinds);
   }
 
   private emptyBoard(): Board {
@@ -250,7 +274,7 @@ export function createDiscFactories(
   mode: GameModeConfig,
   playableRandom: RandomSource = () => Math.random(),
   pushRandom: RandomSource = () => Math.random(),
-): { discFactory: LevelDiscFactory; crackedDiscFactory: DiscFactory } {
+): { discFactory: LevelDiscFactory; crackedDiscFactory: DiscFactory; playableGenerator: PlayableDiscGenerator } {
   const spawnForLevel = (level: number): DiscSpawnConfig => ({
     valueMin: mode.discValueMin,
     valueMax: mode.discValueMax,
@@ -260,6 +284,7 @@ export function createDiscFactories(
   return {
     discFactory: (level, board) => playable.generate(level, board),
     crackedDiscFactory: () => makeCrackedDiscWithRandom(spawnForLevel(1), pushRandom),
+    playableGenerator: playable,
   };
 }
 
@@ -290,6 +315,20 @@ export class DiscQueue {
     const head = this.q.shift()!;
     this.q.push(this.factory(level, board));
     return head;
+  }
+
+  snapshot(): DiscQueueSnapshot {
+    const [current, next, hidden] = this.q;
+    return [
+      { value: current!.value, kind: current!.kind },
+      { value: next!.value, kind: next!.kind },
+      { value: hidden!.value, kind: hidden!.kind },
+    ];
+  }
+
+  restore(snapshot: readonly QueuedDiscSnapshot[]): void {
+    if (snapshot.length !== 3) throw new Error('DiscQueue restore requires exactly three discs');
+    this.q = snapshot.map(({ value, kind }) => makeDisc(value, kind));
   }
 
   reset(level: number, board: Board): void {

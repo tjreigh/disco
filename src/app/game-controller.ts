@@ -31,6 +31,7 @@ import { isTutorialStepSuccessful } from './tutorial.js';
 import { TutorialOverlay } from '../ui/tutorial-overlay.js';
 import { GameControls } from '../ui/game-controls.js';
 import { GameHud } from '../ui/game-hud.js';
+import { LocalSaveStore } from '../platform/local-save-store.js';
 
 interface LevelProgressDisplay {
   level: number;
@@ -50,6 +51,7 @@ export class Game {
   private tutorialOverlay: TutorialOverlay;
   private gameControls: GameControls;
   private gameHud: GameHud;
+  private readonly saveStore: LocalSaveStore;
   private animQueue: AnimationQueue | null = null;
   private rafId = 0;
   // Tracks the board as it should look right now, advanced one physics step at a
@@ -92,6 +94,7 @@ export class Game {
     this.gameHud = new GameHud();
     this.visualBoard = makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
     this.statsStore = new AccountStatsStore(GAME_MODES);
+    this.saveStore = new LocalSaveStore(GAME_MODES);
     this.stats = this.statsStore.loadStats(this.mode.id);
 
     this.homeScreen = new HomeScreen(
@@ -108,11 +111,13 @@ export class Game {
     this.homeScreen.onRequestHome = () => this.returnToMenu();
     this.homeScreen.onRequestToggleSound = () => this.toggleSound();
     this.homeScreen.onRequestTutorial = mode => this.startTutorial(mode);
+    this.homeScreen.onRequestResumeSavedGame = () => this.resumeSavedGame();
     this.tutorialOverlay.onRetry = () => this.retryTutorialStep();
     this.tutorialOverlay.onExit = () => this.returnToMenu();
     this.tutorialOverlay.onContinue = () => this.tutorialOverlay.hide();
     this.homeScreen.setSoundEnabled(this.audio.isEnabled());
     this.unsubscribeStatsStore = this.statsStore.subscribe(() => this.handleStatsStoreUpdate());
+    this.refreshSavedGameAction();
     this.homeScreen.open();
 
     this.input = new InputHandler(
@@ -143,6 +148,8 @@ export class Game {
   }
 
   private startGame(mode: GameModeConfig): void {
+    this.saveStore.remove();
+    this.refreshSavedGameAction();
     this.activeTutorial = null;
     this.tutorialOverlay.hide();
     this.mode = mode;
@@ -196,6 +203,7 @@ export class Game {
     this.scoreIndicators = [];
     this.displayedScore = this.state.score;
     this.state.phase = GamePhase.Menu;
+    this.refreshSavedGameAction();
     this.homeScreen.open();
   }
 
@@ -319,6 +327,12 @@ export class Game {
     if (!this.activeTutorial) {
       const recordsImproved = updateRecords(this.stats, this.state.score, this.longestStreakThisGame);
       if (recordsImproved && !result.gameOver) this.statsStore.saveStats(this.mode.id, this.stats);
+      if (result.gameOver) {
+        this.saveStore.remove();
+      } else {
+        this.saveStore.write(this.engine.exportSave({ longestStreak: this.longestStreakThisGame }));
+      }
+      this.refreshSavedGameAction();
     }
     this.visualBoard = result.boardBefore;
     this.setAnimatedLevelProgress(previousLevelProgress);
@@ -417,6 +431,8 @@ export class Game {
   }
 
   private setGameOver(): void {
+    this.saveStore.remove();
+    this.refreshSavedGameAction();
     this.state.phase = GamePhase.GameOver;
     this.syncLevelProgressDisplay();
     this.recordGameEnd();
@@ -458,6 +474,8 @@ export class Game {
       this.retryTutorialStep();
       return;
     }
+    this.saveStore.remove();
+    this.refreshSavedGameAction();
     this.engine.restart();
     this.debug.reset();
     this.visualBoard = makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
@@ -539,6 +557,56 @@ export class Game {
   private resumeGame(): void {
     this.resumePlayback();
     this.homeScreen.closeGameMenu();
+  }
+
+  private resumeSavedGame(): void {
+    const save = this.saveStore.read();
+    if (!save) {
+      this.refreshSavedGameAction();
+      return;
+    }
+    const mode = GAME_MODES.find(candidate => candidate.id === save.modeId);
+    if (!mode) {
+      this.saveStore.remove();
+      this.refreshSavedGameAction();
+      return;
+    }
+
+    try {
+      const loaded = this.engine.loadSave(save, mode);
+      this.mode = mode;
+      this.stats = this.statsStore.loadStats(mode.id);
+      setGridSize(mode.board.cols, mode.board.rows);
+      this.renderer.resize();
+      this.activeTutorial = null;
+      this.tutorialOverlay.hide();
+      this.visualBoard = deepCloneBoard(this.state.board);
+      this.displayedScore = this.state.score;
+      this.syncLevelProgressDisplay();
+      this.scorePopups = [];
+      this.scoreIndicators = [];
+      this.animQueue = null;
+      this.longestStreakThisGame = loaded.session.longestStreak;
+      this.activeStack = 0;
+      this.stackCascadeActive = false;
+      this.gameRecorded = false;
+      this.debug.reset();
+      this.isPaused = false;
+      this.pauseStartedAt = 0;
+      this.homeScreen.closeGameMenu();
+      this.homeScreen.close();
+    } catch {
+      this.saveStore.remove();
+      this.refreshSavedGameAction();
+    }
+  }
+
+  private refreshSavedGameAction(): void {
+    const save = this.saveStore.read();
+    const mode = save ? GAME_MODES.find(candidate => candidate.id === save.modeId) : undefined;
+    this.homeScreen.setSavedGame(save && mode
+      ? { modeName: mode.name, score: save.state.score }
+      : null);
   }
 
   private toggleSound(): void {

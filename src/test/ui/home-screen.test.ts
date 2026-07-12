@@ -193,4 +193,24 @@ describe('HomeScreen', () => {
       expect(card.querySelector('button button')).toBeNull();
     }
   });
+
+  test('shows saved-game context and invokes a distinct resume callback', () => {
+    const home = createHome();
+    const onResumeSavedGame = vi.fn();
+    home.onRequestResumeSavedGame = onResumeSavedGame;
+
+    expect(document.querySelector<HTMLElement>('.home-saved-game')!.hidden).toBe(true);
+
+    home.setSavedGame({ modeName: 'Gravity', score: 12345 });
+    const action = document.querySelector<HTMLElement>('.home-saved-game')!;
+    expect(action.hidden).toBe(false);
+    expect(action.textContent).toContain('RESUME SAVED GAME');
+    expect(action.textContent).toContain('Gravity · Score 12,345');
+    document.querySelector<HTMLButtonElement>('.home-saved-game-button')!.click();
+    expect(onResumeSavedGame).toHaveBeenCalledTimes(1);
+
+    home.setSavedGame(null);
+    expect(action.hidden).toBe(true);
+    expect(document.querySelector('.home-saved-game-context')!.textContent).toBe('');
+  });
 });
