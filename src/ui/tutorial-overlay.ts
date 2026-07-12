@@ -10,6 +10,8 @@ export class TutorialOverlay {
   private readonly exitButton: HTMLButtonElement;
   private complete = false;
   private completeTimer: number | null = null;
+  // The current step's own prompt — what setAimingPrompt(null) restores.
+  private basePrompt = '';
 
   onRetry?: () => void;
   onExit?: () => void;
@@ -51,6 +53,7 @@ export class TutorialOverlay {
     const step = definition.steps[index];
     if (!step) return;
     this.render(definition, step, index);
+    this.setAimingPrompt(null);
     this.complete = false;
     this.retryButton.hidden = false;
     this.retryButton.textContent = 'RETRY';
@@ -63,7 +66,10 @@ export class TutorialOverlay {
     this.complete = true;
     this.eyebrow.textContent = definition.title;
     this.title.textContent = 'Tutorial Complete';
-    this.prompt.textContent = `You can keep playing from here in ${modeName} mode.`;
+    // basePrompt moves to the completion copy so a later setAimingPrompt(null)
+    // can't restore a stale tutorial-step prompt over this screen.
+    this.basePrompt = `You can keep playing from here in ${modeName} mode.`;
+    this.setAimingPrompt(null);
     this.retryButton.hidden = false;
     this.retryButton.textContent = 'KEEP PLAYING';
     this.exitButton.textContent = 'EXIT';
@@ -82,7 +88,18 @@ export class TutorialOverlay {
   private render(definition: TutorialDefinition, step: TutorialStep, index: number): void {
     this.eyebrow.textContent = `${definition.title} ${index + 1}/${definition.steps.length}`;
     this.title.textContent = step.title;
+    this.basePrompt = step.prompt;
     this.prompt.textContent = step.prompt;
+  }
+
+  /**
+   * Swaps the prompt to a gravity step's Aiming copy ("now you must tilt");
+   * null restores the current step's own prompt. Safe to call unconditionally
+   * — a no-op restore when nothing was overridden.
+   */
+  setAimingPrompt(text: string | null): void {
+    this.prompt.textContent = text ?? this.basePrompt;
+    this.root.classList.toggle('tutorial-overlay--aiming', text !== null);
   }
 
   private createButton(label: string, onClick: () => void): HTMLButtonElement {

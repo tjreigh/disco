@@ -8,6 +8,8 @@ export interface TutorialSuccess {
   clearCountAtLeast?: number;
   revealCountAtLeast?: number;
   chainLengthAtLeast?: number;
+  /** Gravity tutorial only: the committed angle required to demonstrate the intended direction. */
+  gravityAngleDeg?: number;
   /** Minimum total numbered discs cleared across the whole cascade (sum of every Clear step's cleared count). The Stack-mode metric: points scale with stackSize², so this is what a Stack step really measures. */
   stackSizeAtLeast?: number;
 }
@@ -24,6 +26,8 @@ export interface TutorialStep {
   readonly success: TutorialSuccess;
   /** Gravity-mode steps only: starting angle, defaulting to the mode's initialAngleDeg (0) when omitted — e.g. a step that wants the board pre-tilted before the player acts. */
   readonly gravityAngleDeg?: number;
+  /** Gravity-mode steps only: replaces `prompt` in the overlay while the staged drop is Aiming — the "now you must tilt" copy. */
+  readonly tiltPrompt?: string;
 }
 
 export interface TutorialDefinition {
@@ -59,11 +63,12 @@ function step(
   nextDisc: Disc,
   allowedCols: readonly number[],
   success: TutorialSuccess,
-  gravityAngleDeg?: number,
+  opts?: { gravityAngleDeg?: number; tiltPrompt?: string },
 ): TutorialStep {
   return {
     id, title, prompt, board: tutorialBoard, currentDisc, nextDisc, allowedCols, success,
-    ...(gravityAngleDeg !== undefined ? { gravityAngleDeg } : {}),
+    ...(opts?.gravityAngleDeg !== undefined ? { gravityAngleDeg: opts.gravityAngleDeg } : {}),
+    ...(opts?.tiltPrompt !== undefined ? { tiltPrompt: opts.tiltPrompt } : {}),
   };
 }
 
@@ -139,21 +144,25 @@ export const GRAVITY_TUTORIAL: TutorialDefinition = {
       'stage-a-drop', 'Stage a drop',
       'Move to the highlighted lane and confirm to stage it — nothing drops yet. Every Gravity drop must be tilted before it can settle.',
       gravityTiltPracticeBoard, numbered(7), numbered(4), [3], { accepted: true },
+      { tiltPrompt: 'Lane staged — nothing drops until you tilt. Tap ↺ or ↻ (or press Q / E) to rotate gravity 45°, then CONFIRM.' },
     ),
     step(
       'tilt-the-drop', 'Tilt before dropping',
       'Stage the highlighted lane again, then tilt 45° or 90° and confirm a second time. The disc enters from the direction you staged, then settles under the new gravity.',
       gravityDropBoard, numbered(7), numbered(4), [2], { accepted: true },
+      { tiltPrompt: 'Now tilt ↺ or ↻ and watch the preview resettle live. The disc still enters from the lane you staged — CONFIRM when it looks right.' },
     ),
     step(
       'tilt-reveals-lines', 'Tilting reveals lines',
       'These three 3s form a line only under diagonal gravity. Stage the disc, tilt, then confirm to reveal it.',
-      gravityRevealBoard, numbered(7), numbered(4), [6], { accepted: true },
+      gravityRevealBoard, numbered(7), numbered(4), [6], { accepted: true, clearCountAtLeast: 1, gravityAngleDeg: 45 },
+      { tiltPrompt: 'Tilt ↻ once so gravity points down-right (45°), then CONFIRM — the three 3s already sit on that diagonal.' },
     ),
     step(
       'keep-gravity-moving', 'Keep gravity moving',
       'Gravity stays tilted after every drop. Stage this row, tilt again, and watch the board reorganize around the new direction.',
-      gravityDropUnderTiltBoard, numbered(7), numbered(4), [3], { accepted: true }, 90,
+      gravityDropUnderTiltBoard, numbered(7), numbered(4), [3], { accepted: true },
+      { gravityAngleDeg: 90, tiltPrompt: 'Staged from the left edge. Tilt ↺ or ↻ — 45° or 90° — then CONFIRM. Gravity stays wherever you leave it.' },
     ),
   ],
 };
@@ -218,8 +227,15 @@ export const TUTORIALS: Record<string, TutorialDefinition> = {
 export function evaluateTutorialSuccess(
   result: TutorialTurnResult,
   success: TutorialSuccess,
+  gravityAngleDeg?: number,
 ): boolean {
   if (success.accepted !== undefined && result.accepted !== success.accepted) return false;
+  if (success.gravityAngleDeg !== undefined) {
+    if (gravityAngleDeg === undefined) return false;
+    const normalizedActual = ((gravityAngleDeg % 360) + 360) % 360;
+    const normalizedRequired = ((success.gravityAngleDeg % 360) + 360) % 360;
+    if (normalizedActual !== normalizedRequired) return false;
+  }
 
   const clearSteps = result.steps.filter(step => step.kind === StepKind.Clear);
   const revealSteps = result.steps.filter(step => step.kind === StepKind.Reveal);
@@ -238,6 +254,7 @@ export function evaluateTutorialSuccess(
 export function isTutorialStepSuccessful(
   step: TutorialStep,
   result: TutorialTurnResult,
+  gravityAngleDeg?: number,
 ): boolean {
-  return evaluateTutorialSuccess(result, step.success);
+  return evaluateTutorialSuccess(result, step.success, gravityAngleDeg);
 }

@@ -5,13 +5,15 @@ import {
   interpolateY,
   pushBoardOffsetX,
   pushBoardOffsetY,
+  spawnGravityShiftCue,
   spawnScoreIndicator,
   spawnScorePopups,
+  tickGravityShiftCue,
   tickScoreIndicators,
   tickScorePopups,
 } from '../../ui/rendering/animation-queue.js';
 import { AnimPhase } from '../../ui/rendering/animation-types.js';
-import type { RichDiscAnimation } from '../../ui/rendering/animation-types.js';
+import type { GravityShiftCue, RichDiscAnimation } from '../../ui/rendering/animation-types.js';
 import { cellCenterX, cellCenterY, gridCols, gridRows, setGridSize } from '../../ui/rendering/layout.js';
 import { makeDisc } from '../../game/disc.js';
 import { DiscKind } from '../../game/model.js';
@@ -627,5 +629,72 @@ describe('score indicators', () => {
     expect(fading[0]!.scale).toBeCloseTo(1, 5);
 
     expect(tickScoreIndicators([indicator], 1_300)).toEqual([]);
+  });
+
+  describe('gravity shift cue', () => {
+    it('spawns at the start angle with zero alpha and progress', () => {
+      const cue = spawnGravityShiftCue(0, 90, 200);
+
+      expect(cue).toEqual({
+        fromAngle: 0, toAngle: 90,
+        startTime: 200, duration: 550,
+        progress: 0, angle: 0, alpha: 0,
+      });
+    });
+
+    it('sweeps the angle and pulses alpha over its lifetime, then prunes', () => {
+      const cue = spawnGravityShiftCue(0, 90, 100);
+
+      // Early — angle barely moved, alpha faint.
+      const early = tickGravityShiftCue(cue, 150);
+      expect(early).not.toBeNull();
+      if (early) {
+        expect(early.progress).toBeCloseTo(50 / 550, 5);
+        expect(early.angle).toBeGreaterThan(0);
+        expect(early.angle).toBeLessThan(30); // still early in the sweep
+        expect(early.alpha).toBeCloseTo(Math.sin(early.progress * Math.PI), 5);
+        expect(early.alpha).toBeLessThan(0.5);
+      }
+
+      // Midpoint — alpha peaks near 1.
+      const mid = tickGravityShiftCue(cue, 375);
+      expect(mid).not.toBeNull();
+      if (mid) {
+        expect(mid.progress).toBeCloseTo(0.5, 1);
+        expect(mid.angle).toBeGreaterThan(30); // past the first third
+        expect(mid.angle).toBeLessThan(60);    // before the last third
+        expect(mid.alpha).toBeCloseTo(1, 1);   // sin(π/2) ≈ 1
+      }
+
+      // Nearing the end — alpha decaying, angle close to target.
+      const late = tickGravityShiftCue(cue, 600);
+      expect(late).not.toBeNull();
+      if (late && mid) {
+        expect(late.progress).toBeCloseTo(500 / 550, 5);
+        expect(late.angle).toBeGreaterThan(80); // close to 90
+        expect(late.alpha).toBeLessThan(mid.alpha);
+      }
+
+      // Expired — pruned.
+      expect(tickGravityShiftCue(cue, 651)).toBeNull();
+    });
+
+    it('takes the shortest signed path through 0° (e.g. 315° → 45° goes forward through 0)', () => {
+      // Without shortest-path, delta = 45 - 315 = -270 (the long way through
+      // 180°). With shortest-path, delta becomes +90 — the angle sweeps
+      // forward from 315° through 360°/0° to 45°. The raw angle can land at
+      // 360 rather than wrapping to 0; normalizing modulo 360 shows it's at
+      // the right position.
+      const cue = spawnGravityShiftCue(315, 45, 0);
+      const mid = tickGravityShiftCue(cue, 275);
+      expect(mid).not.toBeNull();
+      if (mid) {
+        expect(mid.angle % 360).toBeCloseTo(0, 0); // midpoint ≈ 360°/0°
+      }
+    });
+
+    it('returns null immediately for a null input', () => {
+      expect(tickGravityShiftCue(null, 0)).toBeNull();
+    });
   });
 });

@@ -40,7 +40,7 @@ export const GRAVITY_MODE: GameModeConfig = {
   id: 'gravity',
   name: 'Gravity',
   tagline: 'Drop or tilt — gravity changes at will.',
-  gravity: { initialAngleDeg: 0, maxTiltDeltaDeg: 45 },
+  gravity: { initialAngleDeg: 0, maxTiltDeltaDeg: 90 },
   isClearable: gravityIsClearable,
   isGameOver: gravityIsGameOver,
 };

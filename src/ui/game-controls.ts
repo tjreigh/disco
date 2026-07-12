@@ -7,6 +7,10 @@ export interface GameControlsState {
   cursorLane: number;
   laneCount: number;
   axis: 'col' | 'row';
+  /** Gravity confirmation is disabled while no committable tilt exists. */
+  canConfirmTilt?: boolean;
+  /** No committable tilt exists yet — the ↺/↻ buttons pulse for attention. */
+  needsTilt?: boolean;
   disabled?: boolean;
 }
 
@@ -39,10 +43,10 @@ export class GameControls {
       this.onIntent({ kind: 'move', col: this.lastState.cursorLane + 1 });
     });
     this.counterClockwiseButton = this.createButton('tilt-counter-clockwise', '↺', 'Tilt counter-clockwise', () => {
-      this.onIntent({ kind: 'tilt', delta: -5 });
+      this.onIntent({ kind: 'tilt', delta: -45 });
     });
     this.clockwiseButton = this.createButton('tilt-clockwise', '↻', 'Tilt clockwise', () => {
-      this.onIntent({ kind: 'tilt', delta: 5 });
+      this.onIntent({ kind: 'tilt', delta: 45 });
     });
     this.cancelButton = this.createButton('cancel', 'CANCEL', 'Cancel tilt', () => {
       this.onIntent({ kind: 'cancel' });
@@ -83,15 +87,26 @@ export class GameControls {
     this.previousButton.disabled = !waiting || state.cursorLane <= 0 || Boolean(state.disabled);
     this.nextButton.disabled = !waiting || state.cursorLane >= state.laneCount - 1 || Boolean(state.disabled);
     this.dropButton.hidden = !waiting;
-    this.counterClockwiseButton.hidden = !state.hasGravity;
-    this.clockwiseButton.hidden = !state.hasGravity;
+    this.counterClockwiseButton.hidden = !aiming;
+    this.clockwiseButton.hidden = !aiming;
     this.cancelButton.hidden = !aiming;
     this.confirmButton.hidden = !aiming;
     this.dropButton.disabled = !waiting || Boolean(state.disabled);
-    this.counterClockwiseButton.disabled = (!waiting && !aiming) || Boolean(state.disabled);
-    this.clockwiseButton.disabled = (!waiting && !aiming) || Boolean(state.disabled);
+    this.counterClockwiseButton.disabled = !aiming || Boolean(state.disabled);
+    this.clockwiseButton.disabled = !aiming || Boolean(state.disabled);
+    // Guarded on `aiming` locally (not just the caller's needsTilt) so an
+    // inconsistent caller can never decorate hidden Classic controls.
+    const attention = aiming && Boolean(state.needsTilt) && !state.disabled;
+    this.counterClockwiseButton.classList.toggle('game-control--attention', attention);
+    this.clockwiseButton.classList.toggle('game-control--attention', attention);
+    // Once the preview has a committable rotation, move attention away from
+    // the tilt controls and onto the action that advances the turn. This is
+    // deliberately "ready", not "correct": tutorial outcome rules are only
+    // evaluated after the player commits.
+    const confirmReady = aiming && state.canConfirmTilt === true && !state.disabled;
+    this.confirmButton.classList.toggle('game-control--ready', confirmReady);
     this.cancelButton.disabled = !aiming || Boolean(state.disabled);
-    this.confirmButton.disabled = !aiming || Boolean(state.disabled);
+    this.confirmButton.disabled = !aiming || state.canConfirmTilt === false || Boolean(state.disabled);
   }
 
   destroy(): void {

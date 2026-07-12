@@ -10,6 +10,7 @@ const DIAL_CX = 40;
 const DIAL_CY = 40;
 const DIAL_RING_R = 26;
 const DIAL_BACKDROP_R = 32;
+const DIAL_ATTENTION_R = 36;
 const DIAL_ARC_R = 38;
 
 export interface GameHudState {
@@ -27,6 +28,10 @@ export interface GameHudState {
   gravityTurnStartAngle?: number | undefined;
   /** Max absolute tilt allowed from gravityTurnStartAngle (GravityState.maxTiltDelta) — only meaningful during Aiming. */
   gravityMaxTiltDelta?: number | undefined;
+  /** No committable tilt exists yet on the staged drop — hint and compass ring pulse for attention. */
+  needsTilt?: boolean;
+  /** The current rotation may be committed. It is not necessarily the tutorial's required answer. */
+  canConfirmTilt?: boolean;
   isStackMode?: boolean;
   currentStack?: number;
   bestStack?: number;
@@ -120,7 +125,19 @@ export class GameHud {
     this.gravityArrowhead = document.createElementNS(SVG_NS, 'polygon');
     this.gravityArrowhead.setAttribute('fill', COLOR_GRAVITY_ACCENT);
 
-    dial.append(backdrop, this.gravityArc, ring, this.gravityArrow, this.gravityArrowhead);
+    // Attention ring: outside the backdrop so it's never obscured by it, on
+    // a dedicated class so tests and CSS never depend on circle order. Only
+    // visible while a tilt is owed (game-hud__gravity--attention, CSS-driven).
+    const attentionRing = document.createElementNS(SVG_NS, 'circle');
+    attentionRing.setAttribute('class', 'game-hud__gravity-attention-ring');
+    attentionRing.setAttribute('cx', String(DIAL_CX));
+    attentionRing.setAttribute('cy', String(DIAL_CY));
+    attentionRing.setAttribute('r', String(DIAL_ATTENTION_R));
+    attentionRing.setAttribute('fill', 'none');
+    attentionRing.setAttribute('stroke', COLOR_GRAVITY_ACCENT);
+    attentionRing.setAttribute('stroke-width', '2.5');
+
+    dial.append(attentionRing, backdrop, this.gravityArc, ring, this.gravityArrow, this.gravityArrowhead);
 
     this.gravitySr = document.createElement('span');
     this.gravitySr.className = 'game-hud__gravity-sr';
@@ -180,7 +197,15 @@ export class GameHud {
       this.gravitySr.textContent = '';
       this.gravity.hidden = true;
     }
-    this.hint.textContent = hintFor(state);
+    // Same defensive guard as GameControls: an inconsistent caller must not
+    // pulse attention cues outside a gravity Aiming phase.
+    const attention = state.phase === GamePhase.Aiming && state.hasGravity && Boolean(state.needsTilt);
+    const confirmReady = state.phase === GamePhase.Aiming && state.hasGravity
+      && state.canConfirmTilt === true && !attention;
+    this.gravity.classList.toggle('game-hud__gravity--attention', attention);
+    this.hint.classList.toggle('game-hud__hint--attention', attention);
+    this.hint.classList.toggle('game-hud__hint--ready', confirmReady);
+    this.hint.textContent = hintFor(state, attention, confirmReady);
   }
 
   destroy(): void {
@@ -282,14 +307,19 @@ function gravityDirection(angle: number): string {
 // action, so their hint stays a short tap prompt. Desktop hides those
 // buttons (see the pointer:fine media query), so its hint spells out the
 // keyboard shortcuts instead.
-function hintFor(state: GameHudState): string {
+function hintFor(state: GameHudState, needsTilt = false, confirmReady = false): string {
   if (state.phase === GamePhase.Animating) return 'Resolving turn';
   const touch = isTouchDevice();
   if (state.phase === GamePhase.Aiming) {
-    return touch ? 'Tap ↺/↻ to tilt, CONFIRM to drop' : 'Q/E adjust  ↓ / Enter confirm  Esc cancel';
+    // Touch keeps its tap copy even while a tilt is owed — the on-screen
+    // ↺/↻ buttons already pulse there; desktop has no buttons, so the hint
+    // line itself carries the "you must tilt" message.
+    if (needsTilt && !touch) return 'Tilt required — Q/E to tilt, then ↓/Enter';
+    if (confirmReady) return touch ? 'Rotation set — tap CONFIRM' : 'Rotation set — ↓ / Enter to confirm';
+    return touch ? 'Tap ↺/↻ to tilt, CONFIRM to drop' : 'Q/E tilt  ↓ / Enter confirm  Esc cancel';
   }
   if (state.hasGravity) {
-    return touch ? 'Tap lane to drop' : '← → move  ↓ drop  Q/E tilt  R restart';
+    return touch ? 'Tap lane to stage a drop' : '← → choose lane  ↓ stage drop  R restart';
   }
   return touch ? 'Tap column to drop' : '← → move  ↓ / click drop  R restart';
 }

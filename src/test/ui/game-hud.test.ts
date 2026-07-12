@@ -68,7 +68,7 @@ describe('GameHud', () => {
     expect(Number(arrow.getAttribute('x2'))).toBeGreaterThan(Number(arrow.getAttribute('x1')));
     // Tilt-range arc is drawn while Aiming.
     expect(hud.root.querySelector('.game-hud__gravity-dial path')).toHaveProperty('style.display', '');
-    expect(hud.root.textContent).toContain('Q/E adjust');
+    expect(hud.root.textContent).toContain('Q/E tilt');
     hud.render({
       phase: GamePhase.Menu, score: 0, currentDisc: disc(1), nextDisc: disc(2),
       level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 30, hasGravity: false,
@@ -101,6 +101,85 @@ describe('GameHud', () => {
     } finally {
       Object.defineProperty(navigator, 'maxTouchPoints', { value: originalMaxTouchPoints, configurable: true });
     }
+  });
+
+  test('needsTilt during gravity Aiming: hint attention + "Tilt required" copy, compass ring attention', () => {
+    const hud = new GameHud();
+    const base = {
+      phase: GamePhase.Aiming, score: 0, currentDisc: disc(1), nextDisc: disc(2),
+      level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 30,
+      hasGravity: true, gravityAngle: 0, gravityTurnStartAngle: 0, gravityMaxTiltDelta: 90,
+    };
+    hud.render({ ...base, needsTilt: true });
+
+    // The attention ring exists on its own class (never selected by circle order).
+    expect(hud.root.querySelector('.game-hud__gravity-attention-ring')).toBeTruthy();
+    expect(hud.root.querySelector('.game-hud__gravity')!.classList.contains('game-hud__gravity--attention')).toBe(true);
+    const hint = hud.root.querySelector('.game-hud__hint')!;
+    expect(hint.classList.contains('game-hud__hint--attention')).toBe(true);
+    expect(hint.textContent).toBe('Tilt required — Q/E to tilt, then ↓/Enter');
+
+    // A committable tilt moves the cue to confirmation readiness.
+    hud.render({ ...base, gravityAngle: 45, needsTilt: false, canConfirmTilt: true });
+    expect(hud.root.querySelector('.game-hud__gravity')!.classList.contains('game-hud__gravity--attention')).toBe(false);
+    expect(hint.classList.contains('game-hud__hint--attention')).toBe(false);
+    expect(hint.classList.contains('game-hud__hint--ready')).toBe(true);
+    expect(hint.textContent).toBe('Rotation set — ↓ / Enter to confirm');
+
+    // Returning to the starting angle restores the owed-tilt state.
+    hud.render({ ...base, gravityAngle: 0, needsTilt: true, canConfirmTilt: false });
+    expect(hint.classList.contains('game-hud__hint--attention')).toBe(true);
+    expect(hint.classList.contains('game-hud__hint--ready')).toBe(false);
+    expect(hint.textContent).toBe('Tilt required — Q/E to tilt, then ↓/Enter');
+  });
+
+  test('touch keeps its tap copy even while a tilt is owed — the buttons pulse there instead', () => {
+    const originalMaxTouchPoints = navigator.maxTouchPoints;
+    Object.defineProperty(navigator, 'maxTouchPoints', { value: 5, configurable: true });
+    try {
+      const hud = new GameHud();
+      hud.render({
+        phase: GamePhase.Aiming, score: 0, currentDisc: disc(1), nextDisc: disc(2),
+        level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 30,
+        hasGravity: true, gravityAngle: 0, gravityTurnStartAngle: 0, gravityMaxTiltDelta: 90,
+        needsTilt: true,
+      });
+      expect(hud.root.textContent).toContain('Tap ↺/↻ to tilt, CONFIRM to drop');
+      // The class-based cues still apply on touch.
+      expect(hud.root.querySelector('.game-hud__hint')!.classList.contains('game-hud__hint--attention')).toBe(true);
+    } finally {
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: originalMaxTouchPoints, configurable: true });
+    }
+  });
+
+  test('touch uses explicit confirmation-ready copy after a committable tilt', () => {
+    const originalMaxTouchPoints = navigator.maxTouchPoints;
+    Object.defineProperty(navigator, 'maxTouchPoints', { value: 5, configurable: true });
+    try {
+      const hud = new GameHud();
+      hud.render({
+        phase: GamePhase.Aiming, score: 0, currentDisc: disc(1), nextDisc: disc(2),
+        level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 30,
+        hasGravity: true, gravityAngle: 45, gravityTurnStartAngle: 0, gravityMaxTiltDelta: 90,
+        needsTilt: false, canConfirmTilt: true,
+      });
+      const hint = hud.root.querySelector('.game-hud__hint')!;
+      expect(hint.textContent).toBe('Rotation set — tap CONFIRM');
+      expect(hint.classList.contains('game-hud__hint--ready')).toBe(true);
+    } finally {
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: originalMaxTouchPoints, configurable: true });
+    }
+  });
+
+  test('defensive guard: needsTilt outside a gravity Aiming phase applies no attention', () => {
+    const hud = new GameHud();
+    hud.render({
+      phase: GamePhase.WaitingForDrop, score: 0, currentDisc: disc(1), nextDisc: disc(2),
+      level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 30,
+      hasGravity: false, needsTilt: true,
+    });
+    expect(hud.root.querySelector('.game-hud__gravity')!.classList.contains('game-hud__gravity--attention')).toBe(false);
+    expect(hud.root.querySelector('.game-hud__hint')!.classList.contains('game-hud__hint--attention')).toBe(false);
   });
 
   test('shows the live and best stack only in Stack mode', () => {

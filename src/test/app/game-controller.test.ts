@@ -152,7 +152,11 @@ function isEmptyBoard(board: Board): boolean {
 // draw()'s positional signature is awkward to destructure inline
 // (especially to reach the trailing tutorial/previewLanding args) — pull out
 // just the args a given test cares about, by name, off the most recent call.
-function lastDraw(renderer: any): { state: any; board: Board; tutorial: { allowedCols: readonly number[] } | null } {
+function lastDraw(renderer: any): {
+  state: any;
+  board: Board;
+  tutorial: { allowedCols: readonly number[]; staged: boolean; needsTilt: boolean } | null;
+} {
   const call = lastOf(renderer.draw.mock.calls);
   return { state: call[0], board: call[1], tutorial: call[6] };
 }
@@ -266,7 +270,7 @@ describe('starting normal play', () => {
 // ─── DOM controls ───────────────────────────────────────────────────────────
 
 describe('DOM controls', () => {
-  test('Gravity tilt buttons drive the Game intent path into Aiming', () => {
+  test('Gravity stages a lane before its tilt buttons adjust the pending drop', () => {
     createGame();
     const homeScreen = lastOf(homeScreenInstances);
     const renderer = lastOf(rendererInstances);
@@ -274,12 +278,14 @@ describe('DOM controls', () => {
     homeScreen.onSelectMode(GRAVITY_MODE);
     frame(0);
 
+    document.querySelector<HTMLButtonElement>('[data-control="drop"]')!.click();
+    frame(16);
     document.querySelector<HTMLButtonElement>('[data-control="tilt-clockwise"]')!.click();
     frame(16);
 
     const { state } = lastDraw(renderer);
     expect(state.phase).toBe(GamePhase.Aiming);
-    expect(state.gravity!.angle).toBe(5);
+    expect(state.gravity!.angle).toBe(45);
   });
 });
 
@@ -301,6 +307,24 @@ describe('normal drop flow', () => {
     expect(save.state.dropCount).toBe(1);
     frame(0);
     expect(lastDraw(lastOf(rendererInstances)).state.phase).toBe(GamePhase.Animating);
+  });
+
+  test('does not autosave tutorial turns or replace a committed save while Gravity is only Aiming', () => {
+    saveStoreState.current = { marker: 'previous committed turn' };
+    createGame();
+    const homeScreen = lastOf(homeScreenInstances);
+    const saveStore = lastOf(saveStoreInstances);
+    homeScreen.onRequestTutorial?.(CLASSIC_MODE);
+    saveStore.write.mockClear();
+    lastOf(inputHandlerInstances).onIntent({ kind: 'drop', col: CLASSIC_TUTORIAL.steps[0]!.allowedCols[0] });
+    expect(saveStore.write).not.toHaveBeenCalled();
+
+    homeScreen.onSelectMode(GRAVITY_MODE);
+    saveStoreState.current = { marker: 'gravity committed turn' };
+    saveStore.write.mockClear();
+    lastOf(inputHandlerInstances).onIntent({ kind: 'drop', col: 3 });
+    expect(saveStore.write).not.toHaveBeenCalled();
+    expect(saveStoreState.current).toEqual({ marker: 'gravity committed turn' });
   });
 
   test('an accepted drop enters Animating, plays the drop sound, records the turn, then returns to WaitingForDrop', () => {
@@ -419,7 +443,7 @@ describe('tutorial start', () => {
     const firstStep = CLASSIC_TUTORIAL.steps[0]!;
     expect(state.cursorCol).toBe(firstStep.allowedCols[0]);
     expect(state.currentDisc.value).toBe(firstStep.currentDisc.value);
-    expect(tutorial).toEqual({ allowedCols: firstStep.allowedCols });
+    expect(tutorial).toEqual({ allowedCols: firstStep.allowedCols, staged: false, needsTilt: false });
   });
 });
 
@@ -574,6 +598,7 @@ describe('saved game resume', () => {
     expect(call[4]).toEqual([]);
     expect(call[5]).toEqual([]);
     expect(call[8]).toBe(true);
+    expect(call[9]).toBeNull();
     expect((game as unknown as { longestStreakThisGame: number }).longestStreakThisGame).toBe(7);
     expect(homeScreen.close).toHaveBeenCalled();
   });
@@ -593,11 +618,10 @@ describe('saved game resume', () => {
 // ─── Gravity tutorial ───────────────────────────────────────────────────────
 // Mirrors the Classic tutorial coverage above end-to-end through the same
 // public Game API (home screen -> input intents -> renderer draws), but for
-// GRAVITY_TUTORIAL specifically — its two tilt-only steps (empty allowedCols)
-// are driven with 'tilt' + 'drop' (confirm) intents instead of a plain drop,
-// and its pre-tilted step (gravityAngleDeg) needs state.gravity to actually
-// reflect that tilt on load, which is the loadScriptedState gap this whole
-// feature fixed.
+// GRAVITY_TUTORIAL specifically — every step stages a lane ('drop'), tilts,
+// then confirms (a second 'drop'), and its pre-tilted step (gravityAngleDeg)
+// needs state.gravity to actually reflect that tilt on load, which is the
+// loadScriptedState gap this whole feature fixed.
 
 describe('gravity tutorial', () => {
   test('requesting the Gravity tutorial (not Classic) loads GRAVITY_TUTORIAL, not CLASSIC_TUTORIAL', () => {
@@ -612,7 +636,7 @@ describe('gravity tutorial', () => {
     const firstStep = GRAVITY_TUTORIAL.steps[0]!;
     expect(state.cursorCol).toBe(firstStep.allowedCols[0]);
     expect(state.currentDisc.value).toBe(firstStep.currentDisc.value);
-    expect(tutorial).toEqual({ allowedCols: firstStep.allowedCols });
+    expect(tutorial).toEqual({ allowedCols: firstStep.allowedCols, staged: false, needsTilt: false });
     // Gravity state must actually exist for a Gravity-mode tutorial step —
     // this used to silently stay undefined (loadScriptedState never
     // re-derived it), which would break every tilt-only step below.
@@ -629,22 +653,20 @@ describe('gravity tutorial', () => {
     homeScreen.onRequestTutorial?.(GRAVITY_MODE);
     frame(0);
 
-    // Step 0 and 1 are drop/tilt (see below); advance to step 2 (tilt-only,
-    // 45deg reveal), then step 3, which is the pre-tilted one.
-    input.onIntent({ kind: 'drop', col: GRAVITY_TUTORIAL.steps[0]!.allowedCols[0] });
-    drainAnimations();
-    input.onIntent({ kind: 'tilt', delta: 45 });
-    input.onIntent({ kind: 'drop', col: 0 }); // confirm — same physical action as drop while Aiming
-    drainAnimations();
-    input.onIntent({ kind: 'tilt', delta: 45 });
-    input.onIntent({ kind: 'drop', col: 0 });
-    drainAnimations();
+    // Complete the first three staged drop-and-tilt steps to reach the
+    // fourth, pre-tilted tutorial board.
+    for (const step of GRAVITY_TUTORIAL.steps.slice(0, 3)) {
+      input.onIntent({ kind: 'drop', col: step.allowedCols[0]! });
+      input.onIntent({ kind: 'tilt', delta: 45 });
+      input.onIntent({ kind: 'drop', col: 0 });
+      drainAnimations();
+    }
 
     const { state } = lastDraw(renderer);
     expect(state.gravity!.angle).toBe(GRAVITY_TUTORIAL.steps[3]!.gravityAngleDeg);
   });
 
-  test('completing all four steps (two drops, two tilt-confirms) hands off to Gravity mode, not Classic', () => {
+  test('completing all four staged drops hands off to Gravity mode, not Classic', () => {
     createGame();
     const homeScreen = lastOf(homeScreenInstances);
     const renderer = lastOf(rendererInstances);
@@ -654,12 +676,9 @@ describe('gravity tutorial', () => {
     frame(0);
 
     for (const step of GRAVITY_TUTORIAL.steps) {
-      if (step.allowedCols.length > 0) {
-        input.onIntent({ kind: 'drop', col: step.allowedCols[0] });
-      } else {
-        input.onIntent({ kind: 'tilt', delta: 45 });
-        input.onIntent({ kind: 'drop', col: 0 }); // confirm
-      }
+      input.onIntent({ kind: 'drop', col: step.allowedCols[0]! });
+      input.onIntent({ kind: 'tilt', delta: 45 });
+      input.onIntent({ kind: 'drop', col: 0 }); // confirm
       drainAnimations();
     }
 
@@ -669,5 +688,119 @@ describe('gravity tutorial', () => {
     expect(state.generationSource).toBe('seeded');
     expect(state.gravity).toBeDefined(); // still a gravity mode after handoff, not reset to Classic
     expect(tutorial).toBeNull();
+  });
+});
+
+// ─── Gravity tutorial "tilt is owed" cues ───────────────────────────────────
+// GameControls, GameHud, and TutorialOverlay all run for real (only the
+// canvas renderer & co. are mocked), so these drive the true DOM cues end to
+// end: attention classes on the ↺/↻ buttons / hint / compass ring, the
+// overlay's Aiming prompt swap, and the staged/needsTilt tutorial visual
+// state handed to the renderer — all fed by the controller's single snapped
+// needsTilt definition.
+
+describe('gravity tutorial tilt cues', () => {
+  function controlButton(control: string): HTMLButtonElement {
+    const button = document.querySelector<HTMLButtonElement>(`[data-control="${control}"]`);
+    if (!button) throw new Error(`missing [data-control="${control}"]`);
+    return button;
+  }
+
+  function promptText(): string {
+    return document.querySelector('.tutorial-prompt')?.textContent ?? '';
+  }
+
+  function startGravityTutorial(): { renderer: any; input: any; firstStep: any } {
+    createGame();
+    const homeScreen = lastOf(homeScreenInstances);
+    homeScreen.onRequestTutorial?.(GRAVITY_MODE);
+    frame(0);
+    return {
+      renderer: lastOf(rendererInstances),
+      input: lastOf(inputHandlerInstances),
+      firstStep: GRAVITY_TUTORIAL.steps[0]!,
+    };
+  }
+
+  test('staging flips every cue on: staged/needsTilt visual state, tiltPrompt, button/hint/compass attention', () => {
+    const { renderer, input, firstStep } = startGravityTutorial();
+
+    input.onIntent({ kind: 'drop', col: firstStep.allowedCols[0] });
+    frame(0);
+
+    const { tutorial } = lastDraw(renderer);
+    expect(tutorial).toEqual({ allowedCols: firstStep.allowedCols, staged: true, needsTilt: true });
+    expect(promptText()).toBe(firstStep.tiltPrompt);
+    expect(controlButton('tilt-clockwise').classList.contains('game-control--attention')).toBe(true);
+    expect(controlButton('tilt-counter-clockwise').classList.contains('game-control--attention')).toBe(true);
+    expect(controlButton('confirm').disabled).toBe(true);
+    expect(document.querySelector('.game-hud__hint')?.classList.contains('game-hud__hint--attention')).toBe(true);
+    expect(document.querySelector('.game-hud__gravity')?.classList.contains('game-hud__gravity--attention')).toBe(true);
+    expect(document.querySelector('.game-hud__gravity-attention-ring')).not.toBeNull();
+  });
+
+  test('one ±45° tilt hides the lane and moves attention to CONFIRM', () => {
+    const { renderer, input, firstStep } = startGravityTutorial();
+
+    input.onIntent({ kind: 'drop', col: firstStep.allowedCols[0] });
+    input.onIntent({ kind: 'tilt', delta: 45 });
+    frame(0);
+
+    const { tutorial } = lastDraw(renderer);
+    expect(tutorial).toEqual({ allowedCols: firstStep.allowedCols, staged: true, needsTilt: false });
+    expect(controlButton('tilt-clockwise').classList.contains('game-control--attention')).toBe(false);
+    expect(controlButton('tilt-counter-clockwise').classList.contains('game-control--attention')).toBe(false);
+    expect(controlButton('confirm').disabled).toBe(false);
+    expect(controlButton('confirm').classList.contains('game-control--ready')).toBe(true);
+    expect(document.querySelector('.game-hud__hint')?.classList.contains('game-hud__hint--attention')).toBe(false);
+    expect(document.querySelector('.game-hud__hint')?.classList.contains('game-hud__hint--ready')).toBe(true);
+    expect(document.querySelector('.game-hud__hint')?.textContent).toContain('Rotation set');
+    expect(document.querySelector('.game-hud__gravity')?.classList.contains('game-hud__gravity--attention')).toBe(false);
+  });
+
+  test('tilting +45 then back -45 re-owes the tilt: cues return, CONFIRM disables again', () => {
+    const { renderer, input, firstStep } = startGravityTutorial();
+
+    input.onIntent({ kind: 'drop', col: firstStep.allowedCols[0] });
+    input.onIntent({ kind: 'tilt', delta: 45 });
+    input.onIntent({ kind: 'tilt', delta: -45 });
+    frame(0);
+
+    const { tutorial } = lastDraw(renderer);
+    expect(tutorial?.needsTilt).toBe(true);
+    expect(controlButton('tilt-clockwise').classList.contains('game-control--attention')).toBe(true);
+    expect(controlButton('confirm').disabled).toBe(true);
+    expect(controlButton('confirm').classList.contains('game-control--ready')).toBe(false);
+    expect(document.querySelector('.game-hud__hint')?.classList.contains('game-hud__hint--ready')).toBe(false);
+  });
+
+  test('confirming before tilting is rejected: still Aiming, tiltPrompt still up, cues still active', () => {
+    const { renderer, input, firstStep } = startGravityTutorial();
+
+    input.onIntent({ kind: 'drop', col: firstStep.allowedCols[0] });
+    input.onIntent({ kind: 'drop', col: firstStep.allowedCols[0] }); // confirm attempt, engine rejects 'tilt-required'
+    frame(0);
+
+    const { state, tutorial } = lastDraw(renderer);
+    expect(state.phase).toBe(GamePhase.Aiming);
+    expect(tutorial?.needsTilt).toBe(true);
+    expect(promptText()).toBe(firstStep.tiltPrompt);
+    expect(controlButton('tilt-clockwise').classList.contains('game-control--attention')).toBe(true);
+  });
+
+  test('cancel restores the step prompt and un-stages the lane', () => {
+    const { renderer, input, firstStep } = startGravityTutorial();
+
+    input.onIntent({ kind: 'drop', col: firstStep.allowedCols[0] });
+    frame(0);
+    expect(promptText()).toBe(firstStep.tiltPrompt);
+
+    input.onIntent({ kind: 'cancel' });
+    frame(0);
+
+    const { state, tutorial } = lastDraw(renderer);
+    expect(state.phase).toBe(GamePhase.WaitingForDrop);
+    expect(tutorial).toEqual({ allowedCols: firstStep.allowedCols, staged: false, needsTilt: false });
+    expect(promptText()).toBe(firstStep.prompt);
   });
 });

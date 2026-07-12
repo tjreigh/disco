@@ -53,3 +53,21 @@ export interface ScoreIndicator {
   alpha: number;
   scale: number;
 }
+
+// A short, self-contained visual marking the moment a Gravity tilt actually
+// commits: independent of AnimationQueue (which is disc/score-position-bound),
+// ticked directly each frame by game-controller's loop() alongside the score
+// popups/indicators. `angle` is the eased interpolated direction for the
+// current frame (sweeps fromAngle → toAngle) so the ambient wash can rotate
+// visibly instead of snapping; `alpha` is a sine pulse (peaks mid-life) so the
+// cue fades in, peaks, and fades out, foreshadowing the lane the corrected
+// cursor highlight (engine recenter) will settle on once the turn resolves.
+export interface GravityShiftCue {
+  fromAngle: number;
+  toAngle: number;
+  startTime: number;
+  duration: number;
+  progress: number;
+  angle: number;
+  alpha: number;
+}

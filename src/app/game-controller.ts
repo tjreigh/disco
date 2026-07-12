@@ -4,16 +4,16 @@ import type { GameState } from '../game/state.js';
 import { GamePhase } from '../game/state.js';
 import type { PhysicsStep } from '../game/events.js';
 import { StepKind } from '../game/events.js';
-import type { ScoreIndicator, ScorePopup } from '../ui/rendering/animation-types.js';
+import type { GravityShiftCue, ScoreIndicator, ScorePopup } from '../ui/rendering/animation-types.js';
 import { deepCloneBoard, makeEmptyBoard } from '../game/board.js';
-import { entryEdgeForAngle } from '../game/gravity.js';
+import { entryEdgeForAngle, snapAngleToEightDirections } from '../game/gravity.js';
 import { GameEngine } from '../game/engine.js';
 import type { TurnResult } from '../game/engine.js';
 import { CLASSIC_MODE, GAME_MODES } from '../game/modes/index.js';
 import { DebugPanel } from '../ui/debug/debug-panel.js';
 import {
-  AnimationQueue, spawnScoreIndicator, spawnScorePopups,
-  tickScoreIndicators, tickScorePopups,
+  AnimationQueue, spawnGravityShiftCue, spawnScoreIndicator, spawnScorePopups,
+  tickGravityShiftCue, tickScoreIndicators, tickScorePopups,
 } from '../ui/rendering/animation-queue.js';
 import { Renderer } from '../ui/rendering/renderer.js';
 import { InputHandler } from '../platform/input-handler.js';
@@ -65,6 +65,9 @@ export class Game {
   private displayedScore = 0;
   private scorePopups: ScorePopup[] = [];
   private scoreIndicators: ScoreIndicator[] = [];
+  // One-shot visual sweeping the ambient gravity wash from the old direction
+  // to the new one the instant a tilt commits — see spawnGravityShiftCue.
+  private gravityShiftCue: GravityShiftCue | null = null;
   private stats: GameStats;
   private statsStore: AccountStatsStore;
   private unsubscribeStatsStore: (() => void) | null = null;
@@ -162,6 +165,7 @@ export class Game {
     this.syncLevelProgressDisplay();
     this.scorePopups = [];
     this.scoreIndicators = [];
+    this.gravityShiftCue = null;
     this.longestStreakThisGame = 0;
     this.activeStack = 0;
     this.stackCascadeActive = false;
@@ -188,6 +192,7 @@ export class Game {
     this.isPaused = false;
     this.scorePopups = [];
     this.scoreIndicators = [];
+    this.gravityShiftCue = null;
     this.animQueue = null;
     this.loadTutorialStep();
     this.homeScreen.close();
@@ -201,6 +206,7 @@ export class Game {
     this.animQueue = null;
     this.scorePopups = [];
     this.scoreIndicators = [];
+    this.gravityShiftCue = null;
     this.displayedScore = this.state.score;
     this.state.phase = GamePhase.Menu;
     this.refreshSavedGameAction();
@@ -241,23 +247,22 @@ export class Game {
       return;
     }
 
-    // Tilting is its own turn action, separate from dropping: pressing Q/E
-    // from WaitingForDrop begins it (engine.tiltGravity flips to Aiming on
-    // first call), further presses keep adjusting — none of this touches
-    // state.board or costs a turn until commitTilt (see the 'drop' case
-    // below, which doubles as "confirm" during Aiming).
+    // A Gravity turn stages a lane first. Q/E then rotates that staged drop;
+    // there is no standalone tilt action outside Aiming.
     if (intent.kind === 'tilt') {
-      if (this.state.phase === GamePhase.WaitingForDrop || this.state.phase === GamePhase.Aiming) {
+      if (this.state.phase === GamePhase.Aiming) {
         this.engine.tiltGravity(intent.delta);
         this.debug.refresh();
       }
       return;
     }
 
-    // Backs out of an in-progress tilt for free — nothing was committed yet.
+    // Backs out of a staged gravity drop for free — nothing was committed yet.
     if (intent.kind === 'cancel') {
       if (this.state.phase === GamePhase.Aiming) {
         this.engine.cancelTilt();
+        // No-op when hidden or outside a tutorial — restores the step's own prompt.
+        this.tutorialOverlay.setAimingPrompt(null);
         this.debug.refresh();
       }
       return;
@@ -287,7 +292,15 @@ export class Game {
         return;
       }
       this.state.cursorCol = col;
-      this.handleDrop(col);
+      if (this.mode.gravity) {
+        const rejected = this.engine.stageGravityDrop(col);
+        if (rejected === undefined && tutorialStep?.tiltPrompt) {
+          this.tutorialOverlay.setAimingPrompt(tutorialStep.tiltPrompt);
+        }
+        this.debug.refresh();
+      } else {
+        this.handleDrop(col);
+      }
     }
   }
 
@@ -299,7 +312,15 @@ export class Game {
 
   private handleCommitTilt(): void {
     const previousLevelProgress = this.snapshotLevelProgress();
+    // Capture the pre-tilt direction before commitTilt overwrites the angle;
+    // the cue sweeps from here to the committed angle so the rotation reads as
+    // a distinct event instead of snapping on the first post-commit frame.
+    const gravity = this.state.gravity;
+    const fromAngle = gravity?.turnStartAngle ?? 0;
     const result = this.engine.commitTilt();
+    if (result.accepted && gravity) {
+      this.gravityShiftCue = spawnGravityShiftCue(fromAngle, gravity.angle, performance.now());
+    }
     this.processTurnResult(result, previousLevelProgress);
   }
 
@@ -483,6 +504,7 @@ export class Game {
     this.syncLevelProgressDisplay();
     this.scorePopups = [];
     this.scoreIndicators = [];
+    this.gravityShiftCue = null;
     this.longestStreakThisGame = 0;
     this.gameRecorded = false;
   }
@@ -497,6 +519,7 @@ export class Game {
     this.animQueue = null;
     this.scorePopups = [];
     this.scoreIndicators = [];
+    this.gravityShiftCue = null;
     this.loadTutorialStep();
   }
 
@@ -523,7 +546,7 @@ export class Game {
   private completeTutorialTurn(result: { accepted: boolean; steps: readonly PhysicsStep[] }): void {
     if (!this.activeTutorial) return;
     const step = this.currentTutorialStep();
-    if (!step || !isTutorialStepSuccessful(step, result)) {
+    if (!step || !isTutorialStepSuccessful(step, result, this.state.gravity?.angle)) {
       this.loadTutorialStep();
       return;
     }
@@ -585,6 +608,7 @@ export class Game {
       this.syncLevelProgressDisplay();
       this.scorePopups = [];
       this.scoreIndicators = [];
+      this.gravityShiftCue = null;
       this.animQueue = null;
       this.longestStreakThisGame = loaded.session.longestStreak;
       this.activeStack = 0;
@@ -626,6 +650,9 @@ export class Game {
     this.animQueue?.shiftTime(deltaMs);
     this.scorePopups = this.scorePopups.map(popup => ({ ...popup, startTime: popup.startTime + deltaMs }));
     this.scoreIndicators = this.scoreIndicators.map(indicator => ({ ...indicator, startTime: indicator.startTime + deltaMs }));
+    if (this.gravityShiftCue) {
+      this.gravityShiftCue = { ...this.gravityShiftCue, startTime: this.gravityShiftCue.startTime + deltaMs };
+    }
     this.isPaused = false;
     this.pauseStartedAt = 0;
   }
@@ -665,28 +692,43 @@ export class Game {
   private loop(now: DOMHighResTimeStamp): void {
     this.rafId = requestAnimationFrame(this.loop);
 
-    if (!this.isPaused && this.animQueue) {
-      // tick() can synchronously fire the queue's onComplete callback for
-      // its final step — and onComplete calls setGameOver() when the turn
-      // that just finished animating ended the game, which itself nulls
-      // this.animQueue (see setGameOver). So by the time tick() returns,
-      // this.animQueue may already be null; optional-chain the isDone()
-      // check rather than assuming it's still the same queue.
-      this.animQueue.tick(now);
-      if (this.animQueue?.isDone()) this.animQueue = null;
-    }
     if (!this.isPaused) {
       this.scorePopups = tickScorePopups(this.scorePopups, now);
       this.scoreIndicators = tickScoreIndicators(this.scoreIndicators, now);
+      this.gravityShiftCue = tickGravityShiftCue(this.gravityShiftCue, now);
+    }
+    if (!this.isPaused && this.animQueue) {
+      // When a gravity-shift cue is still in its head-start phase (the first
+      // ~15 % of its lifespan), skip the physics animation so the ambient
+      // wash sweep and edge-glow bar play first as a distinct visual event.
+      // Once the cue reaches the threshold the animation begins, and the cue
+      // continues playing over it — first the direction change, then the drop.
+      if (!this.gravityShiftCue || this.gravityShiftCue.progress >= 0.15) {
+        this.animQueue.tick(now);
+      }
+      if (this.animQueue?.isDone()) this.animQueue = null;
     }
 
     const anims = this.animQueue?.getActiveAnimations() ?? [];
+    // "A tilt is owed" = no committable tilt exists yet, using the SAME
+    // snapped comparison commitTilt rejects on ('tilt-required') — a player
+    // who tilts +45° and returns to the start angle owes a tilt again. This
+    // single value drives every attention cue (tilt buttons, HUD hint,
+    // compass ring, tutorial lane pulse/arrows) so they can never disagree
+    // with each other or with the engine.
+    const gravity = this.state.gravity;
+    const needsTilt = this.state.phase === GamePhase.Aiming
+      && gravity !== undefined
+      && snapAngleToEightDirections(gravity.angle) === snapAngleToEightDirections(gravity.turnStartAngle);
+    const canConfirmTilt = this.state.phase === GamePhase.Aiming && !needsTilt;
     this.gameControls.render({
       phase: this.state.phase,
       hasGravity: Boolean(this.mode.gravity),
       cursorLane: this.state.cursorCol,
       laneCount: this.currentLaneCount(),
       axis: this.currentAxis(),
+      canConfirmTilt,
+      needsTilt,
       disabled: this.homeScreen.isGameMenuOpen() || this.isPaused,
     });
     this.gameHud.render({
@@ -702,6 +744,8 @@ export class Game {
       gravityAngle: this.state.gravity?.angle,
       gravityTurnStartAngle: this.state.gravity?.turnStartAngle,
       gravityMaxTiltDelta: this.state.gravity?.maxTiltDelta,
+      needsTilt,
+      canConfirmTilt,
       isStackMode: this.isStackMode(),
       currentStack: this.activeStack,
       bestStack: Math.max(this.stats.longestStreak, this.longestStreakThisGame),
@@ -727,9 +771,12 @@ export class Game {
       this.stats,
       this.scorePopups,
       this.scoreIndicators,
-      tutorialStep ? { allowedCols: tutorialStep.allowedCols } : null,
+      tutorialStep
+        ? { allowedCols: tutorialStep.allowedCols, staged: this.state.phase === GamePhase.Aiming, needsTilt }
+        : null,
       previewLanding,
       this.isStackMode(),
+      this.gravityShiftCue,
     );
   }
 

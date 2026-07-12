@@ -6,7 +6,7 @@ import {
   computeGravityVector, entryEdgeForAngle,
   offBoardEntryPosition, snapAngleToEightDirections,
 } from '../../game/gravity.js';
-import type { RichDiscAnimation, ScoreIndicator, ScorePopup } from './animation-types.js';
+import type { GravityShiftCue, RichDiscAnimation, ScoreIndicator, ScorePopup } from './animation-types.js';
 import {
   DISC_COLORS,
   COLOR_BG, COLOR_GRID_CELL, COLOR_GRID_LINE,
@@ -21,20 +21,40 @@ import {
 } from './layout.js';
 import { interpolateY, interpolateX, pushBoardOffsetX, pushBoardOffsetY } from './animation-queue.js';
 import type { GameStats } from '../../game/stats.js';
-import { isTouchDevice } from '../dom-utils.js';
+import { isTouchDevice, prefersReducedMotion } from '../dom-utils.js';
 
 export interface TutorialVisualState {
   allowedCols: readonly number[];
+  /** A lane is staged (phase === Aiming) — the highlight renders in the blue gravity accent. */
+  staged: boolean;
+  /** No committable tilt exists yet — the highlight pulses and shows ↺/↻ arrows. Distinct from `staged`: after a valid tilt the lane stays blue but goes steady and loses the arrows, since the remaining action is Confirm. */
+  needsTilt: boolean;
 }
 
 // Computed each draw call so it stays proportional after a resize.
 function discR(): number { return cellSize() / 2 - Math.max(3, cellSize() * 0.07); }
 
+// While a lane is staged (Aiming, pendingLane set), the entry edge a drop
+// will actually use is pinned to turnStartAngle — tilting only reshapes how
+// the board settles, not which edge the disc entered from (see engine.ts
+// commitTilt/previewDropLanding, both of which read turnStartAngle here).
+// Grid-lane rendering (which axis is "columns" vs "rows", and the tutorial
+// highlight/marker built on it) must track that same pinned edge instead of
+// the live drag angle — otherwise crossing a 45deg boundary mid-tilt flips
+// the highlighted lane from a column to a row (or back) even though the
+// staged lane hasn't moved, which reads as the highlight jumping to a
+// different, unrelated part of the board.
+function pinnedGravityAngle(gravity: GravityState | undefined): number | undefined {
+  if (!gravity) return undefined;
+  return gravity.pendingLane !== undefined ? gravity.turnStartAngle : gravity.angle;
+}
+
 // Row cursor/lanes when gravity currently enters from the side, column
 // cursor/lanes otherwise (Classic, or Gravity mode pointing mostly up/down).
 function axisForGravity(gravity: GravityState | undefined): 'col' | 'row' {
-  if (!gravity) return 'col';
-  const entryEdge = entryEdgeForAngle(gravity.angle);
+  const angle = pinnedGravityAngle(gravity);
+  if (angle === undefined) return 'col';
+  const entryEdge = entryEdgeForAngle(angle);
   return entryEdge === 'left' || entryEdge === 'right' ? 'row' : 'col';
 }
 
@@ -90,6 +110,7 @@ export class Renderer {
     tutorial?: TutorialVisualState | null,
     previewLanding?: GridPos | null,
     isStackMode = false,
+    gravityShiftCue?: GravityShiftCue | null,
   ): void {
     const { ctx } = this;
     // Build a set of disc IDs currently being animated. drawStaticDiscs uses
@@ -100,17 +121,27 @@ export class Renderer {
     ctx.clearRect(0, 0, canvasLogicalWidth(), canvasLogicalHeight());
     this.drawBackground();
     if (state.phase === GamePhase.Menu) return; // DOM overlay owns the screen entirely
-    if (state.gravity) this.drawGravityAmbient(state.gravity);
+    if (state.gravity) this.drawGravityAmbient(state.gravity, gravityShiftCue ?? null);
     const showCursor = state.phase === GamePhase.WaitingForDrop;
     const axis = axisForGravity(state.gravity);
-    const entryEdge = state.gravity ? entryEdgeForAngle(state.gravity.angle) : null;
-    this.drawGrid(state.cursorCol, showCursor, axis, tutorial ?? null, entryEdge);
+    const pinnedAngle = pinnedGravityAngle(state.gravity);
+    const entryEdge = pinnedAngle !== undefined ? entryEdgeForAngle(pinnedAngle) : null;
+    // Tutorial lanes are interaction targets, not persistent board markings.
+    // Once a turn is accepted, hiding the lane throughout resolution avoids
+    // reverting the staged blue cue to green and rotating it with the newly
+    // committed gravity axis while discs animate. The next tutorial step will
+    // naturally provide its own green target after resolution completes.
+    const interactiveTutorial = state.phase === GamePhase.Animating ? null : tutorial ?? null;
+    this.drawGrid(state.cursorCol, showCursor, axis, interactiveTutorial, entryEdge);
     if (state.gravity) this.drawDiagonalLanesIfActive(state.gravity.angle);
     // During Aiming, `board` is already the live settle preview (the caller
     // substitutes it) — drawn through the same static-disc path as any other
     // committed board, no separate staged-disc rendering needed.
     this.drawStaticDiscs(board, animations, animIds);
     this.drawAnimatedDiscs(animations);
+    // The shift-cue's edge glow draws on top of the board so the pulse is
+    // visible while discs are still animating into their post-tilt positions.
+    if (gravityShiftCue) this.drawGravityShiftGlow(gravityShiftCue);
     this.drawScorePopups(scorePopups);
     this.drawScoreIndicators(scoreIndicators);
     if (showCursor) {
@@ -130,21 +161,54 @@ export class Renderer {
   // hunting for the compass — sweeps from transparent (anti-gravity edge) to
   // a faint accent tint (gravity edge). Purely ambient, drawn under the grid
   // cells/discs so it never competes with gameplay content for legibility.
-  private drawGravityAmbient(gravity: GravityState): void {
+  // While a shift cue is active, the wash sweeps along the cue's eased
+  // interpolated angle (not the already-committed value) and its accent stop
+  // brightens with the cue's sine-pulse alpha, so the rotation reads as a
+  // distinct, visible event instead of snapping invisibly on the first
+  // post-commit frame.
+  private drawGravityAmbient(gravity: GravityState, cue: GravityShiftCue | null = null): void {
     const { ctx } = this;
-    const { gx, gy } = computeGravityVector(gravity.angle);
+    const { gx, gy } = computeGravityVector(cue ? cue.angle : gravity.angle);
     const cx = gridOriginX() + gridW() / 2;
     const cy = gridOriginY() + gridH() / 2;
     const radius = Math.max(gridW(), gridH()) * 0.8;
     const gradient = ctx.createLinearGradient(cx - gx * radius, cy - gy * radius, cx + gx * radius, cy + gy * radius);
     // rgba form of COLOR_GRAVITY_ACCENT (#62b0e8) — canvas gradients need
-    // per-stop alpha, which a hex constant alone can't express.
+    // per-stop alpha, which a hex constant alone can't express. The cue boosts
+    // the accent stop on top of the resting wash so the pulse stands out.
+    const resting = 0.20;
+    const intensity = cue ? resting + cue.alpha * 0.30 : resting;
     gradient.addColorStop(0, 'rgba(98, 176, 232, 0)');
     gradient.addColorStop(0.6, 'rgba(98, 176, 232, 0)');
-    gradient.addColorStop(1, 'rgba(98, 176, 232, 0.20)');
+    gradient.addColorStop(1, `rgba(98, 176, 232, ${intensity})`);
     ctx.save();
     ctx.fillStyle = gradient;
     ctx.fillRect(gridOriginX(), gridOriginY(), gridW(), gridH());
+    ctx.restore();
+  }
+
+  // The secondary highlight the player sees while a tilt's cue is active: a
+  // thin pulsing bar hugging the NEW entry edge (where the recentered cursor
+  // highlight will land once the turn resolves — see engine.commitTilt's
+  // axis-aware recenter), alpha-tied to the cue's sine pulse. Reuses
+  // COLOR_GRAVITY_ACCENT (rgba form) so it reads as part of the same gravity
+  // language, distinct from the tutorial's green lane highlight.
+  private drawGravityShiftGlow(cue: GravityShiftCue): void {
+    const { ctx } = this;
+    const edge = entryEdgeForAngle(cue.toAngle);
+    const ox = gridOriginX();
+    const oy = gridOriginY();
+    const w = gridW();
+    const h = gridH();
+    const thickness = Math.max(4, cellSize() * 0.12);
+    let x: number, y: number, rw: number, rh: number;
+    if (edge === 'top') { x = ox; y = oy; rw = w; rh = thickness; }
+    else if (edge === 'bottom') { x = ox; y = oy + h - thickness; rw = w; rh = thickness; }
+    else if (edge === 'left') { x = ox; y = oy; rw = thickness; rh = h; }
+    else { x = ox + w - thickness; y = oy; rw = thickness; rh = h; } // right
+    ctx.save();
+    ctx.fillStyle = `rgba(98, 176, 232, ${cue.alpha * 0.75})`;
+    ctx.fillRect(x, y, rw, rh);
     ctx.restore();
   }
 
@@ -176,8 +240,8 @@ export class Renderer {
       }
     }
 
-    if (tutorial && axis === 'col') this.drawTutorialColumns(tutorial.allowedCols);
-    if (tutorial && axis === 'row') this.drawTutorialRows(tutorial.allowedCols, entryEdge === 'right' ? 'right' : 'left');
+    if (tutorial && axis === 'col') this.drawTutorialColumns(tutorial, entryEdge === 'bottom' ? 'bottom' : 'top');
+    if (tutorial && axis === 'row') this.drawTutorialRows(tutorial, entryEdge === 'right' ? 'right' : 'left');
 
     ctx.strokeStyle = COLOR_GRID_LINE;
     ctx.lineWidth = 1;
@@ -257,35 +321,79 @@ export class Renderer {
     ctx.restore();
   }
 
-  private drawTutorialColumns(allowedCols: readonly number[]): void {
+  // Shared palette for the tutorial lane highlight's two states: green while
+  // the player is choosing a lane, blue gravity accent once one is staged.
+  // While a tilt is still owed (needsTilt) the blue variant pulses at ~2 Hz
+  // and gains ↺/↻ arrow glyphs; after a committable tilt exists it goes
+  // steady and loses the arrows — the remaining action is Confirm, not more
+  // tilting. Reduced motion swaps the pulse for a fixed mid-bright alpha.
+  private tutorialLanePalette(tutorial: TutorialVisualState) {
+    const { staged, needsTilt } = tutorial;
+    const pulse = needsTilt && !prefersReducedMotion()
+      ? Math.sin(performance.now() / 1000 * Math.PI * 4) * 0.5 + 0.5
+      : needsTilt ? 0.7 : 0;
+    const laneRGB   = staged ? '98, 176, 232'  : '46, 204, 113';
+    const brightRGB = staged ? '146, 199, 240' : '129, 230, 177';
+    const midAlpha    = needsTilt ? 0.16 + 0.24 * pulse : 0.22;
+    const borderAlpha = needsTilt ? 0.50 + 0.35 * pulse : 0.72;
+    const arrowAlpha  = 0.55 + 0.40 * pulse;
+    return { laneRGB, brightRGB, midAlpha, borderAlpha, arrowAlpha, needsTilt };
+  }
+
+  private drawTutorialArrows(cwX: number, cwY: number, ccwX: number, ccwY: number, brightRGB: string, arrowAlpha: number): void {
+    const { ctx } = this;
+    const fontPx = Math.max(12, Math.round(cellSize() * 0.24));
+    ctx.font = `bold ${fontPx}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = `rgba(${brightRGB}, ${arrowAlpha.toFixed(3)})`;
+    ctx.fillText('↺', ccwX, ccwY);
+    ctx.fillText('↻', cwX, cwY);
+  }
+
+  private drawTutorialColumns(tutorial: TutorialVisualState, entryEdge: 'top' | 'bottom'): void {
+    // The highlighted lane is an input target, not a gravity-direction
+    // indicator. Once a committable rotation exists, hiding it prevents the
+    // pinned entry lane from looking stale while the settled preview moves.
+    if (tutorial.staged && !tutorial.needsTilt) return;
     const { ctx } = this;
     const ox = gridOriginX();
     const oy = gridOriginY();
     const cs = cellSize();
     const top = oy + 1;
     const height = gridH() - 2;
+    const { laneRGB, brightRGB, midAlpha, borderAlpha, arrowAlpha, needsTilt } = this.tutorialLanePalette(tutorial);
+    // Marker and arrows sit in the half-cell entry pad on whichever edge
+    // discs actually enter from (layout's ENTRY_PAD_CELLS guarantees room).
+    const markerY = entryEdge === 'top' ? oy - 6 : oy + gridH() + 6;
+    const arrowY = entryEdge === 'top'
+      ? oy - Math.max(9, cs * 0.15)
+      : oy + gridH() + Math.max(9, cs * 0.15);
 
-    for (const col of allowedCols) {
+    for (const col of tutorial.allowedCols) {
       if (col < 0 || col >= gridCols()) continue;
       const x = ox + col * cs;
 
       const gradient = ctx.createLinearGradient(x, oy, x + cs, oy);
-      gradient.addColorStop(0, 'rgba(46, 204, 113, 0.04)');
-      gradient.addColorStop(0.5, 'rgba(46, 204, 113, 0.22)');
-      gradient.addColorStop(1, 'rgba(46, 204, 113, 0.04)');
+      gradient.addColorStop(0, `rgba(${laneRGB}, 0.04)`);
+      gradient.addColorStop(0.5, `rgba(${laneRGB}, ${midAlpha.toFixed(3)})`);
+      gradient.addColorStop(1, `rgba(${laneRGB}, 0.04)`);
 
       ctx.save();
       ctx.fillStyle = gradient;
       ctx.fillRect(x + 1, top, cs - 2, height);
 
-      ctx.strokeStyle = 'rgba(129, 230, 177, 0.72)';
+      ctx.strokeStyle = `rgba(${brightRGB}, ${borderAlpha.toFixed(3)})`;
       ctx.lineWidth = 2;
       ctx.strokeRect(x + 3, oy + 3, cs - 6, gridH() - 6);
 
-      ctx.fillStyle = 'rgba(129, 230, 177, 0.95)';
+      ctx.fillStyle = `rgba(${brightRGB}, 0.95)`;
       ctx.beginPath();
-      ctx.arc(x + cs / 2, oy - 6, Math.max(3, Math.min(5, cs * 0.08)), 0, Math.PI * 2);
+      ctx.arc(x + cs / 2, markerY, Math.max(3, Math.min(5, cs * 0.08)), 0, Math.PI * 2);
       ctx.fill();
+      if (needsTilt) {
+        this.drawTutorialArrows(x + cs / 2 + cs * 0.45, arrowY, x + cs / 2 - cs * 0.45, arrowY, brightRGB, arrowAlpha);
+      }
       ctx.restore();
     }
   }
@@ -293,38 +401,46 @@ export class Renderer {
   // Mirrors drawTutorialColumns for a Gravity-mode tutorial step whose
   // gravity is tilted enough that lanes are ROWS (entry edge left/right) —
   // e.g. TutorialStep.gravityAngleDeg pre-tilting a step to 90deg. The entry
-  // marker dot sits on whichever side discs actually enter from, matching
-  // entryEdge, instead of always the left like the column version's always-top.
-  private drawTutorialRows(allowedCols: readonly number[], entryEdge: 'left' | 'right'): void {
+  // marker dot and the ↺/↻ arrows sit on whichever side discs actually enter
+  // from, matching entryEdge.
+  private drawTutorialRows(tutorial: TutorialVisualState, entryEdge: 'left' | 'right'): void {
+    if (tutorial.staged && !tutorial.needsTilt) return;
     const { ctx } = this;
     const ox = gridOriginX();
     const oy = gridOriginY();
     const cs = cellSize();
     const left = ox + 1;
     const width = gridW() - 2;
+    const { laneRGB, brightRGB, midAlpha, borderAlpha, arrowAlpha, needsTilt } = this.tutorialLanePalette(tutorial);
     const markerX = entryEdge === 'left' ? ox - 6 : ox + gridW() + 6;
+    const arrowX = entryEdge === 'left'
+      ? ox - Math.max(9, cs * 0.15)
+      : ox + gridW() + Math.max(9, cs * 0.15);
 
-    for (const row of allowedCols) {
+    for (const row of tutorial.allowedCols) {
       if (row < 0 || row >= gridRows()) continue;
       const y = oy + row * cs;
 
       const gradient = ctx.createLinearGradient(ox, y, ox, y + cs);
-      gradient.addColorStop(0, 'rgba(46, 204, 113, 0.04)');
-      gradient.addColorStop(0.5, 'rgba(46, 204, 113, 0.22)');
-      gradient.addColorStop(1, 'rgba(46, 204, 113, 0.04)');
+      gradient.addColorStop(0, `rgba(${laneRGB}, 0.04)`);
+      gradient.addColorStop(0.5, `rgba(${laneRGB}, ${midAlpha.toFixed(3)})`);
+      gradient.addColorStop(1, `rgba(${laneRGB}, 0.04)`);
 
       ctx.save();
       ctx.fillStyle = gradient;
       ctx.fillRect(left, y + 1, width, cs - 2);
 
-      ctx.strokeStyle = 'rgba(129, 230, 177, 0.72)';
+      ctx.strokeStyle = `rgba(${brightRGB}, ${borderAlpha.toFixed(3)})`;
       ctx.lineWidth = 2;
       ctx.strokeRect(ox + 3, y + 3, gridW() - 6, cs - 6);
 
-      ctx.fillStyle = 'rgba(129, 230, 177, 0.95)';
+      ctx.fillStyle = `rgba(${brightRGB}, 0.95)`;
       ctx.beginPath();
       ctx.arc(markerX, y + cs / 2, Math.max(3, Math.min(5, cs * 0.08)), 0, Math.PI * 2);
       ctx.fill();
+      if (needsTilt) {
+        this.drawTutorialArrows(arrowX, y + cs / 2 + cs * 0.45, arrowX, y + cs / 2 - cs * 0.45, brightRGB, arrowAlpha);
+      }
       ctx.restore();
     }
   }

@@ -92,8 +92,8 @@ describe('InputHandler', () => {
       { kind: 'drop', col: 3 },
       { kind: 'drop', col: 3 },
       { kind: 'drop', col: 3 },
-      { kind: 'tilt', delta: -5 },
-      { kind: 'tilt', delta: 5 },
+      { kind: 'tilt', delta: -45 },
+      { kind: 'tilt', delta: 45 },
       { kind: 'cancel' },
       { kind: 'restart' },
     ]);

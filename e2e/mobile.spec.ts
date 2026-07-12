@@ -25,7 +25,7 @@ test.describe('mobile playability', () => {
     expect(cellAt(board, 7, 6, 3).text).not.toBe('·');
   });
 
-  test('Gravity shows lane controls in waiting, tilt controls in aiming, and can confirm a turn', async ({ page }) => {
+  test('Gravity stages a lane, then exposes tilt controls before confirming a turn', async ({ page }) => {
     await gotoSeeded(page);
     await playMode(page, 'Gravity');
 
@@ -33,14 +33,19 @@ test.describe('mobile playability', () => {
     await expect(page.locator('[data-control="previous"]')).toBeVisible();
     await expect(page.locator('[data-control="drop"]')).toBeVisible();
 
-    await page.locator('[data-control="tilt-clockwise"]').tap();
+    await page.locator('[data-control="drop"]').tap();
     await openDebugPanel(page);
     await waitForPhase(page, 'aiming');
     await expect(page.locator('[data-control="cancel"]')).toBeVisible();
     await expect(page.locator('[data-control="confirm"]')).toBeVisible();
     await expect(page.locator('[data-control="previous"]')).toBeHidden();
+    await expect(page.locator('[data-control="tilt-counter-clockwise"]')).toHaveClass(/game-control--attention/);
+    await expect(page.locator('[data-control="tilt-clockwise"]')).toHaveClass(/game-control--attention/);
 
     await page.locator('[aria-label="Close debugger"]').tap();
+    await page.locator('[data-control="tilt-clockwise"]').tap();
+    await expect(page.locator('[data-control="tilt-counter-clockwise"]')).not.toHaveClass(/game-control--attention/);
+    await expect(page.locator('[data-control="tilt-clockwise"]')).not.toHaveClass(/game-control--attention/);
     await page.locator('[data-control="confirm"]').tap();
     await openDebugPanel(page);
     await waitForPhase(page, 'waiting');

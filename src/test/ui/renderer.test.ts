@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 
-import { beforeEach, describe, expect, test } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { Renderer } from '../../ui/rendering/renderer.js';
+import type { TutorialVisualState } from '../../ui/rendering/renderer.js';
 import { GamePhase } from '../../game/state.js';
 import type { GameState, GravityState } from '../../game/state.js';
 import { makeEmptyBoard, placeDisc } from '../../game/board.js';
@@ -16,6 +17,8 @@ import {
   COLOR_COL_HOVER, COLOR_GAMEOVER_BG, COLOR_GRAVITY_LANE,
 } from '../../ui/rendering/theme.js';
 import type { GameStats } from '../../game/stats.js';
+import { AnimPhase } from '../../ui/rendering/animation-types.js';
+import type { RichDiscAnimation } from '../../ui/rendering/animation-types.js';
 
 // ─── Fake canvas context ─────────────────────────────────────────────────────
 // A real <canvas> 2D context isn't available under happy-dom, and pixel-level
@@ -108,7 +111,7 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
 }
 
 function makeGravity(overrides: Partial<GravityState> = {}): GravityState {
-  return { angle: 0, turnStartAngle: 0, maxTiltDelta: 45, ...overrides };
+  return { angle: 0, turnStartAngle: 0, maxTiltDelta: 90, ...overrides };
 }
 
 function makeStats(overrides: Partial<GameStats> = {}): GameStats {
@@ -120,11 +123,15 @@ function callDraw(
   renderer: Renderer,
   state: GameState,
   board: Board = state.board,
-  opts: { previewLanding?: { row: number; col: number } | null } = {},
+  opts: {
+    previewLanding?: { row: number; col: number } | null;
+    tutorial?: TutorialVisualState | null;
+    animations?: readonly RichDiscAnimation[];
+  } = {},
 ): void {
   renderer.draw(
-    state, board, [], makeStats(), [], [],
-    null, opts.previewLanding ?? null,
+    state, board, opts.animations ?? [], makeStats(), [], [],
+    opts.tutorial ?? null, opts.previewLanding ?? null,
   );
 }
 
@@ -244,6 +251,213 @@ describe('cursor highlight axis', () => {
     // width = gridW(), height = cellSize() — the opposite shape from the column case.
     expect(highlight?.args[2]).toBe(gridW());
     expect(highlight?.args[3]).toBe(cellSize());
+  });
+
+  test('during Aiming the staged-lane cursor highlight is hidden, and no full-edge bar is drawn', () => {
+    vi.stubGlobal('performance', { now: () => 500 });
+    const state = makeState({
+      phase: GamePhase.Aiming,
+      cursorCol: 4,
+      gravity: makeGravity({ angle: 70, turnStartAngle: 0, pendingLane: 4 }),
+    });
+    callDraw(renderer, state);
+
+    // Cursor lane highlight is NOT drawn during Aiming.
+    const cursorHighlight = ctx.calls.some(
+      c => c.method === 'fillRect' && c.fillStyle === COLOR_COL_HOVER,
+    );
+    expect(cursorHighlight).toBe(false);
+
+    // The old Aiming edge bar (a blue fillRect spanning a full grid edge) is
+    // gone — the "tilt owed" cue now lives on the tutorial lane highlight,
+    // the tilt buttons, the HUD hint, and the compass ring instead.
+    const edgeBar = ctx.calls.some(
+      c => c.method === 'fillRect'
+        && typeof c.fillStyle === 'string'
+        && (c.fillStyle as string).startsWith('rgba(98, 176, 232,')
+        && (c.args[3] === gridH() || c.args[2] === gridW()),
+    );
+    expect(edgeBar).toBe(false);
+  });
+});
+
+// ─── Tutorial lane highlight ────────────────────────────────────────────────
+// Green while the player is choosing a lane; once a lane is staged it turns
+// blue (gravity accent). While a tilt is still owed the blue variant pulses
+// and shows ↺/↻ arrow glyphs at the entry edge; after a committable tilt it
+// goes steady and drops the arrows (the remaining action is Confirm).
+// The fake gradient records no color stops, so these assert on strokeRect
+// colors and fillText glyphs, not the gradient fill.
+
+const GREEN_BRIGHT = 'rgba(129, 230, 177,';
+const BLUE_BRIGHT = 'rgba(146, 199, 240,';
+
+function tutorialStroke(calls: readonly RecordedCall[], prefix: string): RecordedCall | undefined {
+  return calls.find(
+    c => c.method === 'strokeRect'
+      && typeof c.strokeStyle === 'string'
+      && (c.strokeStyle as string).startsWith(prefix),
+  );
+}
+
+function arrowCalls(calls: readonly RecordedCall[]): RecordedCall[] {
+  return calls.filter(c => c.method === 'fillText' && (c.args[0] === '↺' || c.args[0] === '↻'));
+}
+
+describe('tutorial lane highlight', () => {
+  beforeEach(() => {
+    vi.stubGlobal('performance', { now: () => 500 });
+  });
+
+  test('choosing a lane (not staged): green border, no arrows', () => {
+    callDraw(renderer, makeState(), undefined, {
+      tutorial: { allowedCols: [2], staged: false, needsTilt: false },
+    });
+    const stroke = tutorialStroke(ctx.calls, GREEN_BRIGHT);
+    expect(stroke).toBeTruthy();
+    expect(stroke!.args).toEqual([gridOriginX() + 2 * cellSize() + 3, gridOriginY() + 3, cellSize() - 6, gridH() - 6]);
+    expect(arrowCalls(ctx.calls)).toHaveLength(0);
+    expect(tutorialStroke(ctx.calls, BLUE_BRIGHT)).toBeUndefined();
+  });
+
+  test('staged and tilt owed: blue border plus ↺/↻ arrows above the grid, no green', () => {
+    const state = makeState({
+      phase: GamePhase.Aiming,
+      gravity: makeGravity({ angle: 0, turnStartAngle: 0, pendingLane: 2 }),
+    });
+    callDraw(renderer, state, undefined, {
+      tutorial: { allowedCols: [2], staged: true, needsTilt: true },
+    });
+    expect(tutorialStroke(ctx.calls, BLUE_BRIGHT)).toBeTruthy();
+    expect(tutorialStroke(ctx.calls, GREEN_BRIGHT)).toBeUndefined();
+    const arrows = arrowCalls(ctx.calls);
+    expect(arrows.map(a => a.args[0]).sort()).toEqual(['↺', '↻']);
+    for (const arrow of arrows) expect(arrow.args[2] as number).toBeLessThan(gridOriginY());
+  });
+
+  test('staged after a valid tilt: tutorial lane and arrows are hidden', () => {
+    const state = makeState({
+      phase: GamePhase.Aiming,
+      gravity: makeGravity({ angle: 45, turnStartAngle: 0, pendingLane: 2 }),
+    });
+    callDraw(renderer, state, undefined, {
+      tutorial: { allowedCols: [2], staged: true, needsTilt: false },
+    });
+    expect(tutorialStroke(ctx.calls, BLUE_BRIGHT)).toBeUndefined();
+    expect(tutorialStroke(ctx.calls, GREEN_BRIGHT)).toBeUndefined();
+    expect(arrowCalls(ctx.calls)).toHaveLength(0);
+    expect(ctx.calls.find(
+      c => c.method === 'arc'
+        && typeof c.fillStyle === 'string'
+        && (c.fillStyle as string).startsWith(BLUE_BRIGHT),
+    )).toBeUndefined();
+  });
+
+  test('axis pinning: mid-tilt past 45° the staged lane stays a COLUMN pinned to turnStartAngle', () => {
+    const state = makeState({
+      phase: GamePhase.Aiming,
+      gravity: makeGravity({ angle: 90, turnStartAngle: 0, pendingLane: 3 }),
+    });
+    callDraw(renderer, state, undefined, {
+      tutorial: { allowedCols: [3], staged: true, needsTilt: true },
+    });
+    const stroke = tutorialStroke(ctx.calls, BLUE_BRIGHT);
+    expect(stroke).toBeTruthy();
+    // Column shape: full grid height, not full grid width.
+    expect(stroke!.args[3]).toBe(gridH() - 6);
+    for (const arrow of arrowCalls(ctx.calls)) {
+      expect(arrow.args[2] as number).toBeLessThan(gridOriginY());
+    }
+  });
+
+  test('bottom entry (turnStartAngle 180): column highlight with marker and arrows BELOW the grid', () => {
+    const state = makeState({
+      phase: GamePhase.Aiming,
+      gravity: makeGravity({ angle: 180, turnStartAngle: 180, pendingLane: 3 }),
+    });
+    callDraw(renderer, state, undefined, {
+      tutorial: { allowedCols: [3], staged: true, needsTilt: true },
+    });
+    const stroke = tutorialStroke(ctx.calls, BLUE_BRIGHT);
+    expect(stroke).toBeTruthy();
+    expect(stroke!.args[3]).toBe(gridH() - 6); // still a column
+    const arrows = arrowCalls(ctx.calls);
+    expect(arrows.length).toBe(2);
+    for (const arrow of arrows) {
+      expect(arrow.args[2] as number).toBeGreaterThan(gridOriginY() + gridH());
+    }
+    // Entry marker dot sits below the grid too.
+    const marker = ctx.calls.find(
+      c => c.method === 'arc'
+        && typeof c.fillStyle === 'string'
+        && (c.fillStyle as string).startsWith(BLUE_BRIGHT)
+        && (c.args[1] as number) > gridOriginY() + gridH(),
+    );
+    expect(marker).toBeTruthy();
+  });
+
+  test('row variant (turnStartAngle 90, entry from left): row highlight with arrows LEFT of the grid', () => {
+    const state = makeState({
+      phase: GamePhase.Aiming,
+      cursorCol: 3,
+      gravity: makeGravity({ angle: 90, turnStartAngle: 90, pendingLane: 3 }),
+    });
+    callDraw(renderer, state, undefined, {
+      tutorial: { allowedCols: [3], staged: true, needsTilt: true },
+    });
+    const stroke = tutorialStroke(ctx.calls, BLUE_BRIGHT);
+    expect(stroke).toBeTruthy();
+    expect(stroke!.args[2]).toBe(gridW() - 6); // row shape: full grid width
+    const arrows = arrowCalls(ctx.calls);
+    expect(arrows.length).toBe(2);
+    for (const arrow of arrows) {
+      expect(arrow.args[1] as number).toBeLessThan(gridOriginX());
+    }
+  });
+
+  test('hidden while the accepted turn animates, without hiding the grid or turn animation', () => {
+    const animatedDisc = makeDisc(6, DiscKind.Numbered);
+    const animation: RichDiscAnimation = {
+      discId: animatedDisc.id,
+      disc: animatedDisc,
+      phase: AnimPhase.Dropping,
+      startTime: 0,
+      duration: 100,
+      fromX: 10,
+      toX: 30,
+      fromY: 20,
+      toY: 40,
+      alpha: 1,
+      scale: 1,
+      progress: 1,
+    };
+    const state = makeState({
+      phase: GamePhase.Animating,
+      gravity: makeGravity({ angle: 45, turnStartAngle: 0 }),
+    });
+
+    callDraw(renderer, state, undefined, {
+      // The controller may still carry the just-completed tutorial step while
+      // resolution runs. Neither its green nor blue lane should leak through.
+      tutorial: { allowedCols: [2], staged: false, needsTilt: false },
+      animations: [animation],
+    });
+
+    expect(tutorialStroke(ctx.calls, GREEN_BRIGHT)).toBeUndefined();
+    expect(tutorialStroke(ctx.calls, BLUE_BRIGHT)).toBeUndefined();
+    expect(arrowCalls(ctx.calls)).toHaveLength(0);
+    const tutorialMarker = ctx.calls.find(
+      c => c.method === 'arc'
+        && typeof c.fillStyle === 'string'
+        && ((c.fillStyle as string).startsWith(GREEN_BRIGHT)
+          || (c.fillStyle as string).startsWith(BLUE_BRIGHT)),
+    );
+    expect(tutorialMarker).toBeUndefined();
+
+    // Resolution itself is unaffected: the board grid and animated disc are
+    // still rendered in the same frame.
+    expect(ctx.calls.filter(c => c.method === 'roundRect')).toHaveLength(49);
+    expect(ctx.calls.some(c => c.method === 'translate' && c.args[0] === 30 && c.args[1] === 40)).toBe(true);
   });
 });
 

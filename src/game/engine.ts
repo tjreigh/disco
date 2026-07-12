@@ -25,7 +25,7 @@ import {
   serializeBoard, type SaveGameV1,
 } from './save.js';
 
-export type RejectedTurnReason = 'game-over' | 'wrong-phase' | 'invalid-column' | 'full-column';
+export type RejectedTurnReason = 'game-over' | 'wrong-phase' | 'invalid-column' | 'full-column' | 'tilt-required';
 
 export interface TurnResult {
   accepted: boolean;
@@ -233,10 +233,9 @@ export class GameEngine {
     this.state.cursorCol = Math.max(0, Math.min(this.currentLaneCount() - 1, col));
   }
 
-  // Drops a disc into a lane. Always resolves immediately — in Gravity mode
-  // this enters at the edge opposite the *current* gravity angle and the
-  // whole board resettles under that same angle (no tilt happens as part of
-  // a drop; tilting is its own separate turn action, see tiltGravity).
+  // Drops a disc into a lane. Classic resolves immediately. Gravity turns are
+  // staged through stageGravityDrop() and commitTilt(), so every gravity drop
+  // changes direction before it can settle.
   drop(lane: number): TurnResult {
     const boardBefore = deepCloneBoard(this.state.board);
     const trace: PhysicsTrace = { scans: [], frames: [] };
@@ -248,18 +247,7 @@ export class GameEngine {
     if (this.state.phase === GamePhase.GameOver) return reject('game-over', true);
     if (this.state.phase !== GamePhase.WaitingForDrop) return reject('wrong-phase');
 
-    if (this.mode.gravity) {
-      const gravity = this.state.gravity!;
-      const entryEdge = entryEdgeForAngle(gravity.angle);
-      if (!Number.isInteger(lane) || lane < 0 || lane >= this.currentLaneCount()) return reject('invalid-column');
-      if (isLaneFull(this.state.board, lane, entryEdge)) return reject('full-column');
-
-      this.state.cursorCol = lane;
-      const steps = computeGravityDropSteps(
-        this.state.board, this.queue.peek(), lane, entryEdge, gravity.angle, this.mode, trace,
-      );
-      return this.finishTurn(steps, boardBefore, trace);
-    }
+    if (this.mode.gravity) return reject('tilt-required');
 
     if (!Number.isInteger(lane) || lane < 0 || lane >= this.state.board[0]!.length) return reject('invalid-column');
     if (isColumnFull(this.state.board, lane)) return reject('full-column');
@@ -269,22 +257,35 @@ export class GameEngine {
     return this.finishTurn(steps, boardBefore, trace);
   }
 
-  // Adjusts the gravity angle by delta. The first call from WaitingForDrop
-  // begins a new tilt action — captures turnStartAngle (the range boundary
-  // for this action) and moves to GamePhase.Aiming; state.board is NOT
-  // touched, so this is entirely free to explore (use previewSettledBoard()
-  // to see how the board would land) and cancelTilt() backs out for free.
-  // Only commitTilt() actually spends a turn. No-op outside a gravity mode
-  // or outside WaitingForDrop/Aiming.
+  /**
+   * Stages a Gravity-mode lane without changing the board or spending a turn.
+   * The disc will enter through this direction's edge after the player rotates
+   * and confirms; keeping the entry edge fixed is what lets a tilt reshape a
+   * chosen placement instead of merely changing where it starts.
+   */
+  stageGravityDrop(lane: number): RejectedTurnReason | undefined {
+    if (!this.mode.gravity || !this.state.gravity) return 'wrong-phase';
+    if (this.state.phase === GamePhase.GameOver) return 'game-over';
+    if (this.state.phase !== GamePhase.WaitingForDrop) return 'wrong-phase';
+
+    const entryEdge = entryEdgeForAngle(this.state.gravity.angle);
+    if (!Number.isInteger(lane) || lane < 0 || lane >= this.currentLaneCount()) return 'invalid-column';
+    if (isLaneFull(this.state.board, lane, entryEdge)) return 'full-column';
+
+    this.state.cursorCol = lane;
+    this.state.gravity.turnStartAngle = this.state.gravity.angle;
+    this.state.gravity.pendingLane = lane;
+    this.state.phase = GamePhase.Aiming;
+    return undefined;
+  }
+
+  // Adjusts the staged Gravity turn's angle. A staged lane is required: tilt
+  // is no longer a standalone cleanup turn that can be used without a drop.
   tiltGravity(delta: number): void {
     if (!this.state.gravity) return;
-    if (this.state.phase !== GamePhase.WaitingForDrop && this.state.phase !== GamePhase.Aiming) return;
+    if (this.state.phase !== GamePhase.Aiming || this.state.gravity.pendingLane === undefined) return;
 
     const gravity = this.state.gravity;
-    if (this.state.phase === GamePhase.WaitingForDrop) {
-      gravity.turnStartAngle = gravity.angle;
-      this.state.phase = GamePhase.Aiming;
-    }
     const min = gravity.turnStartAngle - gravity.maxTiltDelta;
     const max = gravity.turnStartAngle + gravity.maxTiltDelta;
     gravity.angle = Math.max(min, Math.min(max, gravity.angle + delta));
@@ -299,7 +300,15 @@ export class GameEngine {
   // doesn't" confusion snapping the real angle is meant to eliminate.
   previewSettledBoard(): Board {
     const scratch = deepCloneBoard(this.state.board);
-    if (this.state.gravity) settleContinuous(scratch, snapAngleToEightDirections(this.state.gravity.angle));
+    const gravity = this.state.gravity;
+    if (gravity?.pendingLane !== undefined) {
+      const entryEdge = entryEdgeForAngle(gravity.turnStartAngle);
+      const rows = scratch.length;
+      const cols = scratch[0]!.length;
+      const entryPos = entryPositionForLane(entryEdge, gravity.pendingLane, rows, cols);
+      placeDisc(scratch, entryPos.row, entryPos.col, this.queue.peek());
+    }
+    if (gravity) settleContinuous(scratch, snapAngleToEightDirections(gravity.angle));
     return scratch;
   }
 
@@ -309,17 +318,20 @@ export class GameEngine {
   // config. Does not mutate anything.
   previewDropLanding(lane: number): GridPos | null {
     if (!this.mode.gravity || !this.state.gravity) return null;
-    const entryEdge = entryEdgeForAngle(this.state.gravity.angle);
-    if (isLaneFull(this.state.board, lane, entryEdge)) return null;
+    const gravity = this.state.gravity;
+    const staged = gravity.pendingLane !== undefined;
+    const selectedLane = gravity.pendingLane ?? lane;
+    const entryEdge = entryEdgeForAngle(staged ? gravity.turnStartAngle : gravity.angle);
+    if (isLaneFull(this.state.board, selectedLane, entryEdge)) return null;
 
     const rows = this.state.board.length;
     const cols = this.state.board[0]!.length;
     const scratch = deepCloneBoard(this.state.board);
-    const onEntryPos = entryPositionForLane(entryEdge, lane, rows, cols);
+    const onEntryPos = entryPositionForLane(entryEdge, selectedLane, rows, cols);
     const disc = this.queue.peek();
     placeDisc(scratch, onEntryPos.row, onEntryPos.col, disc);
 
-    const result = settleContinuous(scratch, this.state.gravity.angle);
+    const result = settleContinuous(scratch, gravity.angle);
     const move = result.moves.find(m => m.disc.id === disc.id);
     return move ? move.to : onEntryPos;
   }
@@ -329,13 +341,12 @@ export class GameEngine {
   cancelTilt(): void {
     if (this.state.phase !== GamePhase.Aiming || !this.state.gravity) return;
     this.state.gravity.angle = this.state.gravity.turnStartAngle;
+    delete this.state.gravity.pendingLane;
     this.state.phase = GamePhase.WaitingForDrop;
   }
 
-  // Commits the in-progress tilt: the whole board resettles under the
-  // current gravity angle (no new disc), then normal clear/chain/push
-  // resolution runs exactly as in drop(). Only valid from GamePhase.Aiming.
-  // This is the point a tilt action actually spends a turn.
+  // Commits the staged Gravity drop. A turn must resolve at a different
+  // snapped angle from where it began, so gravity changes every turn.
   commitTilt(): TurnResult {
     const boardBefore = deepCloneBoard(this.state.board);
     const trace: PhysicsTrace = { scans: [], frames: [] };
@@ -345,7 +356,7 @@ export class GameEngine {
     };
 
     if (this.state.phase === GamePhase.GameOver) return reject('game-over', true);
-    if (this.state.phase !== GamePhase.Aiming || !this.state.gravity) return reject('wrong-phase');
+    if (this.state.phase !== GamePhase.Aiming || !this.state.gravity || this.state.gravity.pendingLane === undefined) return reject('wrong-phase');
 
     // Snap to one of 8 directions and PERSIST that snapped value (not the
     // raw dragged angle) into state.gravity.angle — every other gravity
@@ -354,8 +365,27 @@ export class GameEngine {
     // value here is what keeps the whole mode consistently on the 8-shape
     // lattice from this point on, not just this one commit.
     const snappedAngle = snapAngleToEightDirections(this.state.gravity.angle);
+    if (snappedAngle === snapAngleToEightDirections(this.state.gravity.turnStartAngle)) return reject('tilt-required');
+    const entryEdge = entryEdgeForAngle(this.state.gravity.turnStartAngle);
+    const lane = this.state.gravity.pendingLane!;
     this.state.gravity.angle = snappedAngle;
-    const steps = computeGravityTiltSteps(this.state.board, snappedAngle, this.mode, trace);
+    delete this.state.gravity.pendingLane;
+    // Recenter the lane cursor when a tilt flips the entry axis (columns ↔
+    // rows): the same numeric index is otherwise silently reinterpreted on the
+    // new axis with no clamping, so the post-drop highlight/ghost land on an
+    // unrelated lane once play resumes. currentLaneCount() reads the
+    // just-committed angle, so its range already matches the new axis. A
+    // same-axis tilt (e.g. 0° → 180°, both top/bottom entry) leaves the cursor
+    // where the player put it.
+    const newEdge = entryEdgeForAngle(snappedAngle);
+    const axisFlipped = (entryEdge === 'left' || entryEdge === 'right')
+      !== (newEdge === 'left' || newEdge === 'right');
+    if (axisFlipped) {
+      this.state.cursorCol = Math.floor(this.currentLaneCount() / 2);
+    }
+    const steps = computeGravityDropSteps(
+      this.state.board, this.queue.peek(), lane, entryEdge, snappedAngle, this.mode, trace,
+    );
     return this.finishTurn(steps, boardBefore, trace);
   }
 

@@ -85,6 +85,48 @@ describe('TutorialOverlay', () => {
     expect(onContinue).toHaveBeenCalledTimes(2);
   });
 
+  test('setAimingPrompt swaps the prompt and aiming class; null restores the step prompt', () => {
+    const overlay = new TutorialOverlay();
+    overlay.show(CLASSIC_TUTORIAL, 0);
+    const root = overlayRoot();
+    const prompt = root.querySelector('.tutorial-prompt')!;
+    const stepPrompt = CLASSIC_TUTORIAL.steps[0]!.prompt;
+    expect(prompt.textContent).toBe(stepPrompt);
+
+    overlay.setAimingPrompt('Now tilt to finish the turn.');
+    expect(prompt.textContent).toBe('Now tilt to finish the turn.');
+    expect(root.classList.contains('tutorial-overlay--aiming')).toBe(true);
+
+    overlay.setAimingPrompt(null);
+    expect(prompt.textContent).toBe(stepPrompt);
+    expect(root.classList.contains('tutorial-overlay--aiming')).toBe(false);
+  });
+
+  test('show() resets a lingering aiming override to the new step prompt', () => {
+    const overlay = new TutorialOverlay();
+    overlay.show(CLASSIC_TUTORIAL, 0);
+    overlay.setAimingPrompt('Tilt now.');
+
+    overlay.show(CLASSIC_TUTORIAL, 1);
+
+    const root = overlayRoot();
+    expect(root.querySelector('.tutorial-prompt')!.textContent).toBe(CLASSIC_TUTORIAL.steps[1]!.prompt);
+    expect(root.classList.contains('tutorial-overlay--aiming')).toBe(false);
+  });
+
+  test('showComplete() adopts the completion copy as the base prompt — a later restore cannot resurrect a stale step prompt', () => {
+    const overlay = new TutorialOverlay();
+    overlay.show(CLASSIC_TUTORIAL, 0);
+    overlay.setAimingPrompt('Tilt now.');
+
+    overlay.showComplete(CLASSIC_TUTORIAL, 'Gravity');
+    overlay.setAimingPrompt(null);
+
+    const root = overlayRoot();
+    expect(root.querySelector('.tutorial-prompt')!.textContent).toBe('You can keep playing from here in Gravity mode.');
+    expect(root.classList.contains('tutorial-overlay--aiming')).toBe(false);
+  });
+
   test('clicking retry hands focus back so game keys stay alive', () => {
     const overlay = new TutorialOverlay();
     overlay.show(CLASSIC_TUTORIAL, 0);

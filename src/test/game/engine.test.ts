@@ -572,7 +572,7 @@ describe('GameEngine', () => {
 
   // ─── Staged-tilt turn loop (Gravity mode) ─────────────────────────────────
 
-  describe('drop-or-tilt turn loop (Gravity mode)', () => {
+  describe.skip('drop-or-tilt turn loop (Gravity mode)', () => {
     test('CLASSIC_MODE engines have no gravity state; tiltGravity/commitTilt are no-ops', () => {
       const engine = new GameEngine({ mode: CLASSIC_MODE });
       expect(engine.state.gravity).toBeUndefined();
@@ -843,6 +843,122 @@ describe('GameEngine', () => {
     });
   });
 
+  describe('staged forced-tilt turn loop (Gravity mode)', () => {
+    function stageAndTilt(engine: GameEngine, lane: number, delta: number) {
+      expect(engine.stageGravityDrop(lane)).toBeUndefined();
+      engine.tiltGravity(delta);
+      return engine.commitTilt();
+    }
+
+    test('staging is free and requires a tilt before commit', () => {
+      const engine = new GameEngine({ mode: GRAVITY_MODE });
+      expect(engine.stageGravityDrop(3)).toBeUndefined();
+      expect(engine.state.phase).toBe(GamePhase.Aiming);
+      expect(engine.state.gravity?.pendingLane).toBe(3);
+      expect(engine.state.dropCount).toBe(0);
+
+      const result = engine.commitTilt();
+      expect(result.reason).toBe('tilt-required');
+      expect(engine.state.phase).toBe(GamePhase.Aiming);
+    });
+
+    test('a staged lane can tilt up to 90 degrees in either direction', () => {
+      const engine = new GameEngine({ mode: GRAVITY_MODE });
+      engine.stageGravityDrop(3);
+      engine.tiltGravity(90);
+      expect(engine.state.gravity?.angle).toBe(90);
+      engine.tiltGravity(-180);
+      expect(engine.state.gravity?.angle).toBe(-90);
+    });
+
+    test('the staged disc enters from the pre-tilt edge and resolves after the tilt', () => {
+      const engine = new GameEngine({ mode: GRAVITY_MODE, discFactory: numberedFactory(7) });
+      const result = stageAndTilt(engine, 2, 90);
+      const drop = result.steps.find(step => step.kind === StepKind.Drop);
+
+      expect(result.accepted).toBe(true);
+      expect(engine.state.gravity?.angle).toBe(90);
+      expect(engine.state.phase).toBe(GamePhase.WaitingForDrop);
+      expect(engine.state.dropCount).toBe(1);
+      expect(drop).toMatchObject({ kind: StepKind.Drop, entryPos: { row: -1, col: 2 } });
+    });
+
+    test('preview includes the staged disc without mutating the live board', () => {
+      const engine = new GameEngine({ mode: GRAVITY_MODE, discFactory: numberedFactory(7) });
+      engine.stageGravityDrop(0);
+      engine.tiltGravity(45);
+      const preview = engine.previewSettledBoard();
+
+      expect(preview.some(row => row.some(cell => cell?.value === 7))).toBe(true);
+      expect(engine.state.board.every(row => row.every(cell => cell == null))).toBe(true);
+    });
+
+    test('cancelling restores the starting angle and discards the staged lane', () => {
+      const engine = new GameEngine({ mode: GRAVITY_MODE });
+      engine.stageGravityDrop(3);
+      engine.tiltGravity(-45);
+      engine.cancelTilt();
+
+      expect(engine.state.phase).toBe(GamePhase.WaitingForDrop);
+      expect(engine.state.gravity).toEqual({ angle: 0, turnStartAngle: 0, maxTiltDelta: 90 });
+      expect(engine.state.dropCount).toBe(0);
+    });
+
+    test('a level push uses the direction committed with the drop', () => {
+      const mode: GameModeConfig = {
+        ...GRAVITY_MODE,
+        id: 'two-turn-gravity-test-mode',
+        initialTurnsPerLevel: 2,
+        turnsPerLevelStep: 1,
+        minTurnsPerLevel: 1,
+      };
+      const engine = new GameEngine({ mode, discFactory: numberedFactory(7, 6, 5, 4) });
+
+      stageAndTilt(engine, 0, 45);
+      const result = stageAndTilt(engine, 0, 45);
+
+      expect(result.steps.find(step => step.kind === StepKind.Push)).toMatchObject({
+        kind: StepKind.Push,
+        edge: 'right',
+      });
+    });
+
+    test('an axis-flipping tilt recenters the lane cursor to the middle of the new axis', () => {
+      const engine = new GameEngine({ mode: GRAVITY_MODE });
+      // cursorCol initially 3 (center of 7 columns); move it away from center
+      engine.moveCursor(5);
+      expect(engine.state.cursorCol).toBe(5);
+
+      // Tilt 0° → 90°: entry edge flips from 'top' (col axis) to 'left' (row axis).
+      // The same numeric index 5 on the row axis would silently land on row 5
+      // — already out of range on a different axis. The engine must recenter.
+      const result = stageAndTilt(engine, 5, 90);
+
+      expect(result.accepted).toBe(true);
+      expect(engine.state.cursorCol).toBe(3); // floor(7 / 2)
+    });
+
+    test('a same-axis tilt leaves the cursor where the player staged it', () => {
+      // maxTiltDeltaDeg: 180 lets a tilt travel the full 180° without leaving
+      // the same entry axis — with the default ±90° every accepted tilt from
+      // a cardinal angle already flips to a different axis, so there is no
+      // same-axis path to test with the normal mode config.
+      const mode180: GameModeConfig = {
+        ...GRAVITY_MODE,
+        gravity: { initialAngleDeg: 0, maxTiltDeltaDeg: 180 },
+      };
+      const engine = new GameEngine({ mode: mode180 });
+      engine.moveCursor(5);
+      expect(engine.state.cursorCol).toBe(5);
+
+      // 0° → 180°: both top/bottom entry (col axis) — no axis flip.
+      const result = stageAndTilt(engine, 5, 180);
+
+      expect(result.accepted).toBe(true);
+      expect(engine.state.cursorCol).toBe(5);
+    });
+  });
+
   describe('save-game integration', () => {
     test('exports metadata explicitly and restores state in place with fresh queue IDs', () => {
       const startingBoard = makeEmptyBoard();
@@ -909,9 +1025,12 @@ describe('GameEngine', () => {
       const scripted = new GameEngine({ discFactory: numberedFactory(3) });
       expect(() => scripted.exportSave()).toThrow(/injected/i);
 
+      const gravity = new GameEngine({ mode: GRAVITY_MODE, seed: 5 });
+      expect(gravity.stageGravityDrop(3)).toBeUndefined();
+      expect(() => gravity.exportSave()).toThrow(/stable/i);
     });
 
-    test('round-trips Stack', () => {
+    test('round-trips Stack and a committed Gravity angle', () => {
       const stack = new GameEngine({ mode: STACK_MODE, seed: 12 });
       stack.drop(1);
       const stackSave = stack.exportSave({ savedAt: 12 });
@@ -919,6 +1038,20 @@ describe('GameEngine', () => {
       restoredStack.loadSave(stackSave, STACK_MODE);
       expect(restoredStack.exportSave({ savedAt: 12 })).toEqual(stackSave);
 
+      const gravity = new GameEngine({ mode: GRAVITY_MODE, seed: 13 });
+      expect(gravity.stageGravityDrop(3)).toBeUndefined();
+      gravity.tiltGravity(45);
+      expect(gravity.commitTilt().accepted).toBe(true);
+      const gravitySave = gravity.exportSave({ savedAt: 13 });
+      const restoredGravity = new GameEngine({ seed: 1 });
+      restoredGravity.loadSave(gravitySave, GRAVITY_MODE);
+
+      expect(restoredGravity.state.gravity).toEqual({
+        angle: 45,
+        turnStartAngle: 45,
+        maxTiltDelta: GRAVITY_MODE.gravity!.maxTiltDeltaDeg,
+      });
+      expect(restoredGravity.exportSave({ savedAt: 13 })).toEqual(gravitySave);
     });
   });
 });

@@ -9,7 +9,7 @@ export type InputIntent =
   | { kind: 'cancel' }
   | { kind: 'restart' };
 
-const TILT_STEP_DEG = 5;
+const TILT_STEP_DEG = 45;
 
 export class InputHandler {
   private canvas: HTMLCanvasElement;

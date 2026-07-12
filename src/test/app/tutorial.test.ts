@@ -79,6 +79,7 @@ describe('GRAVITY_TUTORIAL', () => {
       expect(step.board[0]).toHaveLength(7);
       expect(step.currentDisc).toBeDefined();
       expect(step.nextDisc).toBeDefined();
+      expect(step.tiltPrompt, `${step.id} is missing its Aiming prompt`).toBeTruthy();
     }
   });
 
@@ -109,11 +110,33 @@ describe('GRAVITY_TUTORIAL', () => {
         ...(step.gravityAngleDeg !== undefined ? { gravityAngleDeg: step.gravityAngleDeg } : {}),
       });
 
+      expect(engine.stageGravityDrop(step.allowedCols[0]!)).toBeUndefined();
       engine.tiltGravity(45);
       const result = engine.commitTilt();
 
-      expect(isTutorialStepSuccessful(step, result), step.id).toBe(true);
+      expect(isTutorialStepSuccessful(step, result, engine.state.gravity?.angle), step.id).toBe(true);
     }
+  });
+
+  test('tilt-reveals-lines succeeds clockwise but not counter-clockwise', () => {
+    const step = GRAVITY_TUTORIAL.steps.find(candidate => candidate.id === 'tilt-reveals-lines')!;
+    const play = (tiltDelta: number) => {
+      const engine = new GameEngine({ mode: GRAVITY_MODE });
+      engine.loadScriptedState({
+        mode: GRAVITY_MODE,
+        board: step.board,
+        currentDisc: step.currentDisc,
+        nextDisc: step.nextDisc,
+      });
+      expect(engine.stageGravityDrop(step.allowedCols[0]!)).toBeUndefined();
+      engine.tiltGravity(tiltDelta);
+      return engine.commitTilt();
+    };
+
+    const counterClockwise = play(-45);
+    const clockwise = play(45);
+    expect(isTutorialStepSuccessful(step, counterClockwise, -45)).toBe(false);
+    expect(isTutorialStepSuccessful(step, clockwise, 45)).toBe(true);
   });
 
   test('is registered under its mode id in TUTORIALS', () => {

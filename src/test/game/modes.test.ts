@@ -89,7 +89,7 @@ describe('STACK_MODE', () => {
 
 describe('GRAVITY_MODE', () => {
   test('has the default gravity config', () => {
-    expect(GRAVITY_MODE.gravity).toEqual({ initialAngleDeg: 0, maxTiltDeltaDeg: 45 });
+    expect(GRAVITY_MODE.gravity).toEqual({ initialAngleDeg: 0, maxTiltDeltaDeg: 90 });
   });
 
   test('reuses Classic scoring, generation, and board size', () => {

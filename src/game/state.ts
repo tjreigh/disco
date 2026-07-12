@@ -3,7 +3,7 @@ import type { Board, Disc } from './model.js';
 export enum GamePhase {
   Menu = 'menu',
   WaitingForDrop = 'waiting',
-  /** Gravity mode only: a tilt is in progress (started via tiltGravity), not yet committed or cancelled. */
+  /** Gravity mode only: a lane is staged and its required rotation is in progress. */
   Aiming = 'aiming',
   Animating = 'animating',
   GameOver = 'game-over',
@@ -26,6 +26,8 @@ export interface GravityState {
   turnStartAngle: number;
   /** Maximum absolute tilt allowed from turnStartAngle for one tilt action. */
   maxTiltDelta: number;
+  /** Selected lane for the staged gravity turn; absent outside GamePhase.Aiming. */
+  pendingLane?: number;
 }
 
 export interface GameState {

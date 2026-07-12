@@ -1,7 +1,7 @@
 import type { PhysicsStep } from '../../game/events.js';
 import { StepKind } from '../../game/events.js';
 import type { Disc, GridPos } from '../../game/model.js';
-import type { RichDiscAnimation, ScoreIndicator, ScorePopup } from './animation-types.js';
+import type { RichDiscAnimation, GravityShiftCue, ScoreIndicator, ScorePopup } from './animation-types.js';
 import { AnimPhase } from './animation-types.js';
 import { cellCenterY, cellCenterX, gridRows, gridCols } from './layout.js';
 
@@ -13,6 +13,7 @@ const REVEAL_MS = 350;
 const PUSH_MS = 420;
 const SCORE_POPUP_MS = 800;
 const SCORE_INDICATOR_MS = 1_100;
+const GRAVITY_SHIFT_MS = 550;
 
 function easeInOutQuad(t: number): number {
   return t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
@@ -404,4 +405,48 @@ export function tickScorePopups(
     });
   }
   return next;
+}
+
+// Marks the instant a Gravity tilt commits, so the renderer can sweep the
+// ambient wash from the old direction to the new one and flash an edge-glow
+// bar instead of both snapping invisibly on the first post-commit frame.
+// Independent of AnimationQueue and ticked each frame by game-controller's
+// loop(), exactly like the score popup/indicator spawn+tick pair. A short
+// fixed duration (in line with PUSH_MS / FLASH_MS+CLEAR_MS) — independent of
+// how long the underlying physics animation runs.
+export function spawnGravityShiftCue(
+  fromAngle: number,
+  toAngle: number,
+  now: DOMHighResTimeStamp,
+): GravityShiftCue {
+  return {
+    fromAngle, toAngle,
+    startTime: now, duration: GRAVITY_SHIFT_MS,
+    progress: 0, angle: fromAngle, alpha: 0,
+  };
+}
+
+// Advances the cue's progress, eased interpolated angle, and sine-pulse alpha;
+// returns null once expired (mirroring how tickScorePopups prunes). The angle
+// takes the shortest signed path from fromAngle to toAngle so a sweep crossing
+// 0° (e.g. 315° → 0°) rotates forward through 0, not the long way back through
+// 180. alpha peaks at sin(π·progress) — the same single-pulse idiom the
+// Flashing phase uses — so the cue fades in, peaks, and fades out.
+export function tickGravityShiftCue(
+  cue: GravityShiftCue | null,
+  now: DOMHighResTimeStamp,
+): GravityShiftCue | null {
+  if (!cue) return null;
+  const progress = Math.min(1, (now - cue.startTime) / cue.duration);
+  if (progress >= 1) return null; // expired — pruned
+  let delta = cue.toAngle - cue.fromAngle;
+  if (delta > 180) delta -= 360;
+  else if (delta < -180) delta += 360;
+  const t = easeInOutQuad(progress);
+  return {
+    ...cue,
+    progress,
+    angle: cue.fromAngle + delta * t,
+    alpha: Math.sin(progress * Math.PI),
+  };
 }
