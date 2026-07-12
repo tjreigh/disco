@@ -8,6 +8,8 @@ export interface TutorialSuccess {
   clearCountAtLeast?: number;
   revealCountAtLeast?: number;
   chainLengthAtLeast?: number;
+  /** Minimum total numbered discs cleared across the whole cascade (sum of every Clear step's cleared count). The Stack-mode metric: points scale with stackSize², so this is what a Stack step really measures. */
+  stackSizeAtLeast?: number;
 }
 
 export interface TutorialStep {
@@ -17,7 +19,7 @@ export interface TutorialStep {
   readonly board: Board;
   readonly currentDisc: Disc;
   readonly nextDisc: Disc;
-  /** Allowed LANES — a column index for top/bottom entry, a row index for left/right (see GameEngine.drop). Empty means no drop is accepted at all — the step requires a tilt instead. */
+  /** Allowed LANES — a column index for top/bottom entry, a row index for left/right. Gravity steps stage one of these lanes before their required tilt. */
   readonly allowedCols: readonly number[];
   readonly success: TutorialSuccess;
   /** Gravity-mode steps only: starting angle, defaulting to the mode's initialAngleDeg (0) when omitted — e.g. a step that wants the board pre-tilted before the player acts. */
@@ -103,13 +105,6 @@ const gravityDropBoard = emptyBoard();
 gravityDropBoard[6]![2] = numbered(3);
 gravityDropBoard[5]![2] = numbered(3);
 
-// Empty on purpose — this step is about the aim-then-confirm interaction
-// itself (Q/E to adjust, Escape cancels free, only confirming spends the
-// turn), not about a specific board outcome. A disc placed anywhere that
-// isn't already resting under 0deg gravity would render as visibly floating
-// on load (loadScriptedState never auto-settles a scripted board), which is
-// exactly the kind of "looks broken" moment this whole tutorial exists to
-// head off.
 const gravityTiltPracticeBoard = emptyBoard();
 
 // Three "9" (never matches a real run length up to 7, so it's inert filler)
@@ -141,31 +136,83 @@ export const GRAVITY_TUTORIAL: TutorialDefinition = {
   title: 'Gravity Tutorial',
   steps: [
     step(
-      'drop-like-classic', 'Drop, same as always',
-      'With no tilt, dropping works exactly like Classic. Drop the 3 in the highlighted column to complete the vertical run.',
-      gravityDropBoard, numbered(3), numbered(4), [2], { accepted: true, clearCountAtLeast: 1 },
+      'stage-a-drop', 'Stage a drop',
+      'Move to the highlighted lane and confirm to stage it — nothing drops yet. Every Gravity drop must be tilted before it can settle.',
+      gravityTiltPracticeBoard, numbered(7), numbered(4), [3], { accepted: true },
     ),
     step(
-      'tilt-is-a-turn', 'Tilting is its own turn',
-      'Press Q/E to start tilting — adjust freely, Escape cancels for free. Confirm to commit the tilt; that spends the turn.',
-      gravityTiltPracticeBoard, numbered(5), numbered(4), [], { accepted: true },
+      'tilt-the-drop', 'Tilt before dropping',
+      'Stage the highlighted lane again, then tilt 45° or 90° and confirm a second time. The disc enters from the direction you staged, then settles under the new gravity.',
+      gravityDropBoard, numbered(7), numbered(4), [2], { accepted: true },
     ),
     step(
-      'tilt-reveals-a-line', 'Tilting reveals new lines',
-      'These three 3s don’t line up yet. Tilt to 45° and confirm — clearing follows the direction gravity is pulling, not always up-and-down.',
-      gravityRevealBoard, numbered(3), numbered(4), [], { accepted: true, clearCountAtLeast: 1 },
+      'tilt-reveals-lines', 'Tilting reveals lines',
+      'These three 3s form a line only under diagonal gravity. Stage the disc, tilt, then confirm to reveal it.',
+      gravityRevealBoard, numbered(7), numbered(4), [6], { accepted: true },
     ),
     step(
-      'drop-under-tilt', 'Tilting changes where you enter',
-      'Gravity is already tilted here, so you enter from the highlighted side. Drop the 3 to complete the run.',
-      gravityDropUnderTiltBoard, numbered(3), numbered(4), [3], { accepted: true, clearCountAtLeast: 1 }, 90,
+      'keep-gravity-moving', 'Keep gravity moving',
+      'Gravity stays tilted after every drop. Stage this row, tilt again, and watch the board reorganize around the new direction.',
+      gravityDropUnderTiltBoard, numbered(7), numbered(4), [3], { accepted: true }, 90,
     ),
+  ],
+};
+
+// ─── Stack tutorial ─────────────────────────────────────────────────────────
+// Stack keeps Classic's clearing rules; only scoring changes — a drop earns one
+// award for EVERY numbered disc its cascade clears (points = unit × stackSize²),
+// so the goal is to clear as many discs as possible in a single drop. Every
+// board below was verified against the real engine (GameEngine.drop on STACK_MODE)
+// before being written here, not hand-derived — the run helpers count ALL
+// contiguous discs (any value), so a "looks right" board often clears the wrong
+// set or nothing at all.
+//
+// Each board keeps a stray support disc on the far side of the board (value 7
+// or 4) so the cascade doesn't empty it and fire the board-clear bonus (which
+// would dwarf the Stack award being taught). These are real disc values: a lone
+// 7 sits in a run of 1 (≠ 7), so it never clears — no fake/impossible values.
+
+const stackRowBoard = emptyBoard();
+stackRowBoard[6]![0] = numbered(3);
+stackRowBoard[6]![1] = numbered(3);
+stackRowBoard[6]![6] = numbered(7);
+
+const stackLongRunBoard = emptyBoard();
+stackLongRunBoard[3]![1] = numbered(5);
+stackLongRunBoard[4]![1] = numbered(5);
+stackLongRunBoard[5]![1] = numbered(5);
+stackLongRunBoard[6]![1] = numbered(5);
+stackLongRunBoard[6]![6] = numbered(7);
+
+const stackChainBoard = emptyBoard();
+stackChainBoard[4]![2] = numbered(2);
+stackChainBoard[5]![2] = numbered(2);
+stackChainBoard[6]![2] = numbered(7);
+stackChainBoard[6]![3] = numbered(4);
+
+const stackBigStackBoard = emptyBoard();
+stackBigStackBoard[6]![0] = numbered(6);
+stackBigStackBoard[6]![1] = numbered(6);
+stackBigStackBoard[6]![2] = numbered(6);
+stackBigStackBoard[6]![3] = numbered(6);
+stackBigStackBoard[6]![4] = numbered(6);
+stackBigStackBoard[5]![0] = numbered(7);
+
+export const STACK_TUTORIAL: TutorialDefinition = {
+  id: 'stack',
+  title: 'Stack Tutorial',
+  steps: [
+    step('clear-a-run', 'Clear a run', 'Drop the 3 to complete the row. The whole run clears at once — every disc counts toward your stack.', stackRowBoard, numbered(3), numbered(4), [2], { accepted: true, stackSizeAtLeast: 3 }),
+    step('bigger-run', 'Bigger run, bigger stack', 'Drop the 5 to complete the column of five. Stack scores the whole cascade, so longer runs pay off fast.', stackLongRunBoard, numbered(5), numbered(4), [1], { accepted: true, stackSizeAtLeast: 5 }),
+    step('chain-the-stack', 'Chain the stack', 'Drop the 2 to clear the pair, then watch the fallen 2 chain into a second clear. Each cleared disc still adds to your stack.', stackChainBoard, numbered(2), numbered(3), [3], { accepted: true, stackSizeAtLeast: 3, chainLengthAtLeast: 2 }),
+    step('big-stack', 'Go for the big stack', 'Drop the 6 to complete the row of six. The bigger the cascade, the bigger the payoff.', stackBigStackBoard, numbered(6), numbered(4), [5], { accepted: true, stackSizeAtLeast: 6 }),
   ],
 };
 
 export const TUTORIALS: Record<string, TutorialDefinition> = {
   [CLASSIC_TUTORIAL.id]: CLASSIC_TUTORIAL,
   [GRAVITY_TUTORIAL.id]: GRAVITY_TUTORIAL,
+  [STACK_TUTORIAL.id]: STACK_TUTORIAL,
 };
 
 export function evaluateTutorialSuccess(
@@ -180,10 +227,12 @@ export function evaluateTutorialSuccess(
     (longest, clear) => Math.max(longest, clear.chainLevel + 1),
     0,
   );
+  const stackSize = clearSteps.reduce((total, clear) => total + clear.cleared.length, 0);
 
   return clearSteps.length >= (success.clearCountAtLeast ?? 0)
     && revealSteps.reduce((count, reveal) => count + reveal.positions.length, 0) >= (success.revealCountAtLeast ?? 0)
-    && chainLength >= (success.chainLengthAtLeast ?? 0);
+    && chainLength >= (success.chainLengthAtLeast ?? 0)
+    && stackSize >= (success.stackSizeAtLeast ?? 0);
 }
 
 export function isTutorialStepSuccessful(

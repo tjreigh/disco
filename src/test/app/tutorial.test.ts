@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'vitest';
 import { StepKind } from '../../game/events.js';
 import {
-  evaluateTutorialSuccess, isTutorialStepSuccessful, CLASSIC_TUTORIAL, GRAVITY_TUTORIAL, TUTORIALS,
+  evaluateTutorialSuccess, isTutorialStepSuccessful, CLASSIC_TUTORIAL, GRAVITY_TUTORIAL, STACK_TUTORIAL, TUTORIALS,
   type TutorialTurnResult,
 } from '../../app/tutorial.js';
 import { GameEngine } from '../../game/engine.js';
-import { CLASSIC_MODE, GRAVITY_MODE } from '../../game/modes/index.js';
+import { CLASSIC_MODE, GRAVITY_MODE, STACK_MODE } from '../../game/modes/index.js';
 import { settleContinuous } from '../../game/gravity.js';
 import { deepCloneBoard } from '../../game/board.js';
 
@@ -72,7 +72,7 @@ describe('CLASSIC_TUTORIAL', () => {
 describe('GRAVITY_TUTORIAL', () => {
   test('contains the four ordered tutorial steps', () => {
     expect(GRAVITY_TUTORIAL.steps.map(step => step.id)).toEqual([
-      'drop-like-classic', 'tilt-is-a-turn', 'tilt-reveals-a-line', 'drop-under-tilt',
+      'stage-a-drop', 'tilt-the-drop', 'tilt-reveals-lines', 'keep-gravity-moving',
     ]);
     for (const step of GRAVITY_TUTORIAL.steps) {
       expect(step.board).toHaveLength(7);
@@ -96,22 +96,8 @@ describe('GRAVITY_TUTORIAL', () => {
     }
   });
 
-  // A tilt-only step (allowedCols: []) must actually make a drop into ANY
-  // lane a no-op — not just be prompted as tilt-only in the UI copy — since
-  // that's what game-controller.ts's handleIntent relies on to force the
-  // player toward the tilt action instead of a drop.
-  test('tilt-only steps (empty allowedCols) reject every lane for a drop', () => {
-    for (const step of GRAVITY_TUTORIAL.steps) {
-      if (step.allowedCols.length > 0) continue;
-      for (let lane = 0; lane < 7; lane++) {
-        expect(step.allowedCols.includes(lane), `${step.id} should not allow lane ${lane}`).toBe(false);
-      }
-    }
-  });
-
-  // Mirrors CLASSIC_TUTORIAL's "winnable through the real engine" test: a
-  // step with lanes drops into the first allowed one; a tilt-only step tilts
-  // to +45deg (within the standard maxTiltDelta) and commits.
+  // Every Gravity tutorial turn stages a lane, tilts it, then commits the
+  // resulting placement through the real engine.
   test('scripted steps are winnable through the real engine', () => {
     for (const step of GRAVITY_TUTORIAL.steps) {
       const engine = new GameEngine({ mode: GRAVITY_MODE });
@@ -123,13 +109,9 @@ describe('GRAVITY_TUTORIAL', () => {
         ...(step.gravityAngleDeg !== undefined ? { gravityAngleDeg: step.gravityAngleDeg } : {}),
       });
 
-      let result;
-      if (step.allowedCols.length > 0) {
-        result = engine.drop(step.allowedCols[0]!);
-      } else {
-        engine.tiltGravity(45);
-        result = engine.commitTilt();
-      }
+      expect(engine.stageGravityDrop(step.allowedCols[0]!)).toBeUndefined();
+      engine.tiltGravity(45);
+      const result = engine.commitTilt();
 
       expect(isTutorialStepSuccessful(step, result), step.id).toBe(true);
     }
@@ -138,5 +120,90 @@ describe('GRAVITY_TUTORIAL', () => {
   test('is registered under its mode id in TUTORIALS', () => {
     expect(TUTORIALS[GRAVITY_MODE.id]).toBe(GRAVITY_TUTORIAL);
     expect(TUTORIALS[CLASSIC_MODE.id]).toBe(CLASSIC_TUTORIAL);
+  });
+});
+
+describe('STACK_TUTORIAL', () => {
+  test('contains the four ordered tutorial steps', () => {
+    expect(STACK_TUTORIAL.steps.map(step => step.id)).toEqual([
+      'clear-a-run', 'bigger-run', 'chain-the-stack', 'big-stack',
+    ]);
+    for (const step of STACK_TUTORIAL.steps) {
+      expect(step.board).toHaveLength(7);
+      expect(step.board[0]).toHaveLength(7);
+      expect(step.allowedCols.length).toBeGreaterThan(0);
+      expect(step.currentDisc).toBeDefined();
+      expect(step.nextDisc).toBeDefined();
+    }
+  });
+
+  test('starts every tutorial step from a physically grounded board', () => {
+    for (const step of STACK_TUTORIAL.steps) {
+      for (let col = 0; col < step.board[0]!.length; col++) {
+        let seenEmptyBelow = false;
+        for (let row = step.board.length - 1; row >= 0; row--) {
+          const cell = step.board[row]![col];
+          if (cell == null) {
+            seenEmptyBelow = true;
+          } else {
+            expect(seenEmptyBelow, `${step.id} has unsupported disc at r${row + 1}c${col + 1}`).toBe(false);
+          }
+        }
+      }
+    }
+  });
+
+  // Stack (like Classic) only deals values 1–7, so every disc on a tutorial
+  // board — including the "filler" kept around to avoid the board-clear bonus —
+  // must be a value the player could actually see in a real game.
+  test('uses only in-range disc values (1–7) on every board', () => {
+    for (const step of STACK_TUTORIAL.steps) {
+      for (let row = 0; row < step.board.length; row++) {
+        for (let col = 0; col < step.board[row]!.length; col++) {
+          const disc = step.board[row]![col];
+          if (!disc) continue;
+          expect(disc.value, `${step.id} has out-of-range value ${disc.value} at r${row + 1}c${col + 1}`).toBeGreaterThanOrEqual(STACK_MODE.discValueMin);
+          expect(disc.value).toBeLessThanOrEqual(STACK_MODE.discValueMax);
+        }
+      }
+    }
+  });
+
+  // Stack reuses Classic's clearing rules, so a step's board must not already
+  // contain a clearable disc — the player's drop should be what triggers the
+  // cascade, not a pre-existing match the board happened to ship with.
+  test('starts every tutorial step with no already-clearable disc', () => {
+    for (const step of STACK_TUTORIAL.steps) {
+      for (let row = 0; row < step.board.length; row++) {
+        for (let col = 0; col < step.board[row]!.length; col++) {
+          const disc = step.board[row]![col];
+          if (!disc) continue;
+          expect(
+            STACK_MODE.isClearable(step.board, row, col, disc),
+            `${step.id} has a clearable disc at r${row + 1}c${col + 1} before any drop`,
+          ).toBe(false);
+        }
+      }
+    }
+  });
+
+  test('scripted steps are winnable through the real engine', () => {
+    for (const step of STACK_TUTORIAL.steps) {
+      const engine = new GameEngine({ mode: STACK_MODE });
+      engine.loadScriptedState({
+        mode: STACK_MODE,
+        board: step.board,
+        currentDisc: step.currentDisc,
+        nextDisc: step.nextDisc,
+      });
+
+      const result = engine.drop(step.allowedCols[0]!);
+
+      expect(isTutorialStepSuccessful(step, result), step.id).toBe(true);
+    }
+  });
+
+  test('is registered under its mode id in TUTORIALS', () => {
+    expect(TUTORIALS[STACK_MODE.id]).toBe(STACK_TUTORIAL);
   });
 });
