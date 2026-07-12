@@ -3,7 +3,7 @@ import { z } from 'zod';
 // Must cover every id in the front end's GAME_MODES (src/game/modes/index.ts).
 // Adding a mode there without adding it here reproduces audit-2 finding #1:
 // signed-in players in the new mode get 400s on every stats sync.
-export const modeIdSchema = z.enum(['classic', 'gravity']);
+export const modeIdSchema = z.enum(['classic', 'gravity', 'stack']);
 
 export const statsSchema = z.object({
   modeId: modeIdSchema,

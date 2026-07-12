@@ -15,7 +15,7 @@ afterEach(async () => {
 // must be accepted by the stats/scores/leaderboard routes. If this list and
 // src/game/modes/index.ts drift apart, signed-in players in the missing mode
 // get 400s on every sync and the UI falls back to "Playing offline".
-const FRONT_END_MODE_IDS = ['classic', 'gravity'] as const;
+const FRONT_END_MODE_IDS = ['classic', 'gravity', 'stack'] as const;
 
 describe('mode id contract', () => {
   it.each(FRONT_END_MODE_IDS)('accepts stats, scores, and leaderboards for %s', async (modeId) => {

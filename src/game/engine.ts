@@ -11,7 +11,7 @@ import {
 import { createDiscFactories, DiscFactory, DiscQueue } from './disc.js';
 import {
   computeClearSteps, computeDropSteps, computeGravityDropSteps, computeGravityTiltSteps,
-  computePushStep, PhysicsTrace,
+  computePushStep, PhysicsTrace, pointsForStack,
 } from './physics.js';
 import { CLASSIC_MODE } from './modes/index.js';
 import { turnsForLevel } from './modes/mode.js';
@@ -26,6 +26,8 @@ export interface TurnResult {
   boardBefore: Board;
   steps: PhysicsStep[];
   scoreAwarded: number;
+  /** Numbered discs cleared by this player drop before any level-end push. */
+  stackSize: number;
   gameOver: boolean;
   trace: PhysicsTrace;
 }
@@ -126,7 +128,7 @@ export class GameEngine {
     const trace: PhysicsTrace = { scans: [], frames: [] };
     const reject = (reason: RejectedTurnReason, gameOver = false): TurnResult => {
       if (gameOver) this.state.phase = GamePhase.GameOver;
-      return { accepted: false, reason, boardBefore, steps: [], scoreAwarded: 0, gameOver, trace };
+      return { accepted: false, reason, boardBefore, steps: [], scoreAwarded: 0, stackSize: 0, gameOver, trace };
     };
 
     if (this.state.phase === GamePhase.GameOver) return reject('game-over', true);
@@ -225,7 +227,7 @@ export class GameEngine {
     const trace: PhysicsTrace = { scans: [], frames: [] };
     const reject = (reason: RejectedTurnReason, gameOver = false): TurnResult => {
       if (gameOver) this.state.phase = GamePhase.GameOver;
-      return { accepted: false, reason, boardBefore, steps: [], scoreAwarded: 0, gameOver, trace };
+      return { accepted: false, reason, boardBefore, steps: [], scoreAwarded: 0, stackSize: 0, gameOver, trace };
     };
 
     if (this.state.phase === GamePhase.GameOver) return reject('game-over', true);
@@ -249,6 +251,21 @@ export class GameEngine {
   // game-over/queue bookkeeping is identical regardless of how they got there.
   private finishTurn(steps: PhysicsStep[], boardBefore: Board, trace: PhysicsTrace): TurnResult {
     this.state.dropCount++;
+
+    // The entry-resolution steps are complete before a level-end push is
+    // appended below. Capture their clears now so forced-push clears cannot
+    // contribute to the player's Stack-mode cascade.
+    const stackSize = steps.reduce(
+      (total, step) => total + (step.kind === StepKind.Clear ? step.cleared.length : 0),
+      0,
+    );
+    if (this.mode.scoring.kind === 'stack' && stackSize > 0) {
+      steps.push({
+        kind: StepKind.Bonus,
+        bonusKind: 'stack',
+        pointsAwarded: pointsForStack(stackSize, this.mode.scoring.pointsPerStackUnit),
+      });
+    }
 
     // A turn is consumed as soon as its drop resolves, so a push (triggered
     // below when this exhausts the level's budget) sees the correct count.
@@ -329,7 +346,7 @@ export class GameEngine {
     this.state.currentDisc = this.queue.peek();
     this.state.nextDisc = this.queue.peekNext();
 
-    return { accepted: true, boardBefore, steps, scoreAwarded, gameOver, trace };
+    return { accepted: true, boardBefore, steps, scoreAwarded, stackSize, gameOver, trace };
   }
 
   // Switches to a (possibly new) mode: rebuilds the disc queue/factories from

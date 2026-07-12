@@ -115,7 +115,7 @@ import { GamePhase } from '../../game/state.js';
 import type { Board } from '../../game/model.js';
 import { DiscKind } from '../../game/model.js';
 import { makeDisc } from '../../game/disc.js';
-import { CLASSIC_MODE, GRAVITY_MODE } from '../../game/modes/index.js';
+import { CLASSIC_MODE, GRAVITY_MODE, STACK_MODE } from '../../game/modes/index.js';
 import { CLASSIC_TUTORIAL, GRAVITY_TUTORIAL } from '../../app/tutorial.js';
 import { StepKind } from '../../game/events.js';
 
@@ -289,6 +289,35 @@ describe('normal drop flow', () => {
     drainAnimations();
     const [stateAfterAnimation] = lastOf(renderer.draw.mock.calls);
     expect(stateAfterAnimation.phase).toBe(GamePhase.WaitingForDrop);
+  });
+
+  test('Stack shows each counted disc its share of the final stack award', () => {
+    const { game } = createGame();
+    const homeScreen = lastOf(homeScreenInstances);
+    homeScreen.onSelectMode(STACK_MODE);
+
+    const controller = game as unknown as {
+      handleStepStart: (step: unknown, now: number) => void;
+      stackCascadeActive: boolean;
+      scorePopups: Array<{ value: number; row: number; col: number }>;
+    };
+    controller.stackCascadeActive = true;
+    controller.handleStepStart({
+      kind: StepKind.Clear,
+      cleared: [{ row: 6, col: 1 }, { row: 5, col: 1 }, { row: 6, col: 2 }],
+      discs: [],
+      chainLevel: 0,
+      pointsAwarded: 0,
+    }, 100);
+
+    expect(controller.scorePopups).toEqual([
+      expect.objectContaining({ value: 30, row: 6, col: 1 }),
+      expect.objectContaining({ value: 30, row: 5, col: 1 }),
+      expect.objectContaining({ value: 30, row: 6, col: 2 }),
+    ]);
+
+    controller.handleStepStart({ kind: StepKind.Bonus, bonusKind: 'stack', pointsAwarded: 90 }, 700);
+    expect(controller.scorePopups).toHaveLength(3);
   });
 });
 

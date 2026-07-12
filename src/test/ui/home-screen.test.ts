@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { CLASSIC_MODE, GRAVITY_MODE } from '../../game/modes/index.js';
+import { CLASSIC_MODE, GRAVITY_MODE, STACK_MODE } from '../../game/modes/index.js';
 import type { GameModeConfig } from '../../game/modes/mode.js';
 import type { GameStats } from '../../game/stats.js';
 import { HomeScreen } from '../../ui/home-screen.js';
@@ -36,7 +36,7 @@ function createHome(options: {
   onLogout?: () => void;
 } = {}): HomeScreen {
   return new HomeScreen(
-    [CLASSIC_MODE, GRAVITY_MODE],
+    [CLASSIC_MODE, GRAVITY_MODE, STACK_MODE],
     options.onSelectMode ?? vi.fn(),
     options.loadStats ?? (() => stats()),
     () => options.authState ?? auth(),
@@ -83,6 +83,21 @@ describe('HomeScreen', () => {
     expect(onSelectMode).toHaveBeenCalledWith(CLASSIC_MODE);
     expect(card.role).toBe('button');
     expect(card.tabIndex).toBe(0);
+  });
+
+  test("shows Stack mode's best stack record separately from its best score", () => {
+    const home = createHome({
+      loadStats: modeId => modeId === STACK_MODE.id
+        ? stats({ highScore: 810, longestStreak: 9, gamesPlayed: 1, totalScore: 810, averageScore: 810 })
+        : stats(),
+    });
+
+    home.open();
+
+    const stackCard = Array.from(document.querySelectorAll<HTMLElement>('.home-mode-card'))
+      .find(card => card.textContent?.includes(STACK_MODE.name));
+    expect(stackCard?.textContent).toContain('Best 810');
+    expect(stackCard?.textContent).toContain('Best stack 9');
   });
 
   test('tutorial button starts tutorial without also starting normal play', () => {
@@ -170,9 +185,11 @@ describe('HomeScreen', () => {
   test('mode actions are buttons but mode cards are not nested buttons', () => {
     createHome();
 
-    for (const card of document.querySelectorAll('.home-mode-card')) {
+    for (const card of document.querySelectorAll<HTMLElement>('.home-mode-card')) {
       expect(card.tagName).toBe('DIV');
-      expect(card.querySelectorAll('button')).toHaveLength(2);
+      const mode = [CLASSIC_MODE, GRAVITY_MODE, STACK_MODE]
+        .find(candidate => card.textContent?.includes(candidate.name));
+      expect(card.querySelectorAll('button')).toHaveLength(mode?.hasTutorial === false ? 1 : 2);
       expect(card.querySelector('button button')).toBeNull();
     }
   });

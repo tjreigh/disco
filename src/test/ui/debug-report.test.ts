@@ -43,6 +43,7 @@ describe('buildDebugReport', () => {
       boardBefore: [[null]],
       steps: [],
       scoreAwarded: 0,
+      stackSize: 0,
       gameOver: false,
       trace: { scans: [], frames: [] },
     };
@@ -52,6 +53,7 @@ describe('buildDebugReport', () => {
       boardBefore: [[{ id: 1, value: 2, kind: DiscKind.Numbered }]],
       steps: [],
       scoreAwarded: 0,
+      stackSize: 0,
       gameOver: true,
       trace: { scans: [], frames: [] },
     };
@@ -106,6 +108,7 @@ describe('buildDebugReport', () => {
       boardBefore: [[null]],
       steps: [],
       scoreAwarded: 0,
+      stackSize: 0,
       gameOver: false,
       trace: { scans: [], frames: [] },
     }));

@@ -98,6 +98,12 @@ export function pointsForChain(
   return Math.floor(pointsPerDisc * Math.pow(chainLength, exponent));
 }
 
+/** Points awarded for a completed Stack-mode cascade. */
+export function pointsForStack(stackSize: number, pointsPerStackUnit: number): number {
+  if (!Number.isInteger(stackSize) || stackSize < 1) return 0;
+  return pointsPerStackUnit * stackSize * stackSize;
+}
+
 // Resolves every clear/reveal/fall chain on a board that has already changed.
 // This is shared by normal drops and row pushes: a push changes every column's
 // disc count, so leaving it unresolved makes an eligible disc clear during the
@@ -130,7 +136,9 @@ function resolveClearSteps(
     });
     if (clears.length === 0) break;
 
-    const points = clears.length * pointsForChain(chainLevel + 1, mode.pointsPerDisc, mode.chainExponent);
+    const points = mode.scoring.kind === 'chain'
+      ? clears.length * pointsForChain(chainLevel + 1, mode.pointsPerDisc, mode.chainExponent)
+      : 0;
     // Capture immutable playback values before removeDisc() makes the positions null.
     const clearedDiscs = clears.map(pos => ({ ...scratch[pos.row]![pos.col]! }));
     steps.push({ kind: StepKind.Clear, cleared: clears, discs: clearedDiscs, chainLevel, pointsAwarded: points } satisfies ClearStep);
@@ -154,7 +162,7 @@ function resolveClearSteps(
     }
 
 
-    if (isBoardEmpty(scratch)) {
+    if (mode.boardClearBonus > 0 && isBoardEmpty(scratch)) {
       steps.push({
         kind: StepKind.Bonus,
         bonusKind: 'board-clear',

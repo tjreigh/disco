@@ -103,6 +103,28 @@ describe('GameHud', () => {
     }
   });
 
+  test('shows the live and best stack only in Stack mode', () => {
+    const hud = new GameHud();
+    hud.render({
+      phase: GamePhase.Animating, score: 810,
+      currentDisc: disc(3), nextDisc: disc(4),
+      level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 29,
+      hasGravity: false, isStackMode: true, currentStack: 9, bestStack: 12,
+    });
+
+    expect(hud.root.dataset.stackMode).toBe('true');
+    expect(hud.root.textContent).toContain('Stack 9 / Best 12');
+
+    hud.render({
+      phase: GamePhase.WaitingForDrop, score: 810,
+      currentDisc: disc(3), nextDisc: disc(4),
+      level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 29,
+      hasGravity: false,
+    });
+    expect(hud.root.dataset.stackMode).toBe('false');
+    expect(hud.root.querySelector<HTMLElement>('.game-hud__stack')?.hidden).toBe(true);
+  });
+
   test('uses the initial turn budget as the pip spacing scale on later levels', () => {
     const hud = new GameHud();
     hud.render({

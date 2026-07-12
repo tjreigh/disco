@@ -196,6 +196,14 @@ export class HomeScreen {
       best.className = 'home-mode-best';
       best.textContent = stats.gamesPlayed > 0 ? `Best ${stats.highScore}` : 'Not played yet';
 
+      const record = document.createElement('span');
+      record.className = 'home-mode-record';
+      if (mode.id === 'stack' && stats.gamesPlayed > 0) {
+        record.textContent = `Best stack ${stats.longestStreak}`;
+      } else {
+        record.hidden = true;
+      }
+
       const actions = document.createElement('div');
       actions.className = 'home-mode-actions';
 
@@ -206,18 +214,20 @@ export class HomeScreen {
       playButton.addEventListener('click', () => this.onSelectMode(mode));
       blurOnClick(playButton);
 
-      const tutorialButton = document.createElement('button');
-      tutorialButton.type = 'button';
-      tutorialButton.className = 'home-mode-action';
-      tutorialButton.textContent = 'TUTORIAL';
-      tutorialButton.addEventListener('click', event => {
-        event.stopPropagation();
-        this.onRequestTutorial?.(mode);
-      });
-      blurOnClick(tutorialButton);
-
-      actions.append(playButton, tutorialButton);
-      card.append(name, tagline, best, actions);
+      actions.append(playButton);
+      if (mode.hasTutorial !== false) {
+        const tutorialButton = document.createElement('button');
+        tutorialButton.type = 'button';
+        tutorialButton.className = 'home-mode-action';
+        tutorialButton.textContent = 'TUTORIAL';
+        tutorialButton.addEventListener('click', event => {
+          event.stopPropagation();
+          this.onRequestTutorial?.(mode);
+        });
+        blurOnClick(tutorialButton);
+        actions.append(tutorialButton);
+      }
+      card.append(name, tagline, best, record, actions);
       this.cardsContainer.append(card);
     }
   }

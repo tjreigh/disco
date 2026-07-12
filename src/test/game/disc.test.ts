@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import { createDiscFactories, DiscQueue, makeCrackedDisc, makeDisc, makeRandomDisc, PlayableDiscGenerator } from '../../game/disc.js';
 import type { Board } from '../../game/model.js';
 import { DiscKind } from '../../game/model.js';
-import { CLASSIC_MODE } from '../../game/modes/index.js';
+import { CLASSIC_MODE, STACK_MODE } from '../../game/modes/index.js';
 import { createGameSeed, createSeededRandom } from '../../game/random.js';
 import { makeEmptyBoard } from '../../game/board.js';
 
@@ -90,6 +90,13 @@ describe('PlayableDiscGenerator', () => {
       expect(valueRate).toBeGreaterThan(0.12);
       expect(valueRate).toBeLessThan(0.16);
     }
+  });
+
+  test('Stack mode never deals a DoubleCracked player disc, including past the normal numbered streak cap', () => {
+    const generator = new PlayableDiscGenerator(STACK_MODE, createSeededRandom(24680));
+    const discs = Array.from({ length: 20 }, () => generator.generate(10));
+
+    expect(discs.every(disc => disc.kind === DiscKind.Numbered)).toBe(true);
   });
 
   test('re-rolls a value that would immediately clear an empty board, without touching kind', () => {

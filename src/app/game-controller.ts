@@ -67,6 +67,10 @@ export class Game {
   private statsStore: AccountStatsStore;
   private unsubscribeStatsStore: (() => void) | null = null;
   private longestStreakThisGame = 0;
+  // Stack mode's current player-triggered cascade. This is presentation-only;
+  // the engine owns both the final stack size and score award.
+  private activeStack = 0;
+  private stackCascadeActive = false;
   private gameRecorded = false;
   private displayedLevelProgress: LevelProgressDisplay;
   private isPaused = false;
@@ -152,6 +156,8 @@ export class Game {
     this.scorePopups = [];
     this.scoreIndicators = [];
     this.longestStreakThisGame = 0;
+    this.activeStack = 0;
+    this.stackCascadeActive = false;
     this.gameRecorded = false;
     this.debug.reset();
     this.isPaused = false;
@@ -168,6 +174,8 @@ export class Game {
     this.activeTutorial = tutorial;
     this.tutorialStepIndex = 0;
     this.longestStreakThisGame = 0;
+    this.activeStack = 0;
+    this.stackCascadeActive = false;
     this.gameRecorded = true; // tutorials never count as completed games
     this.debug.reset();
     this.isPaused = false;
@@ -304,7 +312,10 @@ export class Game {
         : longest,
       0,
     );
-    this.longestStreakThisGame = Math.max(this.longestStreakThisGame, longestStreakThisTurn);
+    const recordForTurn = this.isStackMode() ? result.stackSize : longestStreakThisTurn;
+    this.longestStreakThisGame = Math.max(this.longestStreakThisGame, recordForTurn);
+    this.activeStack = 0;
+    this.stackCascadeActive = this.isStackMode();
     if (!this.activeTutorial) {
       const recordsImproved = updateRecords(this.stats, this.state.score, this.longestStreakThisGame);
       if (recordsImproved && !result.gameOver) this.statsStore.saveStats(this.mode.id, this.stats);
@@ -358,6 +369,19 @@ export class Game {
     }
 
     if (step.kind === StepKind.Clear) {
+      if (this.stackCascadeActive) {
+        const previousStack = this.activeStack;
+        this.activeStack += step.cleared.length;
+        const stackUnit = this.mode.scoring.kind === 'stack' ? this.mode.scoring.pointsPerStackUnit : 0;
+        const batchAward = stackUnit * (this.activeStack ** 2 - previousStack ** 2);
+        this.displayedScore += batchAward;
+        this.scorePopups.push(...spawnScorePopups(
+          step.cleared,
+          batchAward / step.cleared.length,
+          now,
+        ));
+        return;
+      }
       this.displayedScore += step.pointsAwarded;
       const perDiscPoints = step.pointsAwarded / step.cleared.length;
       this.scorePopups.push(...spawnScorePopups(step.cleared, perDiscPoints, now));
@@ -370,7 +394,19 @@ export class Game {
           now,
         ));
       }
+    } else if (step.kind === StepKind.Push && this.isStackMode()) {
+      // Push-triggered clears are not part of the player's stack.
+      this.stackCascadeActive = false;
     } else if (step.kind === StepKind.Bonus && !this.activeTutorial) {
+      if (step.bonusKind === 'stack') {
+        this.stackCascadeActive = false;
+        this.scoreIndicators.push(spawnScoreIndicator(
+          `STACK ${this.activeStack}`,
+          `+${step.pointsAwarded.toLocaleString('en-US')}`,
+          now,
+        ));
+        return;
+      }
       this.displayedScore += step.pointsAwarded;
       this.scoreIndicators.push(spawnScoreIndicator(
         step.bonusKind === 'level' ? 'LEVEL BONUS' : 'BOARD CLEAR',
@@ -598,6 +634,9 @@ export class Game {
       gravityAngle: this.state.gravity?.angle,
       gravityTurnStartAngle: this.state.gravity?.turnStartAngle,
       gravityMaxTiltDelta: this.state.gravity?.maxTiltDelta,
+      isStackMode: this.isStackMode(),
+      currentStack: this.activeStack,
+      bestStack: Math.max(this.stats.longestStreak, this.longestStreakThisGame),
     });
     const tutorialStep = this.currentTutorialStep();
     // While a tilt is in progress, show how the board WOULD land at the
@@ -622,7 +661,12 @@ export class Game {
       this.scoreIndicators,
       tutorialStep ? { allowedCols: tutorialStep.allowedCols } : null,
       previewLanding,
+      this.isStackMode(),
     );
+  }
+
+  private isStackMode(): boolean {
+    return this.mode.scoring?.kind === 'stack';
   }
 }
 

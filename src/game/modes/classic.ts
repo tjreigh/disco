@@ -76,6 +76,7 @@ export const CLASSIC_MODE: GameModeConfig = {
     boardPressureStrength: 1.5,
     boardRelevanceStrength: 0.75,
   },
+  scoring: { kind: 'chain' },
   pointsPerDisc: 7,
   // 2.5 rewards chains superlinearly: a 4-disc chain scores ~9x a single disc's
   // base value (4^2.5), not 4x, so hunting long chains clearly beats clearing

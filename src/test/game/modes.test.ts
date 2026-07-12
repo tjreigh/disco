@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { CLASSIC_MODE, GAME_MODES, GRAVITY_MODE } from '../../game/modes/index.js';
+import { CLASSIC_MODE, GAME_MODES, GRAVITY_MODE, STACK_MODE } from '../../game/modes/index.js';
 import { turnsForLevel, unnumberedProbabilityForLevel } from '../../game/modes/mode.js';
 import { makeEmptyBoard, placeDisc } from '../../game/board.js';
 import { makeDisc } from '../../game/disc.js';
@@ -34,8 +34,8 @@ describe('CLASSIC_MODE', () => {
     expect(CLASSIC_MODE.gravity).toBeUndefined();
   });
 
-  test('GAME_MODES contains Classic and Gravity', () => {
-    expect(GAME_MODES).toEqual([CLASSIC_MODE, GRAVITY_MODE]);
+  test('GAME_MODES contains Classic, Gravity, and Stack', () => {
+    expect(GAME_MODES).toEqual([CLASSIC_MODE, GRAVITY_MODE, STACK_MODE]);
   });
 
   test('isClearable: a numbered disc clears when value equals its run length', () => {
@@ -65,6 +65,25 @@ describe('CLASSIC_MODE', () => {
     const full = makeEmptyBoard();
     placeDisc(full, 0, 3, makeDisc(1, DiscKind.Numbered));
     expect(CLASSIC_MODE.isGameOver(full)).toBe(true);
+  });
+});
+
+describe('STACK_MODE', () => {
+  test('keeps Classic rules, removes dropped hazards, and changes scoring to stack awards', () => {
+    expect(STACK_MODE.board).toEqual(CLASSIC_MODE.board);
+    expect(STACK_MODE.discValueMin).toBe(CLASSIC_MODE.discValueMin);
+    expect(STACK_MODE.discValueMax).toBe(CLASSIC_MODE.discValueMax);
+    expect(STACK_MODE.discGeneration).toEqual(CLASSIC_MODE.discGeneration);
+    expect(STACK_MODE.initialTurnsPerLevel).toBe(CLASSIC_MODE.initialTurnsPerLevel);
+    expect(STACK_MODE.turnsPerLevelStep).toBe(CLASSIC_MODE.turnsPerLevelStep);
+    expect(STACK_MODE.minTurnsPerLevel).toBe(CLASSIC_MODE.minTurnsPerLevel);
+    expect(STACK_MODE.isClearable).toBe(CLASSIC_MODE.isClearable);
+    expect(STACK_MODE.revealAdjacent).toBe(CLASSIC_MODE.revealAdjacent);
+    expect(STACK_MODE.scoring).toEqual({ kind: 'stack', pointsPerStackUnit: 10 });
+    expect(unnumberedProbabilityForLevel(STACK_MODE, 1)).toBe(0);
+    expect(unnumberedProbabilityForLevel(STACK_MODE, 100)).toBe(0);
+    expect(STACK_MODE.levelBonus).toBe(CLASSIC_MODE.levelBonus);
+    expect(STACK_MODE.boardClearBonus).toBe(CLASSIC_MODE.boardClearBonus);
   });
 });
 

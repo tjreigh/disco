@@ -1,10 +1,21 @@
 import type { Board, Disc, GridPos } from '../model.js';
 import type { RevealStep } from '../events.js';
 
+/** Determines how clears made during a turn translate into score. */
+export type ScoringConfig =
+  | { readonly kind: 'chain' }
+  | {
+    readonly kind: 'stack';
+    /** Points = unit × stackSize². */
+    readonly pointsPerStackUnit: number;
+  };
+
 export interface GameModeConfig {
   readonly id: string;
   readonly name: string;
   readonly tagline: string;
+  /** Whether this mode has a guided tutorial available from the home screen. Defaults to true. */
+  readonly hasTutorial?: boolean;
   readonly board: { cols: number; rows: number };
   /** Inclusive range of numbered disc values that can be dealt. Widening it makes matches rarer (more values to spread across). */
   readonly discValueMin: number;
@@ -16,6 +27,7 @@ export interface GameModeConfig {
   /** Ceiling the unnumbered probability ramp saturates at, however high the level gets. */
   readonly maxUnnumberedProbability: number;
   readonly discGeneration: DiscGenerationConfig;
+  readonly scoring: ScoringConfig;
   /** Base points per disc in a clear, before the chain-length exponent is applied. See {@link pointsForChain}. */
   readonly pointsPerDisc: number;
   /** Exponent on chain length in the scoring formula (points = pointsPerDisc * chainLength^chainExponent). >1 makes longer chains reward superlinearly; higher values make big chains far more lucrative than several small ones. */

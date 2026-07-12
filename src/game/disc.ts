@@ -227,12 +227,15 @@ export class PlayableDiscGenerator {
 
   private chooseKind(level: number): DiscKind {
     const config = this.mode.discGeneration;
+    const target = 1 - unnumberedProbabilityForLevel(this.mode, level);
+    // A mode can explicitly opt out of player-dropped hazards. Respect that
+    // even when the normal variety cap would otherwise force one.
+    if (target >= 1) return DiscKind.Numbered;
     const numberedRun = trailingRun(this.kinds, DiscKind.Numbered);
     const crackedRun = trailingRun(this.kinds, DiscKind.DoubleCracked);
     if (numberedRun >= config.maxNumberedRun) return DiscKind.DoubleCracked;
     if (crackedRun >= config.maxCrackedRun) return DiscKind.Numbered;
 
-    const target = 1 - unnumberedProbabilityForLevel(this.mode, level);
     const recent = this.kinds.slice(-config.kindBalanceWindow);
     const observed = recent.length === 0
       ? target

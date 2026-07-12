@@ -1,13 +1,13 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('home screen', () => {
-  test('lists Classic and Gravity mode cards with no leftover placeholder', async ({ page }) => {
+  test('lists Classic, Gravity, and Stack mode cards with no leftover placeholder', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('.home-mode-card');
 
-    await expect(page.locator('.home-mode-card')).toHaveCount(2);
+    await expect(page.locator('.home-mode-card')).toHaveCount(3);
     const names = await page.locator('.home-mode-card strong').allTextContents();
-    expect(names).toEqual(['Classic', 'Gravity']);
+    expect(names).toEqual(['Classic', 'Gravity', 'Stack']);
     await expect(page.locator('.home-mode-card--disabled')).toHaveCount(0);
   });
 

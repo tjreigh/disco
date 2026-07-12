@@ -21,6 +21,7 @@ import {
 } from './layout.js';
 import { interpolateY, interpolateX, pushBoardOffsetX, pushBoardOffsetY } from './animation-queue.js';
 import type { GameStats } from '../../game/stats.js';
+import { isTouchDevice } from '../dom-utils.js';
 
 export interface TutorialVisualState {
   allowedCols: readonly number[];
@@ -28,8 +29,6 @@ export interface TutorialVisualState {
 
 // Computed each draw call so it stays proportional after a resize.
 function discR(): number { return cellSize() / 2 - Math.max(3, cellSize() * 0.07); }
-
-const isTouchDevice = () => ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 
 // Row cursor/lanes when gravity currently enters from the side, column
 // cursor/lanes otherwise (Classic, or Gravity mode pointing mostly up/down).
@@ -90,6 +89,7 @@ export class Renderer {
     scoreIndicators: readonly ScoreIndicator[],
     tutorial?: TutorialVisualState | null,
     previewLanding?: GridPos | null,
+    isStackMode = false,
   ): void {
     const { ctx } = this;
     // Build a set of disc IDs currently being animated. drawStaticDiscs uses
@@ -117,7 +117,7 @@ export class Renderer {
       this.drawGhost(state, board, previewLanding ?? null);
     }
     if (state.phase === GamePhase.GameOver) {
-      this.drawGameOver(state.score, stats);
+      this.drawGameOver(state.score, stats, isStackMode);
     }
   }
 
@@ -444,7 +444,7 @@ export class Renderer {
     ctx.setLineDash([]);
   }
 
-  private drawGameOver(score: number, stats: GameStats): void {
+  private drawGameOver(score: number, stats: GameStats, isStackMode: boolean): void {
     const { ctx } = this;
     const lw = canvasLogicalWidth();
     const lh = canvasLogicalHeight();
@@ -463,7 +463,8 @@ export class Renderer {
 
     ctx.font = '14px system-ui, sans-serif';
     ctx.fillStyle = COLOR_TEXT_DIM;
-    ctx.fillText(`High ${stats.highScore.toLocaleString('en-US')}   •   Longest chain ${stats.longestStreak.toLocaleString('en-US')}`, lw / 2, lh / 2 + 8);
+    const recordLabel = isStackMode ? 'Best stack' : 'Longest chain';
+    ctx.fillText(`High ${stats.highScore.toLocaleString('en-US')}   •   ${recordLabel} ${stats.longestStreak.toLocaleString('en-US')}`, lw / 2, lh / 2 + 8);
     ctx.fillText(`Average ${stats.averageScore.toLocaleString('en-US')} over ${stats.gamesPlayed.toLocaleString('en-US')} game${stats.gamesPlayed === 1 ? '' : 's'}`, lw / 2, lh / 2 + 30);
 
     const restartHint = isTouchDevice() ? 'Tap to restart' : 'Press R to restart';

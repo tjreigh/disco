@@ -27,6 +27,9 @@ export interface GameHudState {
   gravityTurnStartAngle?: number | undefined;
   /** Max absolute tilt allowed from gravityTurnStartAngle (GravityState.maxTiltDelta) — only meaningful during Aiming. */
   gravityMaxTiltDelta?: number | undefined;
+  isStackMode?: boolean;
+  currentStack?: number;
+  bestStack?: number;
 }
 
 // gravity.ts's angle convention (0 = down, increasing = counterclockwise on
@@ -43,6 +46,7 @@ export class GameHud {
   private readonly score: HTMLElement;
   private readonly level: HTMLElement;
   private readonly turns: HTMLElement;
+  private readonly stack: HTMLElement;
   private readonly current: HTMLElement;
   private readonly next: HTMLElement;
   private readonly hint: HTMLElement;
@@ -65,7 +69,8 @@ export class GameHud {
     this.score = this.makeValue('Score', 'game-hud__score');
     this.level = this.makeValue('Level', 'game-hud__level');
     this.turns = this.makeValue('Turns remaining', 'game-hud__turns');
-    summary.append(this.score, this.turns, this.level);
+    this.stack = this.makeValue('Stack', 'game-hud__stack');
+    summary.append(this.score, this.stack, this.turns, this.level);
 
     top.append(summary);
 
@@ -134,8 +139,16 @@ export class GameHud {
   render(state: GameHudState): void {
     this.root.hidden = state.phase === GamePhase.Menu;
     this.root.dataset.phase = state.phase;
+    this.root.dataset.stackMode = String(Boolean(state.isStackMode));
     this.score.textContent = state.score.toLocaleString('en-US');
     this.level.textContent = `Level ${state.level}`;
+    if (state.isStackMode) {
+      this.stack.textContent = `Stack ${state.currentStack ?? 0} / Best ${state.bestStack ?? 0}`;
+      this.stack.hidden = false;
+    } else {
+      this.stack.textContent = '';
+      this.stack.hidden = true;
+    }
     const turnsRemaining = Math.max(0, state.turnsRemaining);
     const turnsTotal = Math.max(0, state.turnsPerLevel);
     const turnsScale = Math.max(turnsTotal, state.initialTurnsPerLevel);
