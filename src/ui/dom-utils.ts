@@ -1,3 +1,6 @@
+export const isTouchDevice = (): boolean =>
+  ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+
 // Focus is an input-routing decision in this app: the canvas game reads
 // document-level keydown, and InputHandler deliberately ignores keys while
 // focus sits on any tabbable element (so the debug panel's controls work).

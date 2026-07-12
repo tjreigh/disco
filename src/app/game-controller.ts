@@ -596,6 +596,8 @@ export class Game {
       turnsRemaining: this.displayedLevelProgress.turnsRemaining,
       hasGravity: Boolean(this.mode.gravity),
       gravityAngle: this.state.gravity?.angle,
+      gravityTurnStartAngle: this.state.gravity?.turnStartAngle,
+      gravityMaxTiltDelta: this.state.gravity?.maxTiltDelta,
     });
     const tutorialStep = this.currentTutorialStep();
     // While a tilt is in progress, show how the board WOULD land at the

@@ -1,6 +1,16 @@
 import type { Disc } from '../game/model.js';
 import { DiscKind } from '../game/model.js';
 import { GamePhase } from '../game/state.js';
+import { computeGravityVector } from '../game/gravity.js';
+import { COLOR_GRAVITY_ACCENT, COLOR_TEXT_DIM } from './rendering/theme.js';
+import { isTouchDevice } from './dom-utils.js';
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const DIAL_CX = 40;
+const DIAL_CY = 40;
+const DIAL_RING_R = 26;
+const DIAL_BACKDROP_R = 32;
+const DIAL_ARC_R = 38;
 
 export interface GameHudState {
   phase: GamePhase;
@@ -13,6 +23,18 @@ export interface GameHudState {
   turnsRemaining: number;
   hasGravity: boolean;
   gravityAngle?: number | undefined;
+  /** Angle at the start of the in-progress tilt (GravityState.turnStartAngle) — only meaningful during Aiming. */
+  gravityTurnStartAngle?: number | undefined;
+  /** Max absolute tilt allowed from gravityTurnStartAngle (GravityState.maxTiltDelta) — only meaningful during Aiming. */
+  gravityMaxTiltDelta?: number | undefined;
+}
+
+// gravity.ts's angle convention (0 = down, increasing = counterclockwise on
+// screen — see computeGravityVector) to the angle convention used below for
+// arc math (0 = positive X axis/right, increasing = clockwise on screen,
+// matching e.g. canvas ctx.arc or SVG's sweep-flag=1).
+function dialAngleRad(gravityAngleDeg: number): number {
+  return ((90 - gravityAngleDeg) * Math.PI) / 180;
 }
 
 /** Semantic gameplay status displayed as a DOM overlay over the board canvas. */
@@ -25,6 +47,10 @@ export class GameHud {
   private readonly next: HTMLElement;
   private readonly hint: HTMLElement;
   private readonly gravity: HTMLElement;
+  private readonly gravitySr: HTMLElement;
+  private readonly gravityArc: SVGPathElement;
+  private readonly gravityArrow: SVGLineElement;
+  private readonly gravityArrowhead: SVGPolygonElement;
 
   constructor(container?: HTMLElement | null) {
     this.root = document.createElement('section');
@@ -53,7 +79,49 @@ export class GameHud {
 
     this.gravity = document.createElement('span');
     this.gravity.className = 'game-hud__gravity';
-    this.gravity.setAttribute('aria-live', 'polite');
+    const dial = document.createElementNS(SVG_NS, 'svg');
+    dial.setAttribute('class', 'game-hud__gravity-dial');
+    dial.setAttribute('viewBox', '0 0 80 80');
+    dial.setAttribute('aria-hidden', 'true');
+
+    const backdrop = document.createElementNS(SVG_NS, 'circle');
+    backdrop.setAttribute('cx', String(DIAL_CX));
+    backdrop.setAttribute('cy', String(DIAL_CY));
+    backdrop.setAttribute('r', String(DIAL_BACKDROP_R));
+    backdrop.setAttribute('fill', 'rgba(15, 23, 42, 0.82)');
+    backdrop.setAttribute('stroke', COLOR_GRAVITY_ACCENT);
+    backdrop.setAttribute('stroke-width', '1.5');
+
+    const ring = document.createElementNS(SVG_NS, 'circle');
+    ring.setAttribute('cx', String(DIAL_CX));
+    ring.setAttribute('cy', String(DIAL_CY));
+    ring.setAttribute('r', String(DIAL_RING_R));
+    ring.setAttribute('fill', 'none');
+    ring.setAttribute('stroke', COLOR_TEXT_DIM);
+    ring.setAttribute('stroke-width', '1');
+
+    this.gravityArc = document.createElementNS(SVG_NS, 'path');
+    this.gravityArc.setAttribute('fill', 'none');
+    this.gravityArc.setAttribute('stroke', COLOR_GRAVITY_ACCENT);
+    this.gravityArc.setAttribute('stroke-width', '4');
+    this.gravityArc.setAttribute('stroke-linecap', 'round');
+    this.gravityArc.setAttribute('opacity', '0.55');
+
+    this.gravityArrow = document.createElementNS(SVG_NS, 'line');
+    this.gravityArrow.setAttribute('stroke', COLOR_GRAVITY_ACCENT);
+    this.gravityArrow.setAttribute('stroke-width', '4');
+    this.gravityArrow.setAttribute('stroke-linecap', 'round');
+
+    this.gravityArrowhead = document.createElementNS(SVG_NS, 'polygon');
+    this.gravityArrowhead.setAttribute('fill', COLOR_GRAVITY_ACCENT);
+
+    dial.append(backdrop, this.gravityArc, ring, this.gravityArrow, this.gravityArrowhead);
+
+    this.gravitySr = document.createElement('span');
+    this.gravitySr.className = 'game-hud__gravity-sr';
+    this.gravitySr.setAttribute('aria-live', 'polite');
+
+    this.gravity.append(dial, this.gravitySr);
     this.hint = document.createElement('p');
     this.hint.className = 'game-hud__hint';
 
@@ -91,10 +159,12 @@ export class GameHud {
     this.renderDisc(this.next, state.nextDisc, 'Next disc');
 
     if (state.hasGravity) {
-      this.gravity.textContent = `Gravity ${gravityDirection(state.gravityAngle ?? 0)}`;
+      const angle = state.gravityAngle ?? 0;
+      this.gravitySr.textContent = `Gravity ${gravityDirection(angle)}`;
       this.gravity.hidden = false;
+      this.renderGravityDial(state, angle);
     } else {
-      this.gravity.textContent = '';
+      this.gravitySr.textContent = '';
       this.gravity.hidden = true;
     }
     this.hint.textContent = hintFor(state);
@@ -102,6 +172,45 @@ export class GameHud {
 
   destroy(): void {
     this.root.remove();
+  }
+
+  // Always-visible arrow showing the current gravity direction; during
+  // Aiming, also draws a faint arc showing how far the player may still
+  // tilt from the turn's starting angle.
+  private renderGravityDial(state: GameHudState, angle: number): void {
+    const { gx, gy } = computeGravityVector(angle);
+    const tipX = DIAL_CX + gx * DIAL_RING_R * 0.82;
+    const tipY = DIAL_CY + gy * DIAL_RING_R * 0.82;
+    this.gravityArrow.setAttribute('x1', String(DIAL_CX));
+    this.gravityArrow.setAttribute('y1', String(DIAL_CY));
+    this.gravityArrow.setAttribute('x2', String(tipX));
+    this.gravityArrow.setAttribute('y2', String(tipY));
+
+    const headAngle = Math.atan2(gy, gx);
+    const headLen = 9;
+    const leftX = tipX - headLen * Math.cos(headAngle - Math.PI / 6);
+    const leftY = tipY - headLen * Math.sin(headAngle - Math.PI / 6);
+    const rightX = tipX - headLen * Math.cos(headAngle + Math.PI / 6);
+    const rightY = tipY - headLen * Math.sin(headAngle + Math.PI / 6);
+    this.gravityArrowhead.setAttribute('points', `${tipX},${tipY} ${leftX},${leftY} ${rightX},${rightY}`);
+
+    if (state.phase === GamePhase.Aiming && state.gravityMaxTiltDelta !== undefined) {
+      const start = state.gravityTurnStartAngle ?? angle;
+      const delta = state.gravityMaxTiltDelta;
+      const a1 = dialAngleRad(start - delta);
+      const a2 = dialAngleRad(start + delta);
+      const startAngle = Math.min(a1, a2);
+      const endAngle = Math.max(a1, a2);
+      const x1 = DIAL_CX + DIAL_ARC_R * Math.cos(startAngle);
+      const y1 = DIAL_CY + DIAL_ARC_R * Math.sin(startAngle);
+      const x2 = DIAL_CX + DIAL_ARC_R * Math.cos(endAngle);
+      const y2 = DIAL_CY + DIAL_ARC_R * Math.sin(endAngle);
+      const largeArc = endAngle - startAngle > Math.PI ? 1 : 0;
+      this.gravityArc.setAttribute('d', `M ${x1} ${y1} A ${DIAL_ARC_R} ${DIAL_ARC_R} 0 ${largeArc} 1 ${x2} ${y2}`);
+      this.gravityArc.style.display = '';
+    } else {
+      this.gravityArc.style.display = 'none';
+    }
   }
 
   private makeValue(label: string, className: string): HTMLElement {
@@ -156,9 +265,18 @@ function gravityDirection(angle: number): string {
   return directions[index]!;
 }
 
+// Touch devices already have the on-screen game-controls buttons for every
+// action, so their hint stays a short tap prompt. Desktop hides those
+// buttons (see the pointer:fine media query), so its hint spells out the
+// keyboard shortcuts instead.
 function hintFor(state: GameHudState): string {
-  if (state.phase === GamePhase.Aiming) return 'Adjust gravity, then confirm or cancel';
   if (state.phase === GamePhase.Animating) return 'Resolving turn';
-  if (state.hasGravity) return 'Choose a lane, drop, or adjust gravity';
-  return 'Choose a column and drop';
+  const touch = isTouchDevice();
+  if (state.phase === GamePhase.Aiming) {
+    return touch ? 'Tap ↺/↻ to tilt, CONFIRM to drop' : 'Q/E adjust  ↓ / Enter confirm  Esc cancel';
+  }
+  if (state.hasGravity) {
+    return touch ? 'Tap lane to drop' : '← → move  ↓ drop  Q/E tilt  R restart';
+  }
+  return touch ? 'Tap column to drop' : '← → move  ↓ / click drop  R restart';
 }

@@ -33,7 +33,7 @@ describe('GameHud', () => {
     expect(hud.root.querySelector('[data-kind="double-cracked"]')).toBeTruthy();
     expect(hud.root.querySelector('[data-kind="double-cracked"]')!.textContent).toBe('');
     expect(hud.root.querySelector('[data-kind="double-cracked"]')!.querySelectorAll('.game-hud__disc-crack')).toHaveLength(2);
-    expect(hud.root.textContent).toContain('Choose a column and drop');
+    expect(hud.root.textContent).toContain('← → move  ↓ / click drop  R restart');
   });
 
   test('renders cracked queue discs with board-style crack marks', () => {
@@ -56,16 +56,51 @@ describe('GameHud', () => {
     const hud = new GameHud();
     hud.render({
       phase: GamePhase.Aiming, score: 0, currentDisc: disc(1), nextDisc: disc(2),
-      level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 30, hasGravity: true, gravityAngle: 90,
+      level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 30, hasGravity: true,
+      gravityAngle: 90, gravityTurnStartAngle: 90, gravityMaxTiltDelta: 45,
     });
     expect(hud.root.hidden).toBe(false);
+    expect(hud.root.querySelector('.game-hud__gravity')).toHaveProperty('hidden', false);
     expect(hud.root.textContent).toContain('Gravity right');
-    expect(hud.root.textContent).toContain('Adjust gravity');
+    expect(hud.root.querySelector('.game-hud__gravity-dial')).toBeTruthy();
+    // Arrow tip should point right (gx≈1, gy≈0) at a 90deg angle.
+    const arrow = hud.root.querySelector('.game-hud__gravity-dial line')!;
+    expect(Number(arrow.getAttribute('x2'))).toBeGreaterThan(Number(arrow.getAttribute('x1')));
+    // Tilt-range arc is drawn while Aiming.
+    expect(hud.root.querySelector('.game-hud__gravity-dial path')).toHaveProperty('style.display', '');
+    expect(hud.root.textContent).toContain('Q/E adjust');
     hud.render({
       phase: GamePhase.Menu, score: 0, currentDisc: disc(1), nextDisc: disc(2),
       level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 30, hasGravity: false,
     });
     expect(hud.root.hidden).toBe(true);
+  });
+
+  test('hides the tilt-range arc outside Aiming', () => {
+    const hud = new GameHud();
+    hud.render({
+      phase: GamePhase.WaitingForDrop, score: 0, currentDisc: disc(1), nextDisc: disc(2),
+      level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 30,
+      hasGravity: true, gravityAngle: 0,
+    });
+    expect(hud.root.querySelector('.game-hud__gravity-dial path')).toHaveProperty('style.display', 'none');
+  });
+
+  test('touch users are told about the real on-screen tilt buttons, not a keyboard', () => {
+    const originalMaxTouchPoints = navigator.maxTouchPoints;
+    Object.defineProperty(navigator, 'maxTouchPoints', { value: 5, configurable: true });
+    try {
+      const hud = new GameHud();
+      hud.render({
+        phase: GamePhase.Aiming, score: 0, currentDisc: disc(1), nextDisc: disc(2),
+        level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 30,
+        hasGravity: true, gravityAngle: 0, gravityTurnStartAngle: 0, gravityMaxTiltDelta: 45,
+      });
+      expect(hud.root.textContent).toContain('Tap ↺/↻ to tilt, CONFIRM to drop');
+      expect(hud.root.textContent).not.toContain('keyboard needed');
+    } finally {
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: originalMaxTouchPoints, configurable: true });
+    }
   });
 
   test('uses the initial turn budget as the pip spacing scale on later levels', () => {
