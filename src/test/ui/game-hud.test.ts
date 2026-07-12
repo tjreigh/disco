@@ -31,7 +31,25 @@ describe('GameHud', () => {
     expect(hud.root.querySelectorAll('.game-hud__pip--placeholder')).toHaveLength(10);
     expect(hud.root.querySelector('[data-value="3"]')).toBeTruthy();
     expect(hud.root.querySelector('[data-kind="double-cracked"]')).toBeTruthy();
+    expect(hud.root.querySelector('[data-kind="double-cracked"]')!.textContent).toBe('');
+    expect(hud.root.querySelector('[data-kind="double-cracked"]')!.querySelectorAll('.game-hud__disc-crack')).toHaveLength(2);
     expect(hud.root.textContent).toContain('Choose a column and drop');
+  });
+
+  test('renders cracked queue discs with board-style crack marks', () => {
+    const hud = new GameHud();
+    hud.render({
+      phase: GamePhase.WaitingForDrop, score: 0,
+      currentDisc: disc(3, DiscKind.SingleCracked), nextDisc: disc(4, DiscKind.DoubleCracked),
+      level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 30, hasGravity: false,
+    });
+
+    const singleCracked = hud.root.querySelector('[data-kind="single-cracked"]')!;
+    const doubleCracked = hud.root.querySelector('[data-kind="double-cracked"]')!;
+    expect(singleCracked.textContent).toBe('');
+    expect(singleCracked.querySelectorAll('.game-hud__disc-crack')).toHaveLength(1);
+    expect(doubleCracked.textContent).toBe('');
+    expect(doubleCracked.querySelectorAll('.game-hud__disc-crack')).toHaveLength(2);
   });
 
   test('updates Gravity aiming status and hides in Menu', () => {

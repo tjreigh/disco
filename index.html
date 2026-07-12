@@ -95,15 +95,47 @@
     }
     .game-hud__disc-slot { display: inline-flex; align-items: center; gap: 6px; color: #cbd5e1; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
     .game-hud__disc-caption { text-transform: uppercase; }
-    .game-hud__disc { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid rgba(255,255,255,.35); border-radius: 50%; color: #fff; font: 700 15px system-ui, sans-serif; box-shadow: inset 3px 3px 5px rgba(255,255,255,.22), 0 2px 5px rgba(0,0,0,.35); }
-    .game-hud__disc[data-kind="numbered"][data-value="1"] { background: #e74c3c; }
-    .game-hud__disc[data-kind="numbered"][data-value="2"] { background: #e67e22; }
-    .game-hud__disc[data-kind="numbered"][data-value="3"] { background: #f1c40f; }
-    .game-hud__disc[data-kind="numbered"][data-value="4"] { background: #2ecc71; }
-    .game-hud__disc[data-kind="numbered"][data-value="5"] { background: #3498db; }
-    .game-hud__disc[data-kind="numbered"][data-value="6"] { background: #9b59b6; }
-    .game-hud__disc[data-kind="numbered"][data-value="7"] { background: #1abc9c; }
-    .game-hud__disc[data-kind="single-cracked"], .game-hud__disc[data-kind="double-cracked"] { background: #4a5568; }
+    .game-hud__disc {
+      position: relative;
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      overflow: hidden;
+      border: 1px solid rgba(0,0,0,.35);
+      border-radius: 50%;
+      color: #fff;
+      font: 700 15px system-ui, sans-serif;
+      box-shadow: 0 2px 5px rgba(0,0,0,.35);
+    }
+    .game-hud__disc[data-kind="numbered"][data-value="1"] { background: radial-gradient(circle at 35% 35%, rgb(255,165,149), #e74c3c); }
+    .game-hud__disc[data-kind="numbered"][data-value="2"] { background: radial-gradient(circle at 35% 35%, rgb(255,215,123), #e67e22); }
+    .game-hud__disc[data-kind="numbered"][data-value="3"] { background: radial-gradient(circle at 35% 35%, rgb(255,255,104), #f1c40f); }
+    .game-hud__disc[data-kind="numbered"][data-value="4"] { background: radial-gradient(circle at 35% 35%, rgb(135,255,202), #2ecc71); }
+    .game-hud__disc[data-kind="numbered"][data-value="5"] { background: radial-gradient(circle at 35% 35%, rgb(141,241,255), #3498db); }
+    .game-hud__disc[data-kind="numbered"][data-value="6"] { background: radial-gradient(circle at 35% 35%, rgb(244,178,255), #9b59b6); }
+    .game-hud__disc[data-kind="numbered"][data-value="7"] { background: radial-gradient(circle at 35% 35%, rgb(115,255,245), #1abc9c); }
+    .game-hud__disc[data-kind="single-cracked"],
+    .game-hud__disc[data-kind="double-cracked"] {
+      background: radial-gradient(circle at 37.5% 37.5%, #4a5568, #2d3748);
+    }
+    .game-hud__disc-crack {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    .game-hud__disc-crack i {
+      position: absolute;
+      display: block;
+      height: 2px;
+      border-radius: 999px;
+      background: #e2e8f0;
+      transform-origin: left center;
+    }
+    .game-hud__disc-crack--primary i:first-child { left: 40%; top: 22.5%; width: 24%; transform: rotate(69deg); }
+    .game-hud__disc-crack--primary i:last-child { left: 48.5%; top: 45%; width: 37.5%; transform: rotate(65deg); }
+    .game-hud__disc-crack--secondary i:first-child { left: 69%; top: 26%; width: 27%; transform: rotate(127deg); }
+    .game-hud__disc-crack--secondary i:last-child { left: 53%; top: 47.5%; width: 34.5%; transform: rotate(124deg); }
     .game-hud__gravity { position: absolute; top: 8px; right: 8px; color: #62b0e8; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
     .game-hud__hint { max-width: 55%; color: #a0aec0; font-size: 10px; text-align: right; }
     @media (max-width: 720px), (pointer: coarse) {

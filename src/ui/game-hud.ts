@@ -128,9 +128,21 @@ export class GameHud {
     discElement.className = 'game-hud__disc';
     discElement.dataset.kind = disc.kind;
     discElement.dataset.value = String(disc.value);
-    discElement.textContent = disc.kind === DiscKind.Numbered ? String(disc.value) : '*';
+    if (disc.kind === DiscKind.Numbered) {
+      discElement.textContent = String(disc.value);
+    } else {
+      discElement.append(this.makeCrack('primary'));
+      if (disc.kind === DiscKind.DoubleCracked) discElement.append(this.makeCrack('secondary'));
+    }
     discElement.setAttribute('aria-hidden', 'true');
     slot.append(caption, discElement);
+  }
+
+  private makeCrack(variant: 'primary' | 'secondary'): HTMLElement {
+    const crack = document.createElement('span');
+    crack.className = `game-hud__disc-crack game-hud__disc-crack--${variant}`;
+    crack.append(document.createElement('i'), document.createElement('i'));
+    return crack;
   }
 }
 
