@@ -8,7 +8,7 @@ import type { GravityShiftCue, ScoreIndicator, ScorePopup } from '../ui/renderin
 import { deepCloneBoard, makeEmptyBoard } from '../game/board.js';
 import { entryEdgeForAngle, snapAngleToEightDirections } from '../game/gravity.js';
 import { GameEngine } from '../game/engine.js';
-import type { TurnResult } from '../game/engine.js';
+import type { GameOverReason, TurnResult } from '../game/engine.js';
 import { CLASSIC_MODE, GAME_MODES } from '../game/modes/index.js';
 import { DebugPanel } from '../ui/debug/debug-panel.js';
 import {
@@ -76,6 +76,8 @@ export class Game {
   private statsStore: AccountStatsStore;
   private unsubscribeStatsStore: (() => void) | null = null;
   private longestStreakThisGame = 0;
+  private highScoreAtGameStart = 0;
+  private bestRecordAtGameStart = 0;
   // Stack mode's current player-triggered cascade. This is presentation-only;
   // the engine owns both the final stack size and score award.
   private activeStack = 0;
@@ -111,6 +113,7 @@ export class Game {
     this.statsStore = new AccountStatsStore(GAME_MODES);
     this.saveStore = new LocalSaveStore(GAME_MODES);
     this.stats = this.statsStore.loadStats(this.mode.id);
+    this.captureGameStartRecords();
 
     this.homeScreen = new HomeScreen(
       GAME_MODES,
@@ -173,6 +176,7 @@ export class Game {
     this.mode = mode;
     this.engine.reconfigure(mode, this.debugSeedOverride()); // mutates engine.state in place; never replaces it
     this.stats = this.statsStore.loadStats(mode.id);
+    this.captureGameStartRecords();
     setGridSize(mode.board.cols, mode.board.rows);
     this.renderer.resize();
     this.visualBoard = makeEmptyBoard(mode.board.cols, mode.board.rows);
@@ -199,6 +203,7 @@ export class Game {
     if (!tutorial) return;
     this.mode = mode;
     this.stats = this.statsStore.loadStats(mode.id);
+    this.captureGameStartRecords();
     setGridSize(mode.board.cols, mode.board.rows);
     this.renderer.resize();
     this.activeTutorial = tutorial;
@@ -352,7 +357,7 @@ export class Game {
       this.debug.recordTurn(result);
       if (result.gameOver) {
         this.recordGameEnd();
-        this.setGameOver();
+        this.setGameOver(result.gameOverReason);
       }
       return;
     }
@@ -404,7 +409,7 @@ export class Game {
         this.displayedScore = this.state.score; // convergence safety net
         this.syncLevelProgressDisplay();
         if (result.gameOver) {
-          this.setGameOver();
+          this.setGameOver(result.gameOverReason);
         } else if (this.activeTutorial) {
           this.completeTutorialTurn(result);
         } else {
@@ -487,7 +492,7 @@ export class Game {
     }
   }
 
-  private setGameOver(): void {
+  private setGameOver(reason?: GameOverReason): void {
     this.saveStore.remove();
     this.refreshSavedGameAction();
     this.state.phase = GamePhase.GameOver;
@@ -499,6 +504,10 @@ export class Game {
       score: this.state.score,
       stats: this.stats,
       isStackMode: this.isStackMode(),
+      bestRunRecord: this.longestStreakThisGame,
+      previousHighScore: this.highScoreAtGameStart,
+      previousBestRecord: this.bestRecordAtGameStart,
+      ...(reason ? { reason } : {}),
     });
     // Drop any in-progress animation — the game-over overlay renders on top,
     // so partial animation state is invisible and we can discard it safely.
@@ -548,6 +557,7 @@ export class Game {
     this.scoreIndicators = [];
     this.gravityShiftCue = null;
     this.longestStreakThisGame = 0;
+    this.captureGameStartRecords();
     this.activeStack = 0;
     this.stackInitialClearSize = 0;
     this.stackChainBatches = [];
@@ -607,6 +617,7 @@ export class Game {
       this.longestStreakThisGame = 0;
       this.gameRecorded = false;
       this.stats = this.statsStore.loadStats(this.mode.id);
+      this.captureGameStartRecords();
       this.displayedScore = this.state.score;
       this.state.phase = GamePhase.WaitingForDrop;
       this.tutorialOverlay.showComplete(completedTutorial, this.mode.name);
@@ -647,6 +658,7 @@ export class Game {
       const loaded = this.engine.loadSave(save, mode);
       this.mode = mode;
       this.stats = this.statsStore.loadStats(mode.id);
+      this.captureGameStartRecords();
       setGridSize(mode.board.cols, mode.board.rows);
       this.renderer.resize();
       this.activeTutorial = null;
@@ -682,6 +694,11 @@ export class Game {
     this.homeScreen.setSavedGame(save && mode
       ? { modeName: mode.name, score: save.state.score }
       : null);
+  }
+
+  private captureGameStartRecords(): void {
+    this.highScoreAtGameStart = this.stats.highScore;
+    this.bestRecordAtGameStart = this.stats.longestStreak;
   }
 
   private toggleSound(): void {

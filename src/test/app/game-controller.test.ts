@@ -487,7 +487,7 @@ describe('game over during the final turn\'s animation', () => {
     frame(0);
 
     const engine = (game as unknown as {
-      engine: { state: { board: Board; currentDisc: ReturnType<typeof makeDisc> } };
+      engine: { state: { board: Board; currentDisc: ReturnType<typeof makeDisc>; score: number } };
     }).engine;
     // Fill every cell except (row 0, col 0) with discs that never auto-clear,
     // so a single drop into column 0 (landing at row 0, since rows 1-6 are
@@ -499,6 +499,7 @@ describe('game over during the final turn\'s animation', () => {
       }
     }
     engine.state.currentDisc = makeDisc(1, DiscKind.DoubleCracked);
+    engine.state.score = 250;
 
     const input = lastOf(inputHandlerInstances);
     input.onIntent({ kind: 'drop', col: 0 });
@@ -513,6 +514,8 @@ describe('game over during the final turn\'s animation', () => {
     const gameOverScreen = document.querySelector<HTMLElement>('.game-over-screen--open');
     expect(gameOverScreen?.textContent).toContain('NEW GAME');
     expect(gameOverScreen?.textContent).toContain('HOME');
+    expect(gameOverScreen?.textContent).toContain('NEW HIGH SCORE');
+    expect(gameOverScreen?.textContent).toContain('The board filled with no legal moves left.');
 
     const newGameButton = Array.from(gameOverScreen!.querySelectorAll<HTMLButtonElement>('button'))
       .find(button => button.textContent === 'NEW GAME')!;

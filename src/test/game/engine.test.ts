@@ -464,6 +464,7 @@ describe('GameEngine', () => {
     const result = engine.drop(1);
 
     expect(result.gameOver).toBe(true);
+    expect(result.gameOverReason).toBe('push-overflow');
     expect(result.steps.some(step => step.kind === StepKind.Push)).toBe(true);
     expect(result.steps.some(step => step.kind === StepKind.Clear)).toBe(false);
     expect(result.steps.some(step => step.kind === StepKind.Bonus)).toBe(false);
@@ -512,6 +513,7 @@ describe('GameEngine', () => {
       }
 
       expect(lastResult).toMatchObject({ accepted: true, gameOver: true });
+      expect(lastResult!.gameOverReason).toBe('board-full');
       expect(lastResult!.steps.some(step => step.kind === StepKind.Push)).toBe(false);
       expect(engine.state.phase).toBe(GamePhase.GameOver);
 

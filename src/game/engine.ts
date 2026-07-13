@@ -26,6 +26,7 @@ import {
 } from './save.js';
 
 export type RejectedTurnReason = 'game-over' | 'wrong-phase' | 'invalid-column' | 'full-column' | 'tilt-required';
+export type GameOverReason = 'push-overflow' | 'board-full';
 
 export interface TurnResult {
   accepted: boolean;
@@ -37,6 +38,8 @@ export interface TurnResult {
   /** Numbered discs cleared while resolving the accepted turn, including level-end push clears. */
   stackSize: number;
   gameOver: boolean;
+  /** Present when this accepted turn caused the game to end. */
+  gameOverReason?: GameOverReason;
   trace: PhysicsTrace;
 }
 
@@ -496,7 +499,10 @@ export class GameEngine {
     //    resolution above, so a board that momentarily fills mid-turn and then
     //    clears is NOT terminal, and a level bonus awarded on a level-completing
     //    turn (pushed into `steps` above) still counts — both intended.
-    const gameOver = pushOverflow || isBoardFull(this.state.board);
+    const gameOverReason: GameOverReason | undefined = pushOverflow
+      ? 'push-overflow'
+      : isBoardFull(this.state.board) ? 'board-full' : undefined;
+    const gameOver = gameOverReason !== undefined;
     this.state.phase = gameOver ? GamePhase.GameOver : GamePhase.WaitingForDrop;
 
     // Board and score carry over unchanged into the new level. Skipped on game
@@ -513,7 +519,16 @@ export class GameEngine {
     this.state.currentDisc = this.queue.peek();
     this.state.nextDisc = this.queue.peekNext();
 
-    return { accepted: true, boardBefore, steps, scoreAwarded, stackSize, gameOver, trace };
+    return {
+      accepted: true,
+      boardBefore,
+      steps,
+      scoreAwarded,
+      stackSize,
+      gameOver,
+      ...(gameOverReason ? { gameOverReason } : {}),
+      trace,
+    };
   }
 
   // Switches to a (possibly new) mode: rebuilds the disc queue/factories from

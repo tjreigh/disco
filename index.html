@@ -717,10 +717,56 @@
       font-size: 30px;
       letter-spacing: .1em;
     }
+    .game-over-highlights {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 6px;
+      margin-top: 2px;
+    }
+    .game-over-highlights[hidden],
+    .game-over-score-context[hidden],
+    .game-over-run-record[hidden] { display: none; }
+    .game-over-highlight {
+      border: 1px solid #ffd166;
+      border-radius: 999px;
+      padding: 5px 9px;
+      background: rgba(255, 209, 102, .12);
+      color: #ffe29a;
+      font: 800 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: .09em;
+      animation: game-over-highlight-in 420ms cubic-bezier(.2, .8, .2, 1) both;
+    }
+    @keyframes game-over-highlight-in {
+      from { opacity: 0; transform: translateY(5px) scale(.94); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
     .game-over-score {
-      margin: 2px 0 6px;
+      margin-top: 2px;
       color: #fff;
       font-size: 24px;
+      font-weight: 700;
+    }
+    .game-over-score-context {
+      color: #ffe29a;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .game-over-run-summary {
+      width: 100%;
+      margin: 6px 0 2px;
+      border-block: 1px solid #334e68;
+      padding: 10px 0;
+    }
+    .game-over-reason {
+      color: #d9e2ec;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .game-over-run-record {
+      margin-top: 4px;
+      color: #9ecdf0;
+      font-size: 12px;
       font-weight: 700;
     }
     .game-over-records,
@@ -756,6 +802,9 @@
     }
     .game-over-button--primary:hover,
     .game-over-button--primary:focus-visible { background: #1e7bc4; }
+    @media (prefers-reduced-motion: reduce) {
+      .game-over-highlight { animation: none; }
+    }
     @media (max-width: 360px) {
       .game-over-actions { grid-template-columns: 1fr; }
     }
