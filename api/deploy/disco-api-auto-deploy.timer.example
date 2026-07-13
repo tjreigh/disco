@@ -1,0 +1,11 @@
+[Unit]
+Description=Poll origin/main and deploy validated Disco API releases
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=30s
+Unit=disco-api-auto-deploy.service
+
+[Install]
+WantedBy=timers.target

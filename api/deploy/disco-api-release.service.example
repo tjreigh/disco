@@ -1,0 +1,25 @@
+[Unit]
+Description=Disco API (auto-deployed release)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=disco
+Group=disco
+WorkingDirectory=/srv/disco/api
+EnvironmentFile=/etc/disco/disco-api.env
+ExecStartPre=/usr/bin/env node /var/lib/disco/current/api/dist/db/migrate.js
+ExecStart=/usr/bin/env node /var/lib/disco/current/api/dist/server.js
+Restart=on-failure
+RestartSec=3
+StateDirectory=disco
+LogsDirectory=disco
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/disco
+
+[Install]
+WantedBy=multi-user.target

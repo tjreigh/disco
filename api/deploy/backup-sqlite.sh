@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 ENV_FILE="${1:-/etc/disco/disco-api.env}"
 BACKUP_DIR="${2:-/var/backups/disco}"

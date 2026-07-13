@@ -1,0 +1,23 @@
+[Unit]
+Description=Disco API auto-deploy (build isolated release and activate after validation)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=disco
+Group=disco
+WorkingDirectory=/srv/disco
+Environment=HOME=/var/lib/disco
+ExecStart=/usr/bin/env bash /srv/disco/api/deploy/auto-deploy.sh
+TimeoutStartSec=600
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/disco /var/lib/disco /var/backups/disco
+# NoNewPrivileges is intentionally NOT set here (unlike disco-api.service):
+# it would block the sudo call this script depends on to restart the service.
+# OnFailure=disco-api-auto-deploy-notify.service   # hook point for future alerting; nothing to call today
+
+[Install]
+WantedBy=multi-user.target
