@@ -360,6 +360,8 @@ describe('normal drop flow', () => {
       handleStepStart: (step: unknown, now: number) => void;
       stackCascadeActive: boolean;
       scorePopups: Array<{ value: number; row: number; col: number }>;
+      scoreIndicators: Array<{ title: string; detail: string }>;
+      lastStackScore: unknown;
     };
     controller.stackCascadeActive = true;
     controller.handleStepStart({
@@ -378,6 +380,89 @@ describe('normal drop flow', () => {
 
     controller.handleStepStart({ kind: StepKind.Bonus, bonusKind: 'stack', pointsAwarded: 90 }, 700);
     expect(controller.scorePopups).toHaveLength(3);
+    expect(controller.scoreIndicators).toEqual([
+      expect.objectContaining({
+        title: 'STACK 3',
+        detail: '+90',
+      }),
+    ]);
+    expect(controller.lastStackScore).toEqual({
+      initial: 3, chains: [], stack: 3, points: 90,
+    });
+  });
+
+  test('Stack score indicator separates the initiating height from chain clears', () => {
+    const { game } = createGame();
+    const homeScreen = lastOf(homeScreenInstances);
+    homeScreen.onSelectMode(STACK_MODE);
+
+    const controller = game as unknown as {
+      handleStepStart: (step: unknown, now: number) => void;
+      stackCascadeActive: boolean;
+      scoreIndicators: Array<{ title: string; detail: string }>;
+      lastStackScore: unknown;
+    };
+    controller.stackCascadeActive = true;
+    controller.handleStepStart({
+      kind: StepKind.Clear,
+      cleared: [{ row: 6, col: 1 }, { row: 5, col: 1 }, { row: 4, col: 1 }],
+      discs: [],
+      chainLevel: 0,
+      pointsAwarded: 0,
+    }, 100);
+    controller.handleStepStart({
+      kind: StepKind.Push,
+      edge: 'bottom',
+      newDiscs: [],
+    }, 300);
+    controller.handleStepStart({
+      kind: StepKind.Clear,
+      cleared: [{ row: 6, col: 2 }, { row: 6, col: 3 }],
+      discs: [],
+      chainLevel: 1,
+      pointsAwarded: 0,
+    }, 500);
+    controller.handleStepStart({ kind: StepKind.Bonus, bonusKind: 'stack', pointsAwarded: 250 }, 900);
+
+    expect(controller.scoreIndicators).toEqual([
+      expect.objectContaining({
+        title: 'STACK 5',
+        detail: '+250',
+      }),
+    ]);
+    expect(controller.lastStackScore).toEqual({
+      initial: 3, chains: [{ level: 2, cleared: 2 }], stack: 5, points: 250,
+    });
+  });
+
+  test('Stack gives non-zero presentation credit when a level push initiates the clear', () => {
+    const { game } = createGame();
+    const homeScreen = lastOf(homeScreenInstances);
+    homeScreen.onSelectMode(STACK_MODE);
+
+    const controller = game as unknown as {
+      handleStepStart: (step: unknown, now: number) => void;
+      stackCascadeActive: boolean;
+      scorePopups: Array<{ value: number }>;
+      lastStackScore: unknown;
+    };
+    controller.stackCascadeActive = true;
+    controller.handleStepStart({ kind: StepKind.Push, edge: 'bottom', newDiscs: [] }, 100);
+    controller.handleStepStart({
+      kind: StepKind.Clear,
+      cleared: [{ row: 5, col: 6 }],
+      discs: [],
+      chainLevel: 0,
+      pointsAwarded: 0,
+    }, 300);
+    controller.handleStepStart({ kind: StepKind.Bonus, bonusKind: 'stack', pointsAwarded: 10 }, 700);
+
+    expect(controller.scorePopups).toEqual([
+      expect.objectContaining({ value: 10 }),
+    ]);
+    expect(controller.lastStackScore).toEqual({
+      initial: 1, chains: [], stack: 1, points: 10,
+    });
   });
 });
 

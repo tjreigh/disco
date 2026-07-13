@@ -74,7 +74,7 @@ describe('STACK_MODE', () => {
     expect(STACK_MODE.discValueMin).toBe(CLASSIC_MODE.discValueMin);
     expect(STACK_MODE.discValueMax).toBe(CLASSIC_MODE.discValueMax);
     expect(STACK_MODE.discGeneration).toEqual(CLASSIC_MODE.discGeneration);
-    expect(STACK_MODE.initialTurnsPerLevel).toBe(CLASSIC_MODE.initialTurnsPerLevel);
+    expect(STACK_MODE.initialTurnsPerLevel).toBe(22);
     expect(STACK_MODE.turnsPerLevelStep).toBe(CLASSIC_MODE.turnsPerLevelStep);
     expect(STACK_MODE.minTurnsPerLevel).toBe(CLASSIC_MODE.minTurnsPerLevel);
     expect(STACK_MODE.isClearable).toBe(CLASSIC_MODE.isClearable);

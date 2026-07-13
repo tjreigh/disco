@@ -15,4 +15,5 @@ export const STACK_MODE: GameModeConfig = {
   unnumberedProbabilityLevelStep: 0,
   maxUnnumberedProbability: 0,
   scoring: { kind: 'stack', pointsPerStackUnit: 10 },
+  initialTurnsPerLevel: 22,
 };

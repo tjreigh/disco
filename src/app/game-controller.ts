@@ -39,6 +39,8 @@ interface LevelProgressDisplay {
   turnsRemaining: number;
 }
 
+const TURN_PIP_CAPACITY = Math.max(...GAME_MODES.map(mode => mode.initialTurnsPerLevel));
+
 export class Game {
   private state: GameState;
   private engine: GameEngine;
@@ -75,6 +77,14 @@ export class Game {
   // Stack mode's current player-triggered cascade. This is presentation-only;
   // the engine owns both the final stack size and score award.
   private activeStack = 0;
+  private stackInitialClearSize = 0;
+  private stackChainBatches: Array<{ level: number; cleared: number }> = [];
+  private lastStackScore: {
+    initial: number;
+    chains: Array<{ level: number; cleared: number }>;
+    stack: number;
+    points: number;
+  } | null = null;
   private stackCascadeActive = false;
   private gameRecorded = false;
   private displayedLevelProgress: LevelProgressDisplay;
@@ -168,6 +178,9 @@ export class Game {
     this.gravityShiftCue = null;
     this.longestStreakThisGame = 0;
     this.activeStack = 0;
+    this.stackInitialClearSize = 0;
+    this.stackChainBatches = [];
+    this.lastStackScore = null;
     this.stackCascadeActive = false;
     this.gameRecorded = false;
     this.debug.reset();
@@ -186,6 +199,9 @@ export class Game {
     this.tutorialStepIndex = 0;
     this.longestStreakThisGame = 0;
     this.activeStack = 0;
+    this.stackInitialClearSize = 0;
+    this.stackChainBatches = [];
+    this.lastStackScore = null;
     this.stackCascadeActive = false;
     this.gameRecorded = true; // tutorials never count as completed games
     this.debug.reset();
@@ -344,6 +360,8 @@ export class Game {
     const recordForTurn = this.isStackMode() ? result.stackSize : longestStreakThisTurn;
     this.longestStreakThisGame = Math.max(this.longestStreakThisGame, recordForTurn);
     this.activeStack = 0;
+    this.stackInitialClearSize = 0;
+    this.stackChainBatches = [];
     this.stackCascadeActive = this.isStackMode();
     if (!this.activeTutorial) {
       const recordsImproved = updateRecords(this.stats, this.state.score, this.longestStreakThisGame);
@@ -407,6 +425,14 @@ export class Game {
       if (this.stackCascadeActive) {
         const previousStack = this.activeStack;
         this.activeStack += step.cleared.length;
+        if (step.chainLevel === 0) {
+          this.stackInitialClearSize += step.cleared.length;
+        } else {
+          const level = step.chainLevel + 1; // Classic labels the initial clear CHAIN 1.
+          const existing = this.stackChainBatches.find(batch => batch.level === level);
+          if (existing) existing.cleared += step.cleared.length;
+          else this.stackChainBatches.push({ level, cleared: step.cleared.length });
+        }
         const stackUnit = this.mode.scoring.kind === 'stack' ? this.mode.scoring.pointsPerStackUnit : 0;
         const batchAward = stackUnit * (this.activeStack ** 2 - previousStack ** 2);
         this.displayedScore += batchAward;
@@ -429,12 +455,15 @@ export class Game {
           now,
         ));
       }
-    } else if (step.kind === StepKind.Push && this.isStackMode()) {
-      // Push-triggered clears are not part of the player's stack.
-      this.stackCascadeActive = false;
     } else if (step.kind === StepKind.Bonus && !this.activeTutorial) {
       if (step.bonusKind === 'stack') {
         this.stackCascadeActive = false;
+        this.lastStackScore = {
+          initial: this.stackInitialClearSize,
+          chains: this.stackChainBatches.map(batch => ({ ...batch })),
+          stack: this.activeStack,
+          points: step.pointsAwarded,
+        };
         this.scoreIndicators.push(spawnScoreIndicator(
           `STACK ${this.activeStack}`,
           `+${step.pointsAwarded.toLocaleString('en-US')}`,
@@ -506,6 +535,11 @@ export class Game {
     this.scoreIndicators = [];
     this.gravityShiftCue = null;
     this.longestStreakThisGame = 0;
+    this.activeStack = 0;
+    this.stackInitialClearSize = 0;
+    this.stackChainBatches = [];
+    this.lastStackScore = null;
+    this.stackCascadeActive = false;
     this.gameRecorded = false;
   }
 
@@ -612,6 +646,9 @@ export class Game {
       this.animQueue = null;
       this.longestStreakThisGame = loaded.session.longestStreak;
       this.activeStack = 0;
+      this.stackInitialClearSize = 0;
+      this.stackChainBatches = [];
+      this.lastStackScore = null;
       this.stackCascadeActive = false;
       this.gameRecorded = false;
       this.debug.reset();
@@ -740,6 +777,7 @@ export class Game {
       initialTurnsPerLevel: this.mode.initialTurnsPerLevel,
       turnsPerLevel: this.displayedLevelProgress.turnsPerLevel,
       turnsRemaining: this.displayedLevelProgress.turnsRemaining,
+      turnPipCapacity: TURN_PIP_CAPACITY,
       hasGravity: Boolean(this.mode.gravity),
       gravityAngle: this.state.gravity?.angle,
       gravityTurnStartAngle: this.state.gravity?.turnStartAngle,
@@ -749,6 +787,7 @@ export class Game {
       isStackMode: this.isStackMode(),
       currentStack: this.activeStack,
       bestStack: Math.max(this.stats.longestStreak, this.longestStreakThisGame),
+      lastStackScore: this.lastStackScore,
     });
     const tutorialStep = this.currentTutorialStep();
     // While a tilt is in progress, show how the board WOULD land at the

@@ -189,10 +189,15 @@ describe('GameHud', () => {
       currentDisc: disc(3), nextDisc: disc(4),
       level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 29,
       hasGravity: false, isStackMode: true, currentStack: 9, bestStack: 12,
+      lastStackScore: { initial: 3, chains: [{ level: 2, cleared: 2 }], stack: 5, points: 250 },
     });
 
     expect(hud.root.dataset.stackMode).toBe('true');
     expect(hud.root.textContent).toContain('Stack 9 / Best 12');
+    expect(hud.root.querySelector('.game-hud__stack-receipt-total')?.textContent)
+      .toBe('Last stack: 5 cleared · +250');
+    expect(hud.root.querySelector('.game-hud__stack-receipt-breakdown')?.textContent)
+      .toBe('3 initial + 2 on chain 2');
 
     hud.render({
       phase: GamePhase.WaitingForDrop, score: 810,
@@ -202,6 +207,7 @@ describe('GameHud', () => {
     });
     expect(hud.root.dataset.stackMode).toBe('false');
     expect(hud.root.querySelector<HTMLElement>('.game-hud__stack')?.hidden).toBe(true);
+    expect(hud.root.querySelector<HTMLElement>('.game-hud__stack-receipt')?.hidden).toBe(true);
   });
 
   test('uses the initial turn budget as the pip spacing scale on later levels', () => {
@@ -224,5 +230,21 @@ describe('GameHud', () => {
     expect(hud.root.querySelectorAll('.game-hud__pip--remaining')).toHaveLength(7);
     expect(hud.root.querySelectorAll('.game-hud__pip--placeholder')).toHaveLength(18);
     expect(hud.root.querySelector('.game-hud__pips')!.lastElementChild?.classList.contains('game-hud__pip--placeholder')).toBe(true);
+  });
+
+  test('places a shorter mode budget in the leftmost slots of the shared pip capacity', () => {
+    const hud = new GameHud();
+    hud.render({
+      phase: GamePhase.WaitingForDrop, score: 0,
+      currentDisc: disc(5), nextDisc: disc(6), level: 1,
+      initialTurnsPerLevel: 22, turnsPerLevel: 22, turnsRemaining: 13,
+      turnPipCapacity: 30, hasGravity: false, isStackMode: true,
+    });
+
+    const pips = hud.root.querySelector<HTMLElement>('.game-hud__pips')!;
+    expect(pips.style.gridTemplateColumns).toBe('repeat(30, minmax(0, 1fr))');
+    expect(pips.children).toHaveLength(22);
+    expect(hud.root.querySelectorAll('.game-hud__pip--remaining')).toHaveLength(13);
+    expect(hud.root.querySelectorAll('.game-hud__pip--placeholder')).toHaveLength(0);
   });
 });

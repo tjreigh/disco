@@ -22,6 +22,8 @@ export interface GameHudState {
   initialTurnsPerLevel: number;
   turnsPerLevel: number;
   turnsRemaining: number;
+  /** Shared full-width pip capacity; modes with fewer turns occupy the leftmost slots. */
+  turnPipCapacity?: number;
   hasGravity: boolean;
   gravityAngle?: number | undefined;
   /** Angle at the start of the in-progress tilt (GravityState.turnStartAngle) — only meaningful during Aiming. */
@@ -35,6 +37,12 @@ export interface GameHudState {
   isStackMode?: boolean;
   currentStack?: number;
   bestStack?: number;
+  lastStackScore?: {
+    initial: number;
+    chains: ReadonlyArray<{ level: number; cleared: number }>;
+    stack: number;
+    points: number;
+  } | null;
 }
 
 // gravity.ts's angle convention (0 = down, increasing = counterclockwise on
@@ -52,6 +60,9 @@ export class GameHud {
   private readonly level: HTMLElement;
   private readonly turns: HTMLElement;
   private readonly stack: HTMLElement;
+  private readonly stackReceipt: HTMLElement;
+  private readonly stackReceiptTotal: HTMLElement;
+  private readonly stackReceiptBreakdown: HTMLElement;
   private readonly current: HTMLElement;
   private readonly next: HTMLElement;
   private readonly hint: HTMLElement;
@@ -147,8 +158,19 @@ export class GameHud {
     this.hint = document.createElement('p');
     this.hint.className = 'game-hud__hint';
 
+    const status = document.createElement('div');
+    status.className = 'game-hud__status';
+    this.stackReceipt = document.createElement('p');
+    this.stackReceipt.className = 'game-hud__stack-receipt';
+    this.stackReceiptTotal = document.createElement('span');
+    this.stackReceiptTotal.className = 'game-hud__stack-receipt-total';
+    this.stackReceiptBreakdown = document.createElement('span');
+    this.stackReceiptBreakdown.className = 'game-hud__stack-receipt-breakdown';
+    this.stackReceipt.append(this.stackReceiptTotal, this.stackReceiptBreakdown);
+    status.append(this.stackReceipt, this.hint);
+
     top.append(this.gravity);
-    bottom.append(queue, this.hint);
+    bottom.append(queue, status);
     this.root.append(top, bottom);
     (container ?? document.querySelector<HTMLElement>('.game-stage') ?? document.body).append(this.root);
   }
@@ -162,18 +184,40 @@ export class GameHud {
     if (state.isStackMode) {
       this.stack.textContent = `Stack ${state.currentStack ?? 0} / Best ${state.bestStack ?? 0}`;
       this.stack.hidden = false;
+      const receipt = state.lastStackScore;
+      if (receipt) {
+        this.stackReceiptTotal.textContent = `Last stack: ${receipt.stack} cleared · +${receipt.points.toLocaleString('en-US')}`;
+        this.stackReceiptBreakdown.textContent = receipt.chains.length === 0
+          ? `${receipt.initial} initial · no chain`
+          : `${receipt.initial} initial + ${receipt.chains.map((batch, index) => {
+            const label = receipt.chains.length === 1 || index === 0
+              ? `chain ${batch.level}`
+              : `C${batch.level}`;
+            return `${batch.cleared} on ${label}`;
+          }).join(' + ')}`;
+        this.stackReceipt.hidden = false;
+      } else {
+        this.stackReceiptTotal.textContent = '';
+        this.stackReceiptBreakdown.textContent = '';
+        this.stackReceipt.hidden = true;
+      }
     } else {
       this.stack.textContent = '';
       this.stack.hidden = true;
+      this.stackReceiptTotal.textContent = '';
+      this.stackReceiptBreakdown.textContent = '';
+      this.stackReceipt.hidden = true;
     }
     const turnsRemaining = Math.max(0, state.turnsRemaining);
     const turnsTotal = Math.max(0, state.turnsPerLevel);
     const turnsScale = Math.max(turnsTotal, state.initialTurnsPerLevel);
+    const pipCapacity = Math.max(turnsScale, Math.floor(state.turnPipCapacity ?? turnsScale));
     this.turns.replaceChildren();
     this.turns.append(`Turn ${turnsRemaining} / ${turnsTotal}`);
     const pips = document.createElement('span');
     pips.className = 'game-hud__pips';
     pips.setAttribute('aria-hidden', 'true');
+    pips.style.gridTemplateColumns = `repeat(${pipCapacity}, minmax(0, 1fr))`;
     for (let index = 0; index < turnsTotal; index++) {
       const pip = document.createElement('i');
       pip.className = `game-hud__pip${index < turnsRemaining ? ' game-hud__pip--remaining' : ''}`;
