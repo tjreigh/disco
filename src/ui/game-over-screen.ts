@@ -1,6 +1,7 @@
 import type { GameStats } from '../game/stats.js';
 import type { GameOverReason } from '../game/engine.js';
 import { blurOnClick } from './dom-utils.js';
+import { ModalController } from './modal-controller.js';
 
 export interface GameOverSummary {
   score: number;
@@ -24,11 +25,15 @@ export class GameOverScreen {
   private readonly average: HTMLElement;
   private readonly newGameButton: HTMLButtonElement;
   private readonly homeButton: HTMLButtonElement;
+  private readonly modal: ModalController;
 
   onRequestNewGame?: () => void;
   onRequestHome?: () => void;
 
-  constructor() {
+  constructor(
+    mount: HTMLElement = document.body,
+    modalBackground: readonly HTMLElement[] = [],
+  ) {
     this.overlay = document.createElement('section');
     this.overlay.className = 'game-over-screen';
     this.overlay.setAttribute('role', 'dialog');
@@ -92,8 +97,12 @@ export class GameOverScreen {
       actions,
     );
     this.overlay.append(panel);
-    this.overlay.addEventListener('keydown', event => this.keepFocusInside(event));
-    document.body.append(this.overlay);
+    mount.append(this.overlay);
+    this.modal = new ModalController(this.overlay, {
+      openClass: 'game-over-screen--open',
+      initialFocus: () => this.newGameButton,
+      inertTargets: modalBackground,
+    });
   }
 
   open({
@@ -135,17 +144,11 @@ export class GameOverScreen {
     this.runRecord.hidden = bestRunRecord <= 0;
     this.records.textContent = `High ${stats.highScore.toLocaleString('en-US')} · ${recordLabel} ${stats.longestStreak.toLocaleString('en-US')}`;
     this.average.textContent = `Average ${stats.averageScore.toLocaleString('en-US')} over ${stats.gamesPlayed.toLocaleString('en-US')} game${stats.gamesPlayed === 1 ? '' : 's'}`;
-    this.overlay.classList.add('game-over-screen--open');
-    this.overlay.setAttribute('aria-hidden', 'false');
-    this.newGameButton.focus();
+    this.modal.open();
   }
 
   close(): void {
-    this.overlay.classList.remove('game-over-screen--open');
-    this.overlay.setAttribute('aria-hidden', 'true');
-    if (this.overlay.contains(document.activeElement)) {
-      (document.activeElement as HTMLElement).blur();
-    }
+    this.modal.close();
   }
 
   private createButton(label: string, modifier: string, onClick: () => void): HTMLButtonElement {
@@ -164,16 +167,4 @@ export class GameOverScreen {
     return highlight;
   }
 
-  private keepFocusInside(event: KeyboardEvent): void {
-    if (event.key !== 'Tab') return;
-    const first = this.newGameButton;
-    const last = this.homeButton;
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
 }

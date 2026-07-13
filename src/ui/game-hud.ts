@@ -59,6 +59,8 @@ export class GameHud {
   private readonly score: HTMLElement;
   private readonly level: HTMLElement;
   private readonly turns: HTMLElement;
+  private readonly turnsLabel: HTMLElement;
+  private readonly turnPips: HTMLElement;
   private readonly stack: HTMLElement;
   private readonly stackReceipt: HTMLElement;
   private readonly stackReceiptTotal: HTMLElement;
@@ -71,6 +73,9 @@ export class GameHud {
   private readonly gravityArc: SVGPathElement;
   private readonly gravityArrow: SVGLineElement;
   private readonly gravityArrowhead: SVGPolygonElement;
+  private turnsRenderKey = '';
+  private currentDiscRenderKey = '';
+  private nextDiscRenderKey = '';
 
   constructor(container?: HTMLElement | null) {
     this.root = document.createElement('section');
@@ -85,6 +90,11 @@ export class GameHud {
     this.score = this.makeValue('Score', 'game-hud__score');
     this.level = this.makeValue('Level', 'game-hud__level');
     this.turns = this.makeValue('Turns remaining', 'game-hud__turns');
+    this.turnsLabel = document.createElement('span');
+    this.turnPips = document.createElement('span');
+    this.turnPips.className = 'game-hud__pips';
+    this.turnPips.setAttribute('aria-hidden', 'true');
+    this.turns.append(this.turnsLabel, this.turnPips);
     this.stack = this.makeValue('Stack', 'game-hud__stack');
     summary.append(this.score, this.stack, this.turns, this.level);
 
@@ -212,25 +222,33 @@ export class GameHud {
     const turnsTotal = Math.max(0, state.turnsPerLevel);
     const turnsScale = Math.max(turnsTotal, state.initialTurnsPerLevel);
     const pipCapacity = Math.max(turnsScale, Math.floor(state.turnPipCapacity ?? turnsScale));
-    this.turns.replaceChildren();
-    this.turns.append(`Turn ${turnsRemaining} / ${turnsTotal}`);
-    const pips = document.createElement('span');
-    pips.className = 'game-hud__pips';
-    pips.setAttribute('aria-hidden', 'true');
-    pips.style.gridTemplateColumns = `repeat(${pipCapacity}, minmax(0, 1fr))`;
-    for (let index = 0; index < turnsTotal; index++) {
-      const pip = document.createElement('i');
-      pip.className = `game-hud__pip${index < turnsRemaining ? ' game-hud__pip--remaining' : ''}`;
-      pips.append(pip);
+    const turnsRenderKey = `${turnsRemaining}:${turnsTotal}:${turnsScale}:${pipCapacity}`;
+    if (turnsRenderKey !== this.turnsRenderKey) {
+      this.turnsRenderKey = turnsRenderKey;
+      this.turnsLabel.textContent = `Turn ${turnsRemaining} / ${turnsTotal}`;
+      this.turnPips.replaceChildren();
+      this.turnPips.style.gridTemplateColumns = `repeat(${pipCapacity}, minmax(0, 1fr))`;
+      for (let index = 0; index < turnsTotal; index++) {
+        const pip = document.createElement('i');
+        pip.className = `game-hud__pip${index < turnsRemaining ? ' game-hud__pip--remaining' : ''}`;
+        this.turnPips.append(pip);
+      }
+      for (let index = turnsTotal; index < turnsScale; index++) {
+        const pip = document.createElement('i');
+        pip.className = 'game-hud__pip game-hud__pip--placeholder';
+        this.turnPips.append(pip);
+      }
     }
-    for (let index = turnsTotal; index < turnsScale; index++) {
-      const pip = document.createElement('i');
-      pip.className = 'game-hud__pip game-hud__pip--placeholder';
-      pips.append(pip);
+    const currentDiscRenderKey = `${state.currentDisc.id}:${state.currentDisc.kind}:${state.currentDisc.value}`;
+    if (currentDiscRenderKey !== this.currentDiscRenderKey) {
+      this.currentDiscRenderKey = currentDiscRenderKey;
+      this.renderDisc(this.current, state.currentDisc, 'Current disc');
     }
-    this.turns.append(pips);
-    this.renderDisc(this.current, state.currentDisc, 'Current disc');
-    this.renderDisc(this.next, state.nextDisc, 'Next disc');
+    const nextDiscRenderKey = `${state.nextDisc.id}:${state.nextDisc.kind}:${state.nextDisc.value}`;
+    if (nextDiscRenderKey !== this.nextDiscRenderKey) {
+      this.nextDiscRenderKey = nextDiscRenderKey;
+      this.renderDisc(this.next, state.nextDisc, 'Next disc');
+    }
 
     if (state.hasGravity) {
       const angle = state.gravityAngle ?? 0;

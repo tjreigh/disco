@@ -1,0 +1,33 @@
+:root { --game-controls-height: 72px; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; }
+body {
+  background: #1a1a2e;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow: hidden;
+  font-family: system-ui, sans-serif;
+}
+.app-root {
+  width: 100%;
+  height: 100%;
+}
+.ui-overlay-layer,
+.ui-utility-layer { display: contents; }
+.app-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  background: #1a1a2e;
+}
+.shell-region {
+  min-height: 0;
+  pointer-events: none;
+}
+.shell-region--top {
+  min-height: env(safe-area-inset-top);
+}

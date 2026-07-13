@@ -185,7 +185,11 @@ export class DebugPanel {
   private issueNote = '';
   private readonly flags = new Map<string, string>();
 
-  constructor(private readonly state: GameState, access: DebugPanelAccess = resolveDebugPanelAccess()) {
+  constructor(
+    private readonly state: GameState,
+    access: DebugPanelAccess = resolveDebugPanelAccess(),
+    mount: HTMLElement = document.body,
+  ) {
     this.access = access;
 
     const toggle = document.createElement('button');
@@ -210,7 +214,7 @@ export class DebugPanel {
     this.content = document.createElement('div');
     this.content.className = 'debug-content';
     this.panel.append(header, this.content);
-    document.body.append(toggle, this.panel);
+    mount.append(toggle, this.panel);
 
     const setOpen = (open: boolean): void => {
       this.panel.classList.toggle('debug-panel--open', open);

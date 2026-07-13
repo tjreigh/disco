@@ -1,0 +1,238 @@
+.game-menu {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  display: grid;
+  place-items: center;
+  padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+  background: rgba(10, 16, 32, .72);
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 120ms ease-out, visibility 0s linear 120ms;
+}
+.game-menu--open {
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+  transition: opacity 120ms ease-out;
+}
+.game-menu-panel {
+  width: min(280px, 88vw);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid #486581;
+  border-radius: 8px;
+  background: #102a43;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, .45);
+}
+.game-menu-panel h2 {
+  margin-bottom: 4px;
+  color: #f0f4f8;
+  font-size: 18px;
+  letter-spacing: .12em;
+  text-align: center;
+}
+.game-menu-button {
+  min-height: 42px;
+  border: 1px solid #486581;
+  border-radius: 5px;
+  padding: 9px 12px;
+  background: #0b2034;
+  color: #d9e2ec;
+  font: 700 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .08em;
+  cursor: pointer;
+}
+.game-menu-button:hover { border-color: #62b0e8; background: #16324f; }
+.game-over-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: grid;
+  place-items: center;
+  padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+  background: rgba(10, 16, 32, .9);
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 150ms ease-out, visibility 0s linear 150ms;
+}
+.game-over-screen--open {
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+  transition: opacity 150ms ease-out;
+}
+.game-over-panel {
+  width: min(360px, 92vw);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 28px 24px 24px;
+  border: 1px solid #486581;
+  border-radius: 12px;
+  background: #102a43;
+  color: #f0f4f8;
+  text-align: center;
+  box-shadow: 0 22px 54px rgba(0, 0, 0, .5);
+}
+.game-over-panel h2 {
+  font-size: 30px;
+  letter-spacing: .1em;
+}
+.game-over-highlights {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+.game-over-highlights[hidden],
+.game-over-score-context[hidden],
+.game-over-run-record[hidden] { display: none; }
+.game-over-highlight {
+  border: 1px solid #ffd166;
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: rgba(255, 209, 102, .12);
+  color: #ffe29a;
+  font: 800 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .09em;
+  animation: game-over-highlight-in 420ms cubic-bezier(.2, .8, .2, 1) both;
+}
+@keyframes game-over-highlight-in {
+  from { opacity: 0; transform: translateY(5px) scale(.94); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.game-over-score {
+  margin-top: 2px;
+  color: #fff;
+  font-size: 24px;
+  font-weight: 700;
+}
+.game-over-score-context {
+  color: #ffe29a;
+  font-size: 12px;
+  font-weight: 700;
+}
+.game-over-run-summary {
+  width: 100%;
+  margin: 6px 0 2px;
+  border-block: 1px solid #334e68;
+  padding: 10px 0;
+}
+.game-over-reason {
+  color: #d9e2ec;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.game-over-run-record {
+  margin-top: 4px;
+  color: #9ecdf0;
+  font-size: 12px;
+  font-weight: 700;
+}
+.game-over-records,
+.game-over-average {
+  color: #9fb3c8;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.game-over-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  width: 100%;
+  margin-top: 12px;
+}
+.game-over-button {
+  min-height: 46px;
+  border: 1px solid #486581;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #0b2034;
+  color: #d9e2ec;
+  font: 700 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .08em;
+  cursor: pointer;
+}
+.game-over-button:hover,
+.game-over-button:focus-visible { border-color: #62b0e8; background: #16324f; }
+.game-over-button--primary {
+  border-color: #62b0e8;
+  background: #1769aa;
+  color: #fff;
+}
+.game-over-button--primary:hover,
+.game-over-button--primary:focus-visible { background: #1e7bc4; }
+@media (prefers-reduced-motion: reduce) {
+  .game-over-highlight { animation: none; }
+}
+@media (max-width: 360px) {
+  .game-over-actions { grid-template-columns: 1fr; }
+}
+.tutorial-overlay {
+  position: fixed;
+  left: 50%;
+  bottom: calc(max(10px, env(safe-area-inset-bottom)) + var(--game-controls-height));
+  z-index: 25;
+  width: min(420px, calc(100vw - 20px));
+  padding: 10px 12px;
+  border: 1px solid #486581;
+  border-radius: 8px;
+  background: rgba(16, 42, 67, .96);
+  color: #d9e2ec;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .35);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 8px);
+  visibility: hidden;
+  transition: opacity 120ms ease-out, transform 120ms ease-out, visibility 0s linear 120ms;
+}
+.tutorial-overlay--visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+  visibility: visible;
+  transition: opacity 120ms ease-out, transform 120ms ease-out;
+}
+.tutorial-eyebrow {
+  color: #62b0e8;
+  font: 700 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.tutorial-title {
+  margin-top: 3px;
+  color: #f0f4f8;
+  font-size: 15px;
+  font-weight: 700;
+}
+.tutorial-prompt {
+  margin-top: 3px;
+  color: #bcccdc;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.tutorial-overlay--aiming .tutorial-prompt { color: #9ecdf0; }
+.tutorial-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 9px;
+}
+.tutorial-button {
+  border: 1px solid #486581;
+  border-radius: 5px;
+  padding: 6px 9px;
+  background: #0b2034;
+  color: #d9e2ec;
+  font: 700 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .08em;
+  cursor: pointer;
+}
+.tutorial-button:hover { border-color: #62b0e8; background: #16324f; }

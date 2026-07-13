@@ -2,16 +2,15 @@ import type { GameModeConfig } from '../game/modes/mode.js';
 import type { GameStats } from '../game/stats.js';
 import type { AccountStatsState } from '../platform/account-stats-store.js';
 import { blurOnClick } from './dom-utils.js';
+import { ModalController } from './modal-controller.js';
 
 export interface SavedGameSummary {
   modeName: string;
   score: number;
 }
 
-// DOM overlay for mode selection, following the same plain-DOM construction
-// pattern as DebugPanel (document.createElement, no framework). Covers the
-// canvas entirely while open; the canvas's own pointer listeners never fire
-// underneath it because the overlay sits on top with position: fixed.
+// DOM overlay for mode selection. It mounts into the shared UI layer and
+// covers the canvas entirely while open.
 export class HomeScreen {
   private readonly overlay: HTMLElement;
   private readonly authBar: HTMLElement;
@@ -21,7 +20,8 @@ export class HomeScreen {
   private readonly menuButton: HTMLButtonElement;
   private readonly gameMenu: HTMLElement;
   private readonly soundButton: HTMLButtonElement;
-  private gameMenuOpen = false;
+  private readonly gameMenuModal: ModalController;
+  private readonly homePriorInert = new Map<HTMLElement, boolean>();
 
   // Set by Game after construction, avoiding a constructor-time forward
   // reference to a not-yet-defined method.
@@ -40,10 +40,13 @@ export class HomeScreen {
     private readonly getAuthState: () => AccountStatsState,
     private readonly onLogin: () => void,
     private readonly onLogout: () => void,
+    private readonly mount: HTMLElement = document.body,
+    private readonly modalBackground: readonly HTMLElement[] = [],
   ) {
     this.overlay = document.createElement('div');
     this.overlay.className = 'home-screen';
     this.overlay.setAttribute('aria-label', 'Disco home screen');
+    this.overlay.setAttribute('aria-hidden', 'true');
 
     const title = document.createElement('h1');
     title.className = 'home-title';
@@ -72,18 +75,21 @@ export class HomeScreen {
     this.savedGameAction.append(savedGameButton, this.savedGameContext);
 
     this.overlay.append(title, this.authBar, this.savedGameAction, this.cardsContainer);
-    document.body.append(this.overlay);
+    this.mount.append(this.overlay);
 
     this.menuButton = document.createElement('button');
     this.menuButton.type = 'button';
     this.menuButton.className = 'home-back-button';
     this.menuButton.textContent = 'MENU';
+    this.menuButton.setAttribute('aria-hidden', 'true');
     this.menuButton.addEventListener('click', () => this.onRequestGameMenu?.());
     blurOnClick(this.menuButton);
 
     this.gameMenu = document.createElement('div');
     this.gameMenu.className = 'game-menu';
     this.gameMenu.setAttribute('aria-label', 'Game menu');
+    this.gameMenu.setAttribute('role', 'dialog');
+    this.gameMenu.setAttribute('aria-modal', 'true');
 
     const panel = document.createElement('div');
     panel.className = 'game-menu-panel';
@@ -98,7 +104,14 @@ export class HomeScreen {
 
     panel.append(menuTitle, resumeButton, restartButton, this.soundButton, homeButton);
     this.gameMenu.append(panel);
-    document.body.append(this.menuButton, this.gameMenu);
+    this.mount.append(this.menuButton, this.gameMenu);
+    this.gameMenuModal = new ModalController(this.gameMenu, {
+      openClass: 'game-menu--open',
+      initialFocus: () => resumeButton,
+      inertTargets: this.modalBackground,
+      onEscape: () => this.onRequestResume?.(),
+      restoreFocus: false,
+    });
 
     this.renderCards();
     this.renderAuth();
@@ -108,30 +121,36 @@ export class HomeScreen {
     this.renderCards(); // refresh per-mode high scores every time the menu opens
     this.closeGameMenu();
     this.overlay.classList.add('home-screen--open');
+    this.overlay.setAttribute('aria-hidden', 'false');
     this.menuButton.classList.remove('home-back-button--visible');
+    this.menuButton.setAttribute('aria-hidden', 'true');
+    this.setBackgroundInert(true);
   }
 
   close(): void {
     this.overlay.classList.remove('home-screen--open');
+    this.overlay.setAttribute('aria-hidden', 'true');
     this.menuButton.classList.add('home-back-button--visible');
+    this.menuButton.setAttribute('aria-hidden', 'false');
+    this.setBackgroundInert(false);
   }
 
   openGameMenu(): void {
-    this.gameMenuOpen = true;
-    this.gameMenu.classList.add('game-menu--open');
+    this.gameMenuModal.open();
     this.menuButton.classList.remove('home-back-button--visible');
+    this.menuButton.setAttribute('aria-hidden', 'true');
   }
 
   closeGameMenu(): void {
-    this.gameMenuOpen = false;
-    this.gameMenu.classList.remove('game-menu--open');
+    this.gameMenuModal.close();
     if (!this.overlay.classList.contains('home-screen--open')) {
       this.menuButton.classList.add('home-back-button--visible');
+      this.menuButton.setAttribute('aria-hidden', 'false');
     }
   }
 
   isGameMenuOpen(): boolean {
-    return this.gameMenuOpen;
+    return this.gameMenuModal.isOpen();
   }
 
   setSoundEnabled(enabled: boolean): void {
@@ -194,6 +213,20 @@ export class HomeScreen {
     button.addEventListener('click', onClick);
     blurOnClick(button);
     return button;
+  }
+
+  private setBackgroundInert(inert: boolean): void {
+    if (inert) {
+      const siblings = Array.from(this.mount.children)
+        .filter((element): element is HTMLElement => element instanceof HTMLElement && element !== this.overlay);
+      for (const element of new Set([...this.modalBackground, ...siblings])) {
+        if (!this.homePriorInert.has(element)) this.homePriorInert.set(element, element.inert);
+        element.inert = true;
+      }
+      return;
+    }
+    for (const [element, wasInert] of this.homePriorInert) element.inert = wasInert;
+    this.homePriorInert.clear();
   }
 
   private renderCards(): void {

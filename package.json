@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc && cp index.html public/index.html",
+    "build": "tsc && cp index.html public/index.html && mkdir -p public/styles && cp styles/*.css public/styles/",
     "watch": "tsc --watch",
     "serve": "npx --yes serve public -l 3000",
     "dev": "tsc --watch & npx --yes serve public -l 3000",

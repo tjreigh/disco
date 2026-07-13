@@ -52,6 +52,26 @@ describe('GameHud', () => {
     expect(doubleCracked.querySelectorAll('.game-hud__disc-crack')).toHaveLength(2);
   });
 
+  test('keeps unchanged turn and queue DOM stable across animation frames', () => {
+    const hud = new GameHud();
+    const state = {
+      phase: GamePhase.WaitingForDrop, score: 10,
+      currentDisc: disc(2), nextDisc: disc(5),
+      level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 28,
+      hasGravity: false,
+    };
+    hud.render(state);
+    const pips = hud.root.querySelector('.game-hud__pips')!;
+    const firstPip = pips.firstElementChild;
+    const currentDisc = hud.root.querySelector('.game-hud__disc-slot .game-hud__disc');
+
+    hud.render({ ...state, score: 11 });
+
+    expect(hud.root.querySelector('.game-hud__pips')).toBe(pips);
+    expect(pips.firstElementChild).toBe(firstPip);
+    expect(hud.root.querySelector('.game-hud__disc-slot .game-hud__disc')).toBe(currentDisc);
+  });
+
   test('updates Gravity aiming status and hides in Menu', () => {
     const hud = new GameHud();
     hud.render({

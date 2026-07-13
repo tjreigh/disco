@@ -33,6 +33,7 @@ import { TutorialOverlay } from '../ui/tutorial-overlay.js';
 import { GameControls } from '../ui/game-controls.js';
 import { GameHud } from '../ui/game-hud.js';
 import { LocalSaveStore } from '../platform/local-save-store.js';
+import type { UiMounts } from '../ui/ui-root.js';
 
 interface LevelProgressDisplay {
   level: number;
@@ -97,7 +98,14 @@ export class Game {
   private activeTutorial: TutorialDefinition | null = null;
   private tutorialStepIndex = 0;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, mounts?: UiMounts) {
+    const stageMount = mounts?.stage ?? canvas.parentElement ?? document.body;
+    const controlsMount = mounts?.controls
+      ?? document.querySelector<HTMLElement>('.shell-region--bottom')
+      ?? document.body;
+    const overlayMount = mounts?.overlays ?? document.body;
+    const utilityMount = mounts?.utilities ?? document.body;
+    const modalBackground = mounts?.modalBackground ?? [];
     this.renderer = new Renderer(canvas);
     this.audio    = new AudioManager();
     this.mode     = CLASSIC_MODE; // placeholder until a mode is chosen on the home screen
@@ -105,10 +113,10 @@ export class Game {
     this.state    = this.engine.state;
     this.state.phase = GamePhase.Menu; // suppress gameplay until a mode is selected
     this.displayedLevelProgress = this.snapshotLevelProgress();
-    this.debug    = new DebugPanel(this.state);
-    this.tutorialOverlay = new TutorialOverlay();
-    this.gameControls = new GameControls(intent => this.handleIntent(intent));
-    this.gameHud = new GameHud();
+    this.debug    = new DebugPanel(this.state, undefined, utilityMount);
+    this.tutorialOverlay = new TutorialOverlay(overlayMount);
+    this.gameControls = new GameControls(intent => this.handleIntent(intent), controlsMount);
+    this.gameHud = new GameHud(stageMount);
     this.visualBoard = makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
     this.statsStore = new AccountStatsStore(GAME_MODES);
     this.saveStore = new LocalSaveStore(GAME_MODES);
@@ -122,8 +130,10 @@ export class Game {
       () => this.statsStore.getState(),
       () => this.statsStore.login(),
       () => void this.statsStore.logout(),
+      overlayMount,
+      modalBackground,
     );
-    this.gameOverScreen = new GameOverScreen();
+    this.gameOverScreen = new GameOverScreen(overlayMount, modalBackground);
     this.homeScreen.onRequestGameMenu = () => this.openGameMenu();
     this.homeScreen.onRequestResume = () => this.resumeGame();
     this.homeScreen.onRequestRestart = () => this.restart();

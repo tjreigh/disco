@@ -17,7 +17,7 @@ export class TutorialOverlay {
   onExit?: () => void;
   onContinue?: () => void;
 
-  constructor() {
+  constructor(mount: HTMLElement = document.body) {
     this.root = document.createElement('div');
     this.root.className = 'tutorial-overlay';
     this.root.setAttribute('aria-live', 'polite');
@@ -45,7 +45,7 @@ export class TutorialOverlay {
     actions.append(this.retryButton, this.exitButton);
 
     this.root.append(this.eyebrow, this.title, this.prompt, actions);
-    document.body.append(this.root);
+    mount.append(this.root);
   }
 
   show(definition: TutorialDefinition, index: number): void {

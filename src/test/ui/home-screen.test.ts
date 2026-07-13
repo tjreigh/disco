@@ -34,6 +34,8 @@ function createHome(options: {
   onSelectMode?: (mode: GameModeConfig) => void;
   onLogin?: () => void;
   onLogout?: () => void;
+  mount?: HTMLElement;
+  modalBackground?: readonly HTMLElement[];
 } = {}): HomeScreen {
   return new HomeScreen(
     [CLASSIC_MODE, GRAVITY_MODE, STACK_MODE],
@@ -42,6 +44,8 @@ function createHome(options: {
     () => options.authState ?? auth(),
     options.onLogin ?? vi.fn(),
     options.onLogout ?? vi.fn(),
+    options.mount,
+    options.modalBackground,
   );
 }
 
@@ -169,6 +173,40 @@ describe('HomeScreen', () => {
 
     home.closeGameMenu();
     expect(home.isGameMenuOpen()).toBe(false);
+  });
+
+  test('isolates the active home and game-menu layers from background UI', () => {
+    const background = document.createElement('main');
+    const mount = document.createElement('div');
+    const peerOverlay = document.createElement('aside');
+    peerOverlay.inert = true;
+    mount.append(peerOverlay);
+    document.body.append(background, mount);
+    const home = createHome({ mount, modalBackground: [background] });
+    const overlay = mount.querySelector<HTMLElement>('.home-screen')!;
+    const menuButton = mount.querySelector<HTMLElement>('.home-back-button')!;
+
+    home.open();
+    expect(overlay.getAttribute('aria-hidden')).toBe('false');
+    expect(background.inert).toBe(true);
+    expect(peerOverlay.inert).toBe(true);
+
+    home.close();
+    expect(overlay.getAttribute('aria-hidden')).toBe('true');
+    expect(menuButton.getAttribute('aria-hidden')).toBe('false');
+    expect(background.inert).toBe(false);
+    expect(peerOverlay.inert).toBe(true);
+
+    const onResume = vi.fn(() => home.closeGameMenu());
+    home.onRequestResume = onResume;
+    menuButton.focus();
+    home.openGameMenu();
+    const menu = mount.querySelector<HTMLElement>('.game-menu')!;
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(onResume).toHaveBeenCalledOnce();
+    expect(background.inert).toBe(false);
+    expect(overlay.inert).toBe(false);
+    expect(document.activeElement).not.toBe(menuButton);
   });
 
   test('clicking the play button hands focus back so game keys stay alive', () => {
