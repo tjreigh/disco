@@ -69,7 +69,7 @@ export class SavedGameDialog {
       resume,
       this.createButton('START NEW GAME', false, () => {
         this.finish(() => this.onStartNew?.());
-      }),
+      }, true),
       this.createButton('CANCEL', false, () => this.cancel()),
     );
     this.panel.append(summary, actions);
@@ -114,7 +114,7 @@ export class SavedGameDialog {
     }
     const startNew = this.createButton('START NEW GAME', primary === null, () => {
       this.finish(() => this.onStartNew?.());
-    });
+    }, true);
     primary ??= startNew;
     actions.append(startNew, this.createButton('CANCEL', false, () => this.cancel()));
 
@@ -143,7 +143,7 @@ export class SavedGameDialog {
     }
     const startNew = this.createButton('START NEW GAME', primary === null, () => {
       this.finish(() => this.onStartNew?.());
-    });
+    }, true);
     primary ??= startNew;
     actions.append(startNew, this.createButton('CANCEL', false, () => this.cancel()));
     this.panel.append(notice, actions);
@@ -255,10 +255,15 @@ export class SavedGameDialog {
     label: string,
     primary: boolean,
     onClick: () => void,
+    destructive = false,
   ): HTMLButtonElement {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = `saved-game-dialog__button${primary ? ' saved-game-dialog__button--primary' : ''}`;
+    button.className = [
+      'saved-game-dialog__button',
+      primary ? 'saved-game-dialog__button--primary' : '',
+      destructive ? 'saved-game-dialog__button--destructive' : '',
+    ].filter(Boolean).join(' ');
     button.textContent = label;
     button.addEventListener('click', onClick);
     return button;

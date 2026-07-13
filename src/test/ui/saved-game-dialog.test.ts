@@ -104,6 +104,7 @@ describe('SavedGameDialog', () => {
     dialog.showSave(STACK_MODE, savedGame({ modeId: 'stack', longestStreak: 8 }));
     expect(root().textContent).toContain('Best stack8');
     expect(root().textContent).not.toContain('Longest streak');
+    expect(button('START NEW GAME').classList).toContain('saved-game-dialog__button--destructive');
     button('START NEW GAME').click();
     expect(onStartNew).toHaveBeenCalledTimes(1);
 
@@ -128,6 +129,7 @@ describe('SavedGameDialog', () => {
     expect(root().textContent).toContain('Cloud Save');
     expect(root().textContent).toContain('14,200');
     expect(root().textContent).toContain('11,800');
+    expect(button('START NEW GAME').classList).toContain('saved-game-dialog__button--destructive');
     expect(document.activeElement).toBe(button('USE THIS DEVICE'));
     button('USE THIS DEVICE').click();
     expect(onChooseLocal).toHaveBeenCalledWith(local);
@@ -169,6 +171,7 @@ describe('SavedGameDialog', () => {
     expect(root().textContent).toContain('CLASSIC SAVE UNAVAILABLE');
     expect(root().textContent).toContain('cloud save is incompatible');
     expect(root().textContent).toContain('Starting a new game will replace this saved game.');
+    expect(button('START NEW GAME').classList).toContain('saved-game-dialog__button--destructive');
     expect(document.activeElement).toBe(button('START NEW GAME'));
     button('CANCEL').click();
     expect(onStartNew).not.toHaveBeenCalled();

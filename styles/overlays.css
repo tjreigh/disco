@@ -371,6 +371,16 @@
 }
 .saved-game-dialog__button--primary:hover,
 .saved-game-dialog__button--primary:focus-visible { background: #1e7bc4; }
+.saved-game-dialog__button--destructive {
+  border-color: #b86f52;
+  background: #492a24;
+  color: #ffe0d2;
+}
+.saved-game-dialog__button--destructive:hover,
+.saved-game-dialog__button--destructive:focus-visible {
+  border-color: #d58a69;
+  background: #60352c;
+}
 @media (max-width: 520px) {
   .saved-game-dialog__panel { padding: 22px 16px 18px; }
   .saved-game-dialog__comparison { grid-template-columns: 1fr; }
