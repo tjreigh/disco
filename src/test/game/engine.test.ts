@@ -316,6 +316,102 @@ describe('GameEngine', () => {
     expect(engine.state.board[6]![1]).not.toBeNull();
   });
 
+  test('a clear caused by the level-end push continues the turn chain', () => {
+    const oneTurnMode: GameModeConfig = {
+      ...CLASSIC_MODE,
+      id: 'level-boundary-chain-mode',
+      initialTurnsPerLevel: 1,
+      turnsPerLevelStep: 0,
+      minTurnsPerLevel: 1,
+    };
+    const board = makeEmptyBoard();
+    // The dropped 1 clears immediately. The isolated 2 survives that scan,
+    // then the pushed cracked row makes its column two discs tall.
+    placeDisc(board, 6, 6, makeDisc(2, DiscKind.Numbered));
+    const engine = new GameEngine({ mode: oneTurnMode });
+    engine.loadScriptedState({
+      mode: oneTurnMode,
+      board,
+      currentDisc: makeDisc(1, DiscKind.Numbered),
+      nextDisc: makeDisc(7, DiscKind.Numbered),
+      turnsRemaining: 1,
+      crackedDiscFactory: doubleCrackedFactory(),
+    });
+
+    const result = engine.drop(1);
+    const clears = result.steps.filter(step => step.kind === StepKind.Clear);
+
+    expect(clears.map(clear => clear.chainLevel)).toEqual([0, 1]);
+    expect(clears.map(clear => clear.pointsAwarded)).toEqual([7, 39]);
+    expect(result.scoreAwarded).toBe(7_046); // both clears + level bonus
+  });
+
+  test('Stack includes a chain continued by the level-end push in its total', () => {
+    const oneTurnStackMode: GameModeConfig = {
+      ...STACK_MODE,
+      id: 'stack-level-boundary-chain-mode',
+      initialTurnsPerLevel: 1,
+      turnsPerLevelStep: 0,
+      minTurnsPerLevel: 1,
+    };
+    const board = makeEmptyBoard();
+    placeDisc(board, 6, 6, makeDisc(2, DiscKind.Numbered));
+    const engine = new GameEngine({ mode: oneTurnStackMode });
+    engine.loadScriptedState({
+      mode: oneTurnStackMode,
+      board,
+      currentDisc: makeDisc(1, DiscKind.Numbered),
+      nextDisc: makeDisc(7, DiscKind.Numbered),
+      turnsRemaining: 1,
+      crackedDiscFactory: doubleCrackedFactory(),
+    });
+
+    const result = engine.drop(1);
+    const clears = result.steps.filter(step => step.kind === StepKind.Clear);
+    const stackBonus = result.steps.find(
+      step => step.kind === StepKind.Bonus && step.bonusKind === 'stack',
+    );
+
+    expect(clears.map(clear => clear.chainLevel)).toEqual([0, 1]);
+    expect(result.stackSize).toBe(2);
+    expect(stackBonus).toMatchObject({ pointsAwarded: 40 });
+    expect(result.scoreAwarded).toBe(7_040); // stack award + level bonus
+  });
+
+  test('Stack scores a level-end push that initiates the turn\'s first clear', () => {
+    const oneTurnStackMode: GameModeConfig = {
+      ...STACK_MODE,
+      id: 'stack-push-initiated-clear-mode',
+      initialTurnsPerLevel: 1,
+      turnsPerLevelStep: 0,
+      minTurnsPerLevel: 1,
+    };
+    const board = makeEmptyBoard();
+    placeDisc(board, 6, 6, makeDisc(2, DiscKind.Numbered));
+    const engine = new GameEngine({ mode: oneTurnStackMode });
+    engine.loadScriptedState({
+      mode: oneTurnStackMode,
+      board,
+      // This 7 does not clear. The level push makes the isolated 2's column
+      // two discs tall, producing the first and only clear of the turn.
+      currentDisc: makeDisc(7, DiscKind.Numbered),
+      nextDisc: makeDisc(7, DiscKind.Numbered),
+      turnsRemaining: 1,
+      crackedDiscFactory: doubleCrackedFactory(),
+    });
+
+    const result = engine.drop(1);
+    const clears = result.steps.filter(step => step.kind === StepKind.Clear);
+    const stackBonus = result.steps.find(
+      step => step.kind === StepKind.Bonus && step.bonusKind === 'stack',
+    );
+
+    expect(clears.map(clear => clear.chainLevel)).toEqual([0]);
+    expect(result.stackSize).toBe(1);
+    expect(stackBonus).toMatchObject({ pointsAwarded: 10 });
+    expect(result.scoreAwarded).toBe(7_010);
+  });
+
   test('a rejected full-column drop leaves the level and turn budget unchanged', () => {
     const board = makeEmptyBoard();
     for (let row = 0; row < 7; row++) {
@@ -335,6 +431,44 @@ describe('GameEngine', () => {
     expect(result).toMatchObject({ accepted: false, reason: 'full-column', gameOver: false });
     expect(engine.state.level).toBe(1);
     expect(engine.state.turnsRemaining).toBe(1);
+  });
+
+  test.each([
+    ['Classic', CLASSIC_MODE],
+    ['Stack', STACK_MODE],
+  ])('%s does not resolve or score clears caused after a terminal push overflow', (_name, baseMode) => {
+    const oneTurnMode: GameModeConfig = {
+      ...baseMode,
+      id: `${baseMode.id}-terminal-push-score-mode`,
+      initialTurnsPerLevel: 1,
+      turnsPerLevelStep: 0,
+      minTurnsPerLevel: 1,
+    };
+    const board = makeEmptyBoard();
+    // The top-edge disc makes the upcoming push fatal. If resolution wrongly
+    // continues afterward, the isolated 2 becomes two cells tall against the
+    // pushed cracked row and awards points despite game over.
+    placeDisc(board, 0, 0, makeDisc(7, DiscKind.DoubleCracked));
+    placeDisc(board, 6, 6, makeDisc(2, DiscKind.Numbered));
+    const engine = new GameEngine({ mode: oneTurnMode });
+    engine.loadScriptedState({
+      mode: oneTurnMode,
+      board,
+      currentDisc: makeDisc(7, DiscKind.Numbered),
+      nextDisc: makeDisc(7, DiscKind.Numbered),
+      score: 123,
+      turnsRemaining: 1,
+      crackedDiscFactory: doubleCrackedFactory(),
+    });
+
+    const result = engine.drop(1);
+
+    expect(result.gameOver).toBe(true);
+    expect(result.steps.some(step => step.kind === StepKind.Push)).toBe(true);
+    expect(result.steps.some(step => step.kind === StepKind.Clear)).toBe(false);
+    expect(result.steps.some(step => step.kind === StepKind.Bonus)).toBe(false);
+    expect(result.scoreAwarded).toBe(0);
+    expect(engine.state.score).toBe(123);
   });
 
   test('reconfigure() switches modes without replacing the state object', () => {

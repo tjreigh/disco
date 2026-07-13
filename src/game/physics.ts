@@ -121,10 +121,10 @@ export function pointsForStack(stackSize: number, pointsPerStackUnit: number): n
 // change the board and so has nothing new to render.
 function resolveClearSteps(
   scratch: Board, mode: GameModeConfig, trace?: PhysicsTrace,
-  settle: SettleFn = applyGravity, angleDeg = 0,
+  settle: SettleFn = applyGravity, angleDeg = 0, startingChainLevel = 0,
 ): PhysicsStep[] {
   const steps: PhysicsStep[] = [];
-  let chainLevel = 0;
+  let chainLevel = startingChainLevel;
 
   while (true) {
     const inspection = inspectClears(scratch, mode, angleDeg);
@@ -179,10 +179,10 @@ function resolveClearSteps(
 /** Resolves clear chains after an in-place board change such as a row push. */
 export function computeClearSteps(
   board: Board, mode: GameModeConfig = CLASSIC_MODE, trace?: PhysicsTrace,
-  settle: SettleFn = applyGravity, angleDeg = 0,
+  settle: SettleFn = applyGravity, angleDeg = 0, startingChainLevel = 0,
 ): PhysicsStep[] {
   const scratch = cloneBoard(board);
-  const steps = resolveClearSteps(scratch, mode, trace, settle, angleDeg);
+  const steps = resolveClearSteps(scratch, mode, trace, settle, angleDeg, startingChainLevel);
   commitBoard(board, scratch);
   return steps;
 }

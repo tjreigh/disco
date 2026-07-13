@@ -34,7 +34,7 @@ export interface TurnResult {
   boardBefore: Board;
   steps: PhysicsStep[];
   scoreAwarded: number;
-  /** Numbered discs cleared by this player drop before any level-end push. */
+  /** Numbered discs cleared while resolving the accepted turn, including level-end push clears. */
   stackSize: number;
   gameOver: boolean;
   trace: PhysicsTrace;
@@ -396,20 +396,20 @@ export class GameEngine {
   private finishTurn(steps: PhysicsStep[], boardBefore: Board, trace: PhysicsTrace): TurnResult {
     this.state.dropCount++;
 
-    // The entry-resolution steps are complete before a level-end push is
-    // appended below. Capture their clears now so forced-push clears cannot
-    // contribute to the player's Stack-mode cascade.
-    const stackSize = steps.reduce(
+    // A level-end push can continue a cascade started by this drop. Preserve
+    // the next chain level so the push-side resolver does not restart at zero.
+    // A push that happens without an entry clear remains an independent clear.
+    const entryStackSize = steps.reduce(
       (total, step) => total + (step.kind === StepKind.Clear ? step.cleared.length : 0),
       0,
     );
-    if (this.mode.scoring.kind === 'stack' && stackSize > 0) {
-      steps.push({
-        kind: StepKind.Bonus,
-        bonusKind: 'stack',
-        pointsAwarded: pointsForStack(stackSize, this.mode.scoring.pointsPerStackUnit),
-      });
-    }
+    const nextChainLevel = steps.reduce(
+      (next, step) => step.kind === StepKind.Clear
+        ? Math.max(next, step.chainLevel + 1)
+        : next,
+      0,
+    );
+    let pushStackSize = 0;
 
     // A turn is consumed as soon as its drop resolves, so a push (triggered
     // below when this exhausts the level's budget) sees the correct count.
@@ -430,16 +430,39 @@ export class GameEngine {
       trace.frames.push({ label: 'Push new cracked row', board: deepCloneBoard(this.state.board) });
       pushOverflow = push.gameOver;
 
-      // The new row/column increases every lane's count along the push axis.
-      // Resolve any matches now so they are visibly caused by the push
-      // instead of disappearing on a later, unrelated drop.
-      if (this.state.gravity) {
-        steps.push(...computeClearSteps(
-          this.state.board, this.mode, trace, b => settleContinuous(b, pushAngle), pushAngle,
-        ));
-      } else {
-        steps.push(...computeClearSteps(this.state.board, this.mode, trace));
+      // Overflow is terminal at the instant the push discards an occupied
+      // entry-edge cell. Keep the fatal Push step for playback, but do not
+      // resolve or score changes on a board that is already game over.
+      if (!pushOverflow) {
+        // The new row/column increases every lane's count along the push axis.
+        // Resolve any matches now so they are visibly caused by the push
+        // instead of disappearing on a later, unrelated drop.
+        const pushClearSteps = this.state.gravity
+          ? computeClearSteps(
+            this.state.board, this.mode, trace, b => settleContinuous(b, pushAngle), pushAngle,
+            nextChainLevel,
+          )
+          : computeClearSteps(
+            this.state.board, this.mode, trace, undefined, 0, nextChainLevel,
+          );
+        steps.push(...pushClearSteps);
+        pushStackSize = pushClearSteps.reduce(
+          (total, step) => total + (step.kind === StepKind.Clear ? step.cleared.length : 0),
+          0,
+        );
       }
+    }
+
+    // Stack scores every numbered disc cleared while resolving the accepted
+    // turn. A level-boundary push is part of that same resolution, whether it
+    // continues an existing chain or initiates the turn's first clear.
+    const stackSize = entryStackSize + pushStackSize;
+    if (this.mode.scoring.kind === 'stack' && stackSize > 0) {
+      steps.push({
+        kind: StepKind.Bonus,
+        bonusKind: 'stack',
+        pointsAwarded: pointsForStack(stackSize, this.mode.scoring.pointsPerStackUnit),
+      });
     }
 
     if (levelComplete && !pushOverflow) {
