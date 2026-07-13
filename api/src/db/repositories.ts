@@ -37,6 +37,26 @@ export interface AccountModeStats {
   updatedAt: string;
 }
 
+export interface AccountSaveSlot {
+  accountId: string;
+  modeId: string;
+  revision: number;
+  runId: string | null;
+  save: unknown | null;
+  updatedAt: string;
+}
+
+export interface SaveSlotWriteInput {
+  modeId: string;
+  expectedRevision: number;
+  runId: string | null;
+  save: unknown | null;
+}
+
+export type SaveSlotWriteResult =
+  | { ok: true; slot: AccountSaveSlot }
+  | { ok: false; current: AccountSaveSlot | null };
+
 export interface PublicAccount {
   id: string;
   displayName: string | null;
@@ -133,6 +153,25 @@ function mapStats(row: unknown): AccountModeStats {
     gamesPlayed: record.games_played,
     totalScore: record.total_score,
     averageScore: record.average_score,
+    updatedAt: record.updated_at,
+  };
+}
+
+function mapSaveSlot(row: unknown): AccountSaveSlot {
+  const record = row as {
+    account_id: string;
+    mode_id: string;
+    revision: number;
+    run_id: string | null;
+    payload: string | null;
+    updated_at: string;
+  };
+  return {
+    accountId: record.account_id,
+    modeId: record.mode_id,
+    revision: record.revision,
+    runId: record.run_id,
+    save: record.payload === null ? null : JSON.parse(record.payload) as unknown,
     updatedAt: record.updated_at,
   };
 }
@@ -294,6 +333,55 @@ export class Repositories {
       WHERE account_id = ?
       ORDER BY mode_id ASC
     `).all(accountId).map(mapStats);
+  }
+
+  listSaveSlots(accountId: string): AccountSaveSlot[] {
+    return this.db.prepare(`
+      SELECT account_id, mode_id, revision, run_id, payload, updated_at
+      FROM account_save_slots
+      WHERE account_id = ?
+      ORDER BY mode_id ASC
+    `).all(accountId).map(mapSaveSlot);
+  }
+
+  writeSaveSlot(accountId: string, input: SaveSlotWriteInput): SaveSlotWriteResult {
+    const write = this.db.transaction((): SaveSlotWriteResult => {
+      const payload = input.save === null ? null : JSON.stringify(input.save);
+      const result = input.expectedRevision === 0
+        ? this.db.prepare(`
+          INSERT INTO account_save_slots (
+            account_id, mode_id, revision, run_id, payload, updated_at
+          )
+          VALUES (?, ?, 1, ?, ?, datetime('now'))
+          ON CONFLICT(account_id, mode_id) DO NOTHING
+        `).run(accountId, input.modeId, input.runId, payload)
+        : this.db.prepare(`
+          UPDATE account_save_slots
+          SET revision = revision + 1,
+              run_id = ?,
+              payload = ?,
+              updated_at = datetime('now')
+          WHERE account_id = ? AND mode_id = ? AND revision = ?
+        `).run(input.runId, payload, accountId, input.modeId, input.expectedRevision);
+
+      if (result.changes === 0) {
+        const current = this.db.prepare(`
+          SELECT account_id, mode_id, revision, run_id, payload, updated_at
+          FROM account_save_slots
+          WHERE account_id = ? AND mode_id = ?
+        `).get(accountId, input.modeId);
+        return { ok: false, current: current ? mapSaveSlot(current) : null };
+      }
+
+      const saved = this.db.prepare(`
+        SELECT account_id, mode_id, revision, run_id, payload, updated_at
+        FROM account_save_slots
+        WHERE account_id = ? AND mode_id = ?
+      `).get(accountId, input.modeId);
+      return { ok: true, slot: mapSaveSlot(saved) };
+    });
+
+    return write();
   }
 
   upsertStats(accountId: string, input: StatsInput): AccountModeStats {

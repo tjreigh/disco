@@ -232,23 +232,22 @@ describe('HomeScreen', () => {
     }
   });
 
-  test('shows saved-game context and invokes a distinct resume callback', () => {
+  test('disables play while cloud saves are loading without disabling tutorials', () => {
     const home = createHome();
-    const onResumeSavedGame = vi.fn();
-    home.onRequestResumeSavedGame = onResumeSavedGame;
+    home.setSaveLoading(true);
 
-    expect(document.querySelector<HTMLElement>('.home-saved-game')!.hidden).toBe(true);
+    const play = document.querySelector<HTMLButtonElement>('.home-mode-action--play')!;
+    const tutorial = Array.from(document.querySelectorAll<HTMLButtonElement>('.home-mode-action'))
+      .find(button => button.textContent === 'TUTORIAL')!;
+    expect(document.querySelector('.home-saved-game')).toBeNull();
+    expect(play.disabled).toBe(true);
+    expect(play.textContent).toBe('CHECKING SAVES…');
+    expect(tutorial.disabled).toBe(false);
+    expect(play.closest('.home-mode-card')?.getAttribute('aria-disabled')).toBe('true');
 
-    home.setSavedGame({ modeName: 'Gravity', score: 12345 });
-    const action = document.querySelector<HTMLElement>('.home-saved-game')!;
-    expect(action.hidden).toBe(false);
-    expect(action.textContent).toContain('RESUME SAVED GAME');
-    expect(action.textContent).toContain('Gravity · Score 12,345');
-    document.querySelector<HTMLButtonElement>('.home-saved-game-button')!.click();
-    expect(onResumeSavedGame).toHaveBeenCalledTimes(1);
-
-    home.setSavedGame(null);
-    expect(action.hidden).toBe(true);
-    expect(document.querySelector('.home-saved-game-context')!.textContent).toBe('');
+    home.setSaveLoading(false);
+    const enabledPlay = document.querySelector<HTMLButtonElement>('.home-mode-action--play')!;
+    expect(enabledPlay.disabled).toBe(false);
+    expect(enabledPlay.textContent).toBe('PLAY');
   });
 });

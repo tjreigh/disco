@@ -1,4 +1,5 @@
 import type { GameStats } from '../game/stats.js';
+import type { SaveGameV1 } from '../game/save.js';
 
 export interface PublicAccount {
   id: string;
@@ -34,6 +35,28 @@ export class ApiUnauthorizedError extends Error {
 export class ApiRequestError extends Error {
   constructor(readonly status: number) {
     super(`API request failed with ${status}`);
+  }
+}
+
+export interface ApiSaveSlot {
+  modeId: string;
+  revision: number;
+  runId: string | null;
+  /** Untrusted until the frontend validates it against the selected mode. */
+  save: unknown | null;
+  updatedAt: string;
+}
+
+export interface PutSaveRequest {
+  expectedRevision: number;
+  runId: string | null;
+  save: SaveGameV1 | null;
+}
+
+/** A compare-and-swap save write lost a race with another client. */
+export class ApiSaveConflictError extends Error {
+  constructor(readonly current: ApiSaveSlot | null) {
+    super('Cloud save was changed by another client');
   }
 }
 
@@ -83,8 +106,23 @@ async function parseJson<T>(response: Response): Promise<T> {
   return await response.json() as T;
 }
 
+async function parseSaveJson(response: Response): Promise<{ save: ApiSaveSlot }> {
+  if (response.status === 401) throw new ApiUnauthorizedError();
+  if (response.status === 409) {
+    const body = await response.json() as { current?: ApiSaveSlot | null };
+    if (Object.hasOwn(body, 'current')) throw new ApiSaveConflictError(body.current ?? null);
+    throw new ApiRequestError(response.status);
+  }
+  if (!response.ok) throw new ApiRequestError(response.status);
+  return await response.json() as { save: ApiSaveSlot };
+}
+
 export class DiscoApiClient {
-  readonly baseUrl = configuredApiBaseUrl();
+  readonly baseUrl: string;
+
+  constructor(baseUrl = configuredApiBaseUrl()) {
+    this.baseUrl = baseUrl.replace(/\/$/, '');
+  }
 
   login(provider = 'google'): void {
     location.href = `${this.baseUrl}/auth/login/${encodeURIComponent(provider)}`;
@@ -128,5 +166,22 @@ export class DiscoApiClient {
       body: JSON.stringify({ score, longestStreak, clientStats: { ...stats, modeId } }),
     }));
     return response.stats;
+  }
+
+  async getSaves(): Promise<ApiSaveSlot[]> {
+    const response = await parseJson<{ saves: ApiSaveSlot[] }>(await fetch(`${this.baseUrl}/saves`, {
+      credentials: 'include',
+    }));
+    return response.saves;
+  }
+
+  async putSave(modeId: string, request: PutSaveRequest): Promise<ApiSaveSlot> {
+    const response = await parseSaveJson(await fetch(`${this.baseUrl}/saves/${encodeURIComponent(modeId)}`, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(request),
+    }));
+    return response.save;
   }
 }

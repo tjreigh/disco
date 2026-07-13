@@ -21,14 +21,21 @@ describe('runMigrations', () => {
     const tables = db.prepare(`
       SELECT name
       FROM sqlite_master
-      WHERE type = 'table' AND name IN ('accounts', 'account_identities', 'sessions', 'account_mode_stats', 'score_submissions')
+      WHERE type = 'table' AND name IN (
+        'accounts', 'account_identities', 'sessions', 'account_mode_stats',
+        'score_submissions', 'account_save_slots'
+      )
       ORDER BY name
     `).all() as Array<{ name: string }>;
 
-    expect(applied).toEqual([{ version: '001_initial.sql' }]);
+    expect(applied).toEqual([
+      { version: '001_initial.sql' },
+      { version: '002_account_save_slots.sql' },
+    ]);
     expect(tables.map(table => table.name)).toEqual([
       'account_identities',
       'account_mode_stats',
+      'account_save_slots',
       'accounts',
       'score_submissions',
       'sessions',
@@ -106,5 +113,92 @@ describe('Repositories', () => {
       ['Alpha', 120],
       ['Beta', 90],
     ]);
+  });
+
+  it('stores account- and mode-isolated save slots with compare-and-swap revisions and tombstones', () => {
+    db = createTestDb();
+    const repos = new Repositories(db);
+    const alpha = repos.findOrCreateAccountForIdentity({
+      issuer: 'https://issuer.example',
+      subject: 'save-alpha',
+      email: null,
+      emailVerified: false,
+      providerName: 'test',
+      displayName: 'Alpha',
+    });
+    const beta = repos.findOrCreateAccountForIdentity({
+      issuer: 'https://issuer.example',
+      subject: 'save-beta',
+      email: null,
+      emailVerified: false,
+      providerName: 'test',
+      displayName: 'Beta',
+    });
+    const classicSave = { version: 1, modeId: 'classic', state: { score: 12 } };
+    const gravitySave = { version: 1, modeId: 'gravity', state: { score: 8 } };
+
+    const created = repos.writeSaveSlot(alpha.id, {
+      modeId: 'classic',
+      expectedRevision: 0,
+      runId: '00000000-0000-4000-8000-000000000001',
+      save: classicSave,
+    });
+    const otherMode = repos.writeSaveSlot(alpha.id, {
+      modeId: 'gravity',
+      expectedRevision: 0,
+      runId: '00000000-0000-4000-8000-000000000002',
+      save: gravitySave,
+    });
+    repos.writeSaveSlot(beta.id, {
+      modeId: 'classic',
+      expectedRevision: 0,
+      runId: '00000000-0000-4000-8000-000000000003',
+      save: { ...classicSave, state: { score: 99 } },
+    });
+
+    expect(created).toMatchObject({ ok: true, slot: { revision: 1, save: classicSave } });
+    expect(otherMode).toMatchObject({ ok: true, slot: { revision: 1, save: gravitySave } });
+    expect(repos.listSaveSlots(alpha.id).map(slot => slot.modeId)).toEqual(['classic', 'gravity']);
+    expect(repos.listSaveSlots(beta.id)).toMatchObject([{ modeId: 'classic', save: { state: { score: 99 } } }]);
+
+    const stale = repos.writeSaveSlot(alpha.id, {
+      modeId: 'classic',
+      expectedRevision: 0,
+      runId: '00000000-0000-4000-8000-000000000004',
+      save: classicSave,
+    });
+    expect(stale).toMatchObject({ ok: false, current: { revision: 1, runId: '00000000-0000-4000-8000-000000000001' } });
+
+    const deleted = repos.writeSaveSlot(alpha.id, {
+      modeId: 'classic',
+      expectedRevision: 1,
+      runId: null,
+      save: null,
+    });
+    expect(deleted).toMatchObject({ ok: true, slot: { revision: 2, runId: null, save: null } });
+    expect(repos.listSaveSlots(alpha.id)).toMatchObject([
+      { modeId: 'classic', revision: 2, runId: null, save: null },
+      { modeId: 'gravity', revision: 1 },
+    ]);
+  });
+
+  it('reports a missing save slot as a revision-zero conflict', () => {
+    db = createTestDb();
+    const repos = new Repositories(db);
+    const account = repos.findOrCreateAccountForIdentity({
+      issuer: 'https://issuer.example',
+      subject: 'save-missing',
+      email: null,
+      emailVerified: false,
+      providerName: 'test',
+      displayName: null,
+    });
+
+    expect(repos.writeSaveSlot(account.id, {
+      modeId: 'stack',
+      expectedRevision: 3,
+      runId: null,
+      save: null,
+    })).toEqual({ ok: false, current: null });
   });
 });

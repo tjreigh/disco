@@ -4,24 +4,18 @@ import type { AccountStatsState } from '../platform/account-stats-store.js';
 import { blurOnClick } from './dom-utils.js';
 import { ModalController } from './modal-controller.js';
 
-export interface SavedGameSummary {
-  modeName: string;
-  score: number;
-}
-
 // DOM overlay for mode selection. It mounts into the shared UI layer and
 // covers the canvas entirely while open.
 export class HomeScreen {
   private readonly overlay: HTMLElement;
   private readonly authBar: HTMLElement;
   private readonly cardsContainer: HTMLElement;
-  private readonly savedGameAction: HTMLElement;
-  private readonly savedGameContext: HTMLElement;
   private readonly menuButton: HTMLButtonElement;
   private readonly gameMenu: HTMLElement;
   private readonly soundButton: HTMLButtonElement;
   private readonly gameMenuModal: ModalController;
   private readonly homePriorInert = new Map<HTMLElement, boolean>();
+  private saveLoading = false;
 
   // Set by Game after construction, avoiding a constructor-time forward
   // reference to a not-yet-defined method.
@@ -31,7 +25,6 @@ export class HomeScreen {
   onRequestHome?: () => void;
   onRequestToggleSound?: () => void;
   onRequestTutorial?: (mode: GameModeConfig) => void;
-  onRequestResumeSavedGame?: () => void;
 
   constructor(
     private readonly modes: readonly GameModeConfig[],
@@ -58,23 +51,7 @@ export class HomeScreen {
     this.cardsContainer = document.createElement('div');
     this.cardsContainer.className = 'home-mode-list';
 
-    this.savedGameAction = document.createElement('section');
-    this.savedGameAction.className = 'home-saved-game';
-    this.savedGameAction.hidden = true;
-    this.savedGameAction.setAttribute('aria-label', 'Saved game');
-
-    const savedGameButton = document.createElement('button');
-    savedGameButton.type = 'button';
-    savedGameButton.className = 'home-saved-game-button';
-    savedGameButton.textContent = 'RESUME SAVED GAME';
-    savedGameButton.addEventListener('click', () => this.onRequestResumeSavedGame?.());
-    blurOnClick(savedGameButton);
-
-    this.savedGameContext = document.createElement('span');
-    this.savedGameContext.className = 'home-saved-game-context';
-    this.savedGameAction.append(savedGameButton, this.savedGameContext);
-
-    this.overlay.append(title, this.authBar, this.savedGameAction, this.cardsContainer);
+    this.overlay.append(title, this.authBar, this.cardsContainer);
     this.mount.append(this.overlay);
 
     this.menuButton = document.createElement('button');
@@ -165,11 +142,10 @@ export class HomeScreen {
     this.renderAuth();
   }
 
-  setSavedGame(summary: SavedGameSummary | null): void {
-    this.savedGameAction.hidden = summary === null;
-    this.savedGameContext.textContent = summary
-      ? `${summary.modeName} · Score ${summary.score.toLocaleString('en-US')}`
-      : '';
+  setSaveLoading(loading: boolean): void {
+    if (this.saveLoading === loading) return;
+    this.saveLoading = loading;
+    this.renderCards();
   }
 
   private renderAuth(): void {
@@ -236,13 +212,17 @@ export class HomeScreen {
       const stats = this.loadStats(mode.id);
       const card = document.createElement('div');
       card.className = 'home-mode-card';
-      card.tabIndex = 0;
+      card.classList.toggle('home-mode-card--disabled', this.saveLoading);
+      card.tabIndex = this.saveLoading ? -1 : 0;
       card.role = 'button';
+      card.setAttribute('aria-disabled', String(this.saveLoading));
       card.addEventListener('click', event => {
+        if (this.saveLoading) return;
         if (event.target instanceof HTMLElement && event.target.closest('.home-mode-action')) return;
         this.onSelectMode(mode);
       });
       card.addEventListener('keydown', event => {
+        if (this.saveLoading) return;
         if (event.target !== card) return;
         if (event.key !== 'Enter' && event.key !== ' ') return;
         event.preventDefault();
@@ -274,7 +254,8 @@ export class HomeScreen {
       const playButton = document.createElement('button');
       playButton.type = 'button';
       playButton.className = 'home-mode-action home-mode-action--play';
-      playButton.textContent = 'PLAY';
+      playButton.textContent = this.saveLoading ? 'CHECKING SAVES…' : 'PLAY';
+      playButton.disabled = this.saveLoading;
       playButton.addEventListener('click', () => this.onSelectMode(mode));
       blurOnClick(playButton);
 

@@ -12,6 +12,7 @@ import {
 } from '../auth/cookies.js';
 import { buildAuthorizationUrl, exchangeAndVerifyCode } from '../auth/oidc.js';
 import { modeIdSchema, normalizeStats, scoreSubmissionSchema, statsSchema } from '../stats/schemas.js';
+import { SAVE_BODY_LIMIT, saveSlotWriteSchema } from '../saves/schemas.js';
 import { requireSession } from './authenticate.js';
 
 const providerParamsSchema = z.object({ provider: z.string().min(1) });
@@ -109,6 +110,55 @@ export async function registerRoutes(app: FastifyInstance, config: AppConfig, re
   app.get('/stats', { preHandler: requireSession }, async (request: FastifyRequest) => ({
     stats: repos.getStats(request.auth!.account.id),
   }));
+
+  app.get('/saves', { preHandler: requireSession }, async (request: FastifyRequest) => ({
+    saves: repos.listSaveSlots(request.auth!.account.id).map(slot => ({
+      modeId: slot.modeId,
+      revision: slot.revision,
+      runId: slot.runId,
+      save: slot.save,
+      updatedAt: slot.updatedAt,
+    })),
+  }));
+
+  app.put('/saves/:modeId', {
+    preHandler: requireSession,
+    bodyLimit: SAVE_BODY_LIMIT,
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const { modeId } = z.object({ modeId: modeIdSchema }).parse(request.params);
+    const body = saveSlotWriteSchema.parse(request.body);
+    if (body.save !== null && body.save.modeId !== modeId) {
+      return reply.code(400).send({ error: 'invalid_request', details: 'save mode does not match route mode' });
+    }
+
+    const result = repos.writeSaveSlot(request.auth!.account.id, {
+      modeId,
+      expectedRevision: body.expectedRevision,
+      runId: body.runId,
+      save: body.save,
+    });
+    if (!result.ok) {
+      const current = result.current === null ? null : {
+        modeId: result.current.modeId,
+        revision: result.current.revision,
+        runId: result.current.runId,
+        save: result.current.save,
+        updatedAt: result.current.updatedAt,
+      };
+      return reply.code(409).send({ error: 'save_conflict', current });
+    }
+
+    const slot = result.slot;
+    return reply.code(200).send({
+      save: {
+        modeId: slot.modeId,
+        revision: slot.revision,
+        runId: slot.runId,
+        save: slot.save,
+        updatedAt: slot.updatedAt,
+      },
+    });
+  });
 
   app.put('/stats/:modeId', { preHandler: requireSession }, async (request: FastifyRequest, reply: FastifyReply) => {
     const { modeId } = z.object({ modeId: modeIdSchema }).parse(request.params);

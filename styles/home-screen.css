@@ -58,35 +58,6 @@
   gap: 12px;
   width: min(340px, 92vw);
 }
-.home-saved-game {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: min(340px, 92vw);
-  border: 1px solid #62b0e8;
-  border-radius: 8px;
-  padding: 12px 14px;
-  background: #102a43;
-}
-.home-saved-game[hidden] { display: none; }
-.home-saved-game-button {
-  border: 1px solid #62b0e8;
-  border-radius: 5px;
-  padding: 8px 10px;
-  background: #1769aa;
-  color: #f0f4f8;
-  font: 700 11px ui-monospace, SFMono-Regular, Menlo, monospace;
-  letter-spacing: .08em;
-  cursor: pointer;
-}
-.home-saved-game-button:hover { background: #1e7bc4; }
-.home-saved-game-context {
-  color: #9ecdf0;
-  font-size: 12px;
-  font-weight: 700;
-  text-align: right;
-}
 .home-mode-card {
   display: flex;
   flex-direction: column;

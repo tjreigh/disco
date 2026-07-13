@@ -11,7 +11,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 const {
   rendererInstances, audioInstances, inputHandlerInstances,
-  homeScreenInstances, debugPanelInstances, statsStoreInstances, saveStoreInstances, saveStoreState,
+  homeScreenInstances, debugPanelInstances, statsStoreInstances, saveStoreInstances,
+  savedGameDialogInstances, saveStoreState,
 } = vi.hoisted(() => ({
   rendererInstances: [] as any[],
   audioInstances: [] as any[],
@@ -20,7 +21,11 @@ const {
   debugPanelInstances: [] as any[],
   statsStoreInstances: [] as any[],
   saveStoreInstances: [] as any[],
-  saveStoreState: { current: null as any },
+  savedGameDialogInstances: [] as any[],
+  saveStoreState: {
+    byMode: new Map<string, any>(),
+    conflicts: new Map<string, any>(),
+  },
 }));
 
 vi.mock('../../ui/rendering/renderer.js', () => ({
@@ -69,7 +74,6 @@ vi.mock('../../ui/home-screen.js', () => ({
     onRequestHome?: () => void;
     onRequestToggleSound?: () => void;
     onRequestTutorial?: (mode: unknown) => void;
-    onRequestResumeSavedGame?: () => void;
     open = vi.fn();
     close = vi.fn();
     openGameMenu = vi.fn();
@@ -78,7 +82,7 @@ vi.mock('../../ui/home-screen.js', () => ({
     refreshStats = vi.fn();
     refreshAuth = vi.fn();
     setSoundEnabled = vi.fn();
-    setSavedGame = vi.fn();
+    setSaveLoading = vi.fn();
     constructor(_modes: unknown, onSelectMode: (mode: unknown) => void) {
       this.onSelectMode = onSelectMode;
       homeScreenInstances.push(this);
@@ -86,13 +90,43 @@ vi.mock('../../ui/home-screen.js', () => ({
   },
 }));
 
-vi.mock('../../platform/local-save-store.js', () => ({
-  LocalSaveStore: class {
-    read = vi.fn(() => saveStoreState.current);
-    write = vi.fn((save: unknown) => { saveStoreState.current = save; });
-    remove = vi.fn(() => { saveStoreState.current = null; });
+vi.mock('../../platform/synced-save-store.js', () => ({
+  SyncedSaveStore: class {
+    ready = Promise.resolve();
+    getState = vi.fn(() => ({ account: null, accountId: null, scope: 'guest', loading: false, apiAvailable: true }));
+    read = vi.fn((modeId: string) => saveStoreState.byMode.get(modeId) ?? null);
+    write = vi.fn((modeId: string, save: unknown) => { saveStoreState.byMode.set(modeId, save); });
+    remove = vi.fn((modeId: string) => { saveStoreState.byMode.delete(modeId); });
+    getConflict = vi.fn((modeId: string) => saveStoreState.conflicts.get(modeId) ?? null);
+    resolveConflict = vi.fn((modeId: string, resolution: string) => {
+      const conflict = saveStoreState.conflicts.get(modeId);
+      if (resolution === 'local' && conflict?.local) saveStoreState.byMode.set(modeId, conflict.local);
+      else if (resolution === 'cloud' && conflict?.cloud) saveStoreState.byMode.set(modeId, conflict.cloud);
+      else if (resolution === 'new') saveStoreState.byMode.delete(modeId);
+      saveStoreState.conflicts.delete(modeId);
+    });
+    subscribe = vi.fn(() => vi.fn());
+    setAuthState = vi.fn(async () => undefined);
     constructor(_modes: unknown) {
       saveStoreInstances.push(this);
+    }
+  },
+}));
+
+vi.mock('../../ui/saved-game-dialog.js', () => ({
+  SavedGameDialog: class {
+    onResume?: (save: unknown) => void;
+    onStartNew?: () => void;
+    onChooseLocal?: (save: unknown) => void;
+    onChooseCloud?: (save: unknown) => void;
+    onCancel?: () => void;
+    showSave = vi.fn();
+    showConflict = vi.fn();
+    showUnavailable = vi.fn();
+    hide = vi.fn();
+    isOpen = vi.fn(() => false);
+    constructor() {
+      savedGameDialogInstances.push(this);
     }
   },
 }));
@@ -172,7 +206,9 @@ beforeEach(() => {
   debugPanelInstances.length = 0;
   statsStoreInstances.length = 0;
   saveStoreInstances.length = 0;
-  saveStoreState.current = null;
+  savedGameDialogInstances.length = 0;
+  saveStoreState.byMode.clear();
+  saveStoreState.conflicts.clear();
   rafCallback = null;
   vi.stubGlobal('requestAnimationFrame', vi.fn((cb: FrameRequestCallback) => { rafCallback = cb; return 1; }));
   vi.stubGlobal('cancelAnimationFrame', vi.fn());
@@ -263,7 +299,7 @@ describe('starting normal play', () => {
     const [state, board] = lastOf(renderer.draw.mock.calls);
     expect(state.phase).toBe(GamePhase.WaitingForDrop);
     expect(isEmptyBoard(board)).toBe(true);
-    expect(lastOf(saveStoreInstances).remove).toHaveBeenCalledTimes(1);
+    expect(lastOf(saveStoreInstances).remove).not.toHaveBeenCalled();
   });
 });
 
@@ -302,7 +338,8 @@ describe('normal drop flow', () => {
     lastOf(inputHandlerInstances).onIntent({ kind: 'drop', col: 3 });
 
     expect(saveStore.write).toHaveBeenCalledTimes(1);
-    const save = saveStore.write.mock.calls[0]![0];
+    expect(saveStore.write.mock.calls[0]![0]).toBe(CLASSIC_MODE.id);
+    const save = saveStore.write.mock.calls[0]![1];
     expect(save.state.phase).toBe('waiting');
     expect(save.state.dropCount).toBe(1);
     frame(0);
@@ -310,7 +347,7 @@ describe('normal drop flow', () => {
   });
 
   test('does not autosave tutorial turns or replace a committed save while Gravity is only Aiming', () => {
-    saveStoreState.current = { marker: 'previous committed turn' };
+    saveStoreState.byMode.set(CLASSIC_MODE.id, { marker: 'previous committed turn' });
     createGame();
     const homeScreen = lastOf(homeScreenInstances);
     const saveStore = lastOf(saveStoreInstances);
@@ -320,11 +357,11 @@ describe('normal drop flow', () => {
     expect(saveStore.write).not.toHaveBeenCalled();
 
     homeScreen.onSelectMode(GRAVITY_MODE);
-    saveStoreState.current = { marker: 'gravity committed turn' };
+    saveStoreState.byMode.set(GRAVITY_MODE.id, { marker: 'gravity committed turn' });
     saveStore.write.mockClear();
     lastOf(inputHandlerInstances).onIntent({ kind: 'drop', col: 3 });
     expect(saveStore.write).not.toHaveBeenCalled();
-    expect(saveStoreState.current).toEqual({ marker: 'gravity committed turn' });
+    expect(saveStoreState.byMode.get(GRAVITY_MODE.id)).toEqual({ marker: 'gravity committed turn' });
   });
 
   test('an accepted drop enters Animating, plays the drop sound, records the turn, then returns to WaitingForDrop', () => {
@@ -510,7 +547,7 @@ describe('game over during the final turn\'s animation', () => {
     const renderer = lastOf(rendererInstances);
     const [state] = lastOf(renderer.draw.mock.calls);
     expect(state.phase).toBe(GamePhase.GameOver);
-    expect(lastOf(saveStoreInstances).remove).toHaveBeenCalled();
+    expect(lastOf(saveStoreInstances).remove).toHaveBeenCalledTimes(1);
     const gameOverScreen = document.querySelector<HTMLElement>('.game-over-screen--open');
     expect(gameOverScreen?.textContent).toContain('NEW GAME');
     expect(gameOverScreen?.textContent).toContain('HOME');
@@ -669,17 +706,19 @@ describe('restart', () => {
 });
 
 describe('saved game resume', () => {
-  test('advertises a valid save and restores its mode, engine state, streak, and clean presentation', () => {
+  test('opens the mode dialog and restores its save, streak, and clean presentation', () => {
     const source = new GameEngine({ mode: STACK_MODE, seed: 91 });
     source.drop(2);
     const save = source.exportSave({ longestStreak: 7, savedAt: 123 });
-    saveStoreState.current = save;
+    saveStoreState.byMode.set(STACK_MODE.id, save);
 
     const { game } = createGame();
     const homeScreen = lastOf(homeScreenInstances);
-    expect(homeScreen.setSavedGame).toHaveBeenCalledWith({ modeName: STACK_MODE.name, score: save.state.score });
+    const dialog = lastOf(savedGameDialogInstances);
 
-    homeScreen.onRequestResumeSavedGame?.();
+    homeScreen.onSelectMode(STACK_MODE);
+    expect(dialog.showSave).toHaveBeenCalledWith(STACK_MODE, save);
+    dialog.onResume?.(save);
     frame(0);
 
     const renderer = lastOf(rendererInstances);
@@ -700,15 +739,85 @@ describe('saved game resume', () => {
     expect(homeScreen.close).toHaveBeenCalled();
   });
 
-  test('missing save hides the action and safely leaves the home screen open', () => {
+  test('a mode without a save starts immediately', () => {
     createGame();
     const homeScreen = lastOf(homeScreenInstances);
-    homeScreen.setSavedGame.mockClear();
+    const dialog = lastOf(savedGameDialogInstances);
 
-    homeScreen.onRequestResumeSavedGame?.();
+    homeScreen.onSelectMode(CLASSIC_MODE);
 
-    expect(homeScreen.setSavedGame).toHaveBeenCalledWith(null);
-    expect(homeScreen.close).not.toHaveBeenCalled();
+    expect(dialog.showSave).not.toHaveBeenCalled();
+    expect(homeScreen.close).toHaveBeenCalled();
+  });
+
+  test('starting new replaces only the selected mode save', () => {
+    const classic = new GameEngine({ mode: CLASSIC_MODE, seed: 7 });
+    classic.drop(1);
+    const classicSave = classic.exportSave({ savedAt: 10 });
+    const stack = new GameEngine({ mode: STACK_MODE, seed: 8 });
+    stack.drop(2);
+    const stackSave = stack.exportSave({ savedAt: 11 });
+    saveStoreState.byMode.set(CLASSIC_MODE.id, classicSave);
+    saveStoreState.byMode.set(STACK_MODE.id, stackSave);
+
+    createGame();
+    const homeScreen = lastOf(homeScreenInstances);
+    const dialog = lastOf(savedGameDialogInstances);
+    homeScreen.onSelectMode(CLASSIC_MODE);
+    dialog.onStartNew?.();
+
+    expect(lastOf(saveStoreInstances).remove).toHaveBeenCalledWith(CLASSIC_MODE.id);
+    expect(saveStoreState.byMode.has(CLASSIC_MODE.id)).toBe(false);
+    expect(saveStoreState.byMode.get(STACK_MODE.id)).toBe(stackSave);
+    expect(homeScreen.close).toHaveBeenCalled();
+  });
+
+  test('presents a cloud conflict and resumes the chosen version', () => {
+    const localEngine = new GameEngine({ mode: CLASSIC_MODE, seed: 12 });
+    localEngine.drop(1);
+    const local = localEngine.exportSave({ savedAt: 12 });
+    const cloudEngine = new GameEngine({ mode: CLASSIC_MODE, seed: 13 });
+    cloudEngine.drop(2);
+    cloudEngine.drop(2);
+    const cloud = cloudEngine.exportSave({ savedAt: 13 });
+    saveStoreState.byMode.set(CLASSIC_MODE.id, local);
+    saveStoreState.conflicts.set(CLASSIC_MODE.id, {
+      kind: 'diverged', modeId: CLASSIC_MODE.id, local, cloud,
+      cloudRevision: 2, cloudUpdatedAt: '2026-07-13 18:30:00', localScope: 'account',
+    });
+
+    createGame();
+    const homeScreen = lastOf(homeScreenInstances);
+    const dialog = lastOf(savedGameDialogInstances);
+    homeScreen.onSelectMode(CLASSIC_MODE);
+    expect(dialog.showConflict).toHaveBeenCalledWith(CLASSIC_MODE, local, cloud);
+
+    dialog.onChooseCloud?.(cloud);
+    frame(0);
+
+    expect(lastOf(saveStoreInstances).resolveConflict).toHaveBeenCalledWith(CLASSIC_MODE.id, 'cloud');
+    const [state] = lastOf(lastOf(rendererInstances).draw.mock.calls);
+    expect(state.dropCount).toBe(cloud.state.dropCount);
+    expect(homeScreen.close).toHaveBeenCalled();
+  });
+
+  test('offers a valid device save when the cloud record is incompatible', () => {
+    const engine = new GameEngine({ mode: CLASSIC_MODE, seed: 14 });
+    engine.drop(1);
+    const local = engine.exportSave({ savedAt: 14 });
+    saveStoreState.conflicts.set(CLASSIC_MODE.id, {
+      kind: 'invalid-cloud', modeId: CLASSIC_MODE.id, local, cloud: null,
+      cloudRevision: 3, cloudUpdatedAt: '2026-07-13 18:30:00', localScope: 'account',
+    });
+
+    createGame();
+    const homeScreen = lastOf(homeScreenInstances);
+    const dialog = lastOf(savedGameDialogInstances);
+    homeScreen.onSelectMode(CLASSIC_MODE);
+
+    expect(dialog.showUnavailable).toHaveBeenCalledWith(CLASSIC_MODE, local);
+    dialog.onChooseLocal?.(local);
+    expect(lastOf(saveStoreInstances).resolveConflict).toHaveBeenCalledWith(CLASSIC_MODE.id, 'local');
   });
 });
 

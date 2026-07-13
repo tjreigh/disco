@@ -27,6 +27,10 @@ export async function buildApp(config: AppConfig, db: Db) {
       reply.code(400).send({ error: 'invalid_request', details: error });
       return;
     }
+    if (error.statusCode === 413) {
+      reply.code(413).send({ error: 'payload_too_large' });
+      return;
+    }
     app.log.error(error);
     reply.code(500).send({ error: 'internal_error' });
   });
