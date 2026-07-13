@@ -22,6 +22,10 @@ printf '{"name":"deploy-fixture","private":true}\n' > "$SEED/api/package.json"
 
 cat > "$FAKE_BIN/yarn" <<'EOF'
 #!/usr/bin/env bash
+if [[ "${1:-}" == "install" && " $* " != *" --production=false "* ]]; then
+  echo "missing --production=false" >&2
+  exit 1
+fi
 if [[ "${1:-}" == "build" && -f "$TEST_STATE/fail-build" ]]; then
   exit 1
 fi
@@ -90,6 +94,7 @@ git -C "$SEED" push --quiet -u origin main
 git clone --quiet --branch main "$ORIGIN" "$CONTROL"
 
 cat > "$ENV_FILE" <<EOF
+NODE_ENV=production
 API_ORIGIN=https://api.example.invalid
 DATABASE_PATH=$STATE/disco.sqlite
 EOF

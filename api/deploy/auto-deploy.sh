@@ -134,7 +134,7 @@ log "building isolated release $candidate"
 git worktree add --quiet --detach "$candidate" "$target_sha"
 cd "$candidate/api"
 
-yarn install --frozen-lockfile || {
+yarn install --frozen-lockfile --production=false || {
   fail "yarn install failed for $target_sha; active release was not changed"
 }
 
