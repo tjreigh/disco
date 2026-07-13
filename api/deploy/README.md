@@ -169,8 +169,17 @@ git remote set-url origin https://github.com/tjreigh/disco.git
 ```
 
 The host also needs Bash, Git, Yarn, Node, curl, SQLite, gzip, and `flock`
-(normally supplied by `util-linux`). The restart step needs `disco` to have
-passwordless sudo for exactly `systemctl restart disco-api`. Check first:
+(normally supplied by `util-linux`).
+
+The release build intentionally runs `yarn install --production=false` even though
+the environment file sets `NODE_ENV=production`. Yarn Classic otherwise treats
+`NODE_ENV=production` as an instruction to omit `devDependencies`, including the
+TypeScript compiler required by `yarn build`. The flag controls build-time
+dependency installation only; systemd still starts the compiled API with
+`NODE_ENV=production`.
+
+The restart step needs `disco` to have passwordless sudo for exactly
+`systemctl restart disco-api`. Check first:
 
 ```bash
 sudo -l -U disco
