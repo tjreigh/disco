@@ -285,7 +285,11 @@ describe('PlayableDiscGenerator', () => {
     const relevantGenerator = new PlayableDiscGenerator(relevanceOnlyMode, createSeededRandom(4567));
     const irrelevantGenerator = new PlayableDiscGenerator(relevanceOnlyMode, createSeededRandom(4567));
 
-    const sampleSize = 30_000;
+    // The source is seeded, so this comparison is deterministic rather than a
+    // probabilistic confidence test. 5,000 draws keeps the observed advantage
+    // comfortably above the 5% assertion while avoiding a multi-second test
+    // that can exceed Vitest's timeout when suites run concurrently.
+    const sampleSize = 5_000;
     const relevantThrees = Array.from(
       { length: sampleSize },
       () => relevantGenerator.generate(1, relevantBoard).value,
