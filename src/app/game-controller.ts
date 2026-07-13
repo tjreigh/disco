@@ -20,6 +20,7 @@ import { InputHandler } from '../platform/input-handler.js';
 import type { InputIntent } from '../platform/input-handler.js';
 import { AudioManager } from '../platform/audio-manager.js';
 import { HomeScreen } from '../ui/home-screen.js';
+import { GameOverScreen } from '../ui/game-over-screen.js';
 import type { GameStats } from '../game/stats.js';
 import { recordCompletedGame, updateRecords } from '../game/stats.js';
 import { AccountStatsStore } from '../platform/account-stats-store.js';
@@ -50,6 +51,7 @@ export class Game {
   private audio: AudioManager;
   private debug: DebugPanel;
   private homeScreen: HomeScreen;
+  private gameOverScreen: GameOverScreen;
   private tutorialOverlay: TutorialOverlay;
   private gameControls: GameControls;
   private gameHud: GameHud;
@@ -118,6 +120,7 @@ export class Game {
       () => this.statsStore.login(),
       () => void this.statsStore.logout(),
     );
+    this.gameOverScreen = new GameOverScreen();
     this.homeScreen.onRequestGameMenu = () => this.openGameMenu();
     this.homeScreen.onRequestResume = () => this.resumeGame();
     this.homeScreen.onRequestRestart = () => this.restart();
@@ -125,6 +128,8 @@ export class Game {
     this.homeScreen.onRequestToggleSound = () => this.toggleSound();
     this.homeScreen.onRequestTutorial = mode => this.startTutorial(mode);
     this.homeScreen.onRequestResumeSavedGame = () => this.resumeSavedGame();
+    this.gameOverScreen.onRequestNewGame = () => this.restart();
+    this.gameOverScreen.onRequestHome = () => this.returnToMenu();
     this.tutorialOverlay.onRetry = () => this.retryTutorialStep();
     this.tutorialOverlay.onExit = () => this.returnToMenu();
     this.tutorialOverlay.onContinue = () => this.tutorialOverlay.hide();
@@ -136,7 +141,6 @@ export class Game {
     this.input = new InputHandler(
       canvas,
       intent => this.handleIntent(intent),
-      () => this.state.phase === GamePhase.GameOver,
       () => this.state.cursorCol,
       () => this.currentAxis(),
     );
@@ -161,6 +165,7 @@ export class Game {
   }
 
   private startGame(mode: GameModeConfig): void {
+    this.gameOverScreen.close();
     this.saveStore.remove();
     this.refreshSavedGameAction();
     this.activeTutorial = null;
@@ -189,6 +194,7 @@ export class Game {
   }
 
   private startTutorial(mode: GameModeConfig): void {
+    this.gameOverScreen.close();
     const tutorial = TUTORIALS[mode.id];
     if (!tutorial) return;
     this.mode = mode;
@@ -216,6 +222,7 @@ export class Game {
 
   private returnToMenu(): void {
     this.isPaused = false;
+    this.gameOverScreen.close();
     this.homeScreen.closeGameMenu();
     this.activeTutorial = null;
     this.tutorialOverlay.hide();
@@ -488,6 +495,11 @@ export class Game {
     this.recordGameEnd();
     this.debug.refresh();
     this.audio.playGameOver();
+    this.gameOverScreen.open({
+      score: this.state.score,
+      stats: this.stats,
+      isStackMode: this.isStackMode(),
+    });
     // Drop any in-progress animation — the game-over overlay renders on top,
     // so partial animation state is invisible and we can discard it safely.
     this.animQueue = null;
@@ -517,6 +529,7 @@ export class Game {
 
   private restart(): void {
     this.isPaused = false;
+    this.gameOverScreen.close();
     this.homeScreen.closeGameMenu();
     this.animQueue = null;
     if (this.activeTutorial) {
@@ -630,6 +643,7 @@ export class Game {
     }
 
     try {
+      this.gameOverScreen.close();
       const loaded = this.engine.loadSave(save, mode);
       this.mode = mode;
       this.stats = this.statsStore.loadStats(mode.id);

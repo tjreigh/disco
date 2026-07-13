@@ -14,7 +14,6 @@ const TILT_STEP_DEG = 45;
 export class InputHandler {
   private canvas: HTMLCanvasElement;
   private onIntent: (intent: InputIntent) => void;
-  private isGameOver: () => boolean;
   private getCursorCol: () => number;
   private getAxis: () => 'col' | 'row';
   private touchStartX = 0;
@@ -27,13 +26,11 @@ export class InputHandler {
   constructor(
     canvas: HTMLCanvasElement,
     onIntent: (intent: InputIntent) => void,
-    isGameOver: () => boolean,
     getCursorCol: () => number,
     getAxis: () => 'col' | 'row' = () => 'col',
   ) {
     this.canvas      = canvas;
     this.onIntent    = onIntent;
-    this.isGameOver  = isGameOver;
     this.getCursorCol = getCursorCol;
     this.getAxis = getAxis;
     this.attach();
@@ -151,11 +148,6 @@ export class InputHandler {
       // Only fire for a tap (short, low-movement touch). Swipes are ignored so
       // dragging to reposition doesn't accidentally drop a disc.
       if (dt < 300 && dist < 14) {
-        // On the game-over screen a tap anywhere restarts instead of dropping.
-        if (this.isGameOver()) {
-          this.emit({ kind: 'restart' });
-          return;
-        }
         const lane = this.pixelToLane(t.clientX, t.clientY);
         if (lane !== null) this.emit({ kind: 'drop', col: lane });
       }

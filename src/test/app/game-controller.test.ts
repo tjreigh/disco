@@ -510,6 +510,15 @@ describe('game over during the final turn\'s animation', () => {
     const [state] = lastOf(renderer.draw.mock.calls);
     expect(state.phase).toBe(GamePhase.GameOver);
     expect(lastOf(saveStoreInstances).remove).toHaveBeenCalled();
+    const gameOverScreen = document.querySelector<HTMLElement>('.game-over-screen--open');
+    expect(gameOverScreen?.textContent).toContain('NEW GAME');
+    expect(gameOverScreen?.textContent).toContain('HOME');
+
+    const newGameButton = Array.from(gameOverScreen!.querySelectorAll<HTMLButtonElement>('button'))
+      .find(button => button.textContent === 'NEW GAME')!;
+    newGameButton.click();
+    expect(state.phase).toBe(GamePhase.WaitingForDrop);
+    expect(document.querySelector('.game-over-screen--open')).toBeNull();
   });
 });
 

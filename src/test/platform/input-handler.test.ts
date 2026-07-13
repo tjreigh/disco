@@ -56,7 +56,7 @@ describe('InputHandler', () => {
   test('mouse move and click emit lane intents for columns', () => {
     const intents: InputIntent[] = [];
     const canvas = createCanvas();
-    new InputHandler(canvas, intent => intents.push(intent), () => false, () => 3);
+    new InputHandler(canvas, intent => intents.push(intent), () => 3);
 
     canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: cellCenterX(3), clientY: cellCenterY(0), bubbles: true }));
     canvas.dispatchEvent(new MouseEvent('click', { clientX: cellCenterX(3), clientY: cellCenterY(0), bubbles: true }));
@@ -70,7 +70,7 @@ describe('InputHandler', () => {
   test('pointer lanes can be rows for side-entry gravity controls', () => {
     const intents: InputIntent[] = [];
     const canvas = createCanvas();
-    new InputHandler(canvas, intent => intents.push(intent), () => false, () => 2, () => 'row');
+    new InputHandler(canvas, intent => intents.push(intent), () => 2, () => 'row');
 
     canvas.dispatchEvent(new MouseEvent('click', { clientX: cellCenterX(0), clientY: cellCenterY(3), bubbles: true }));
 
@@ -80,7 +80,7 @@ describe('InputHandler', () => {
   test('keyboard emits movement, drop, tilt, cancel, and restart intents', () => {
     const intents: InputIntent[] = [];
     const canvas = createCanvas();
-    new InputHandler(canvas, intent => intents.push(intent), () => false, () => 3);
+    new InputHandler(canvas, intent => intents.push(intent), () => 3);
 
     for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowDown', ' ', 'Enter', 'q', 'e', 'Escape', 'r']) {
       document.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
@@ -102,7 +102,7 @@ describe('InputHandler', () => {
   test('keyboard movement follows row axis when gravity entry lanes are rows', () => {
     const intents: InputIntent[] = [];
     const canvas = createCanvas();
-    new InputHandler(canvas, intent => intents.push(intent), () => false, () => 3, () => 'row');
+    new InputHandler(canvas, intent => intents.push(intent), () => 3, () => 'row');
 
     for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']) {
       document.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
@@ -117,7 +117,7 @@ describe('InputHandler', () => {
   test('keyboard ignores focusable and contenteditable targets', () => {
     const intents: InputIntent[] = [];
     const canvas = createCanvas();
-    new InputHandler(canvas, intent => intents.push(intent), () => false, () => 3);
+    new InputHandler(canvas, intent => intents.push(intent), () => 3);
     const button = document.createElement('button');
     const editor = document.createElement('div');
     editor.contentEditable = 'true';
@@ -129,11 +129,10 @@ describe('InputHandler', () => {
     expect(intents).toEqual([]);
   });
 
-  test('touch tap drops, drag only moves, and game-over tap restarts', () => {
+  test('touch tap drops and drag only moves', () => {
     const intents: InputIntent[] = [];
     const canvas = createCanvas();
-    let gameOver = false;
-    new InputHandler(canvas, intent => intents.push(intent), () => gameOver, () => 3);
+    new InputHandler(canvas, intent => intents.push(intent), () => 3);
 
     canvas.dispatchEvent(new TouchEvent('touchstart', {
       touches: [touch({ clientX: cellCenterX(2), clientY: cellCenterY(0) })],
@@ -160,31 +159,18 @@ describe('InputHandler', () => {
       bubbles: true,
     }));
 
-    gameOver = true;
-    canvas.dispatchEvent(new TouchEvent('touchstart', {
-      touches: [touch({ clientX: cellCenterX(3), clientY: cellCenterY(0) })],
-      bubbles: true,
-      cancelable: true,
-    }));
-    canvas.dispatchEvent(new TouchEvent('touchend', {
-      changedTouches: [touch({ clientX: cellCenterX(3), clientY: cellCenterY(0) })],
-      bubbles: true,
-    }));
-
     expect(intents).toEqual([
       { kind: 'move', col: 2 },
       { kind: 'drop', col: 2 },
       { kind: 'move', col: 2 },
       { kind: 'move', col: 3 },
-      { kind: 'move', col: 3 },
-      { kind: 'restart' },
     ]);
   });
 
   test('destroy removes event listeners', () => {
     const intents: InputIntent[] = [];
     const canvas = createCanvas();
-    const input = new InputHandler(canvas, intent => intents.push(intent), () => false, () => 3);
+    const input = new InputHandler(canvas, intent => intents.push(intent), () => 3);
 
     input.destroy();
     canvas.dispatchEvent(new MouseEvent('click', { clientX: cellCenterX(3), clientY: cellCenterY(0), bubbles: true }));
