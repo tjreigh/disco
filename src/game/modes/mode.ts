@@ -45,9 +45,8 @@ export interface GameModeConfig {
   /** Floor the shrinking turn budget cannot drop below, however high the level gets. */
   readonly minTurnsPerLevel: number;
   /**
-   * Present only for Gravity mode. A drop always resolves immediately (edge
-   * opposite the current angle, settles under the current angle) — tilting
-   * is a separate, alternative turn action, not bundled into every drop. See
+   * Present only for Gravity mode. Each turn stages a lane, requires a tilt,
+   * then settles the staged disc and board under the committed angle. See
    * {@link GameEngine.drop}/{@link GameEngine.tiltGravity}/{@link GameEngine.commitTilt}/{@link GameEngine.cancelTilt}.
    */
   readonly gravity?: {

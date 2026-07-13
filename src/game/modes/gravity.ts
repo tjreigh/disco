@@ -39,7 +39,7 @@ export const GRAVITY_MODE: GameModeConfig = {
   ...CLASSIC_MODE,
   id: 'gravity',
   name: 'Gravity',
-  tagline: 'Drop or tilt — gravity changes at will.',
+  tagline: 'Stage each drop, then tilt gravity to settle the board.',
   gravity: { initialAngleDeg: 0, maxTiltDeltaDeg: 90 },
   isClearable: gravityIsClearable,
   isGameOver: gravityIsGameOver,
