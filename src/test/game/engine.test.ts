@@ -706,9 +706,9 @@ describe('GameEngine', () => {
     expect(engine.state.nextDisc.id).not.toBe(next.id);
   });
 
-  // ─── Staged-tilt turn loop (Gravity mode) ─────────────────────────────────
+  // ─── Gravity mode invariants ───────────────────────────────────────────────
 
-  describe.skip('drop-or-tilt turn loop (Gravity mode)', () => {
+  describe('Gravity mode invariants', () => {
     test('CLASSIC_MODE engines have no gravity state; tiltGravity/commitTilt are no-ops', () => {
       const engine = new GameEngine({ mode: CLASSIC_MODE });
       expect(engine.state.gravity).toBeUndefined();
@@ -723,25 +723,12 @@ describe('GameEngine', () => {
 
     test('a gravity-config engine starts with gravity state at the initial angle', () => {
       const engine = new GameEngine({ mode: GRAVITY_MODE, seed: 1 });
-      expect(engine.state.gravity).toEqual({ angle: 0, turnStartAngle: 0, maxTiltDelta: 45 });
+      expect(engine.state.gravity).toEqual({ angle: 0, turnStartAngle: 0, maxTiltDelta: 90 });
     });
 
-    test('drop resolves instantly, entering opposite the current (untouched) angle', () => {
-      const engine = new GameEngine({ mode: GRAVITY_MODE, discFactory: numberedFactory(7) });
-
-      const result = engine.drop(3);
-
-      expect(result.accepted).toBe(true);
-      expect(engine.state.phase).toBe(GamePhase.WaitingForDrop);
-      expect(engine.state.dropCount).toBe(1);
-      // angle stayed at 0 (no tilt happened) -> straight down, like Classic.
-      expect(engine.state.board[6]![3]).toMatchObject({ value: 7 });
-      expect(result.steps.some(s => s.kind === StepKind.Drop)).toBe(true);
-    });
-
-    test('drop rejects while a tilt is in progress (Aiming)', () => {
+    test('another drop is rejected while a Gravity turn is staged', () => {
       const engine = new GameEngine({ mode: GRAVITY_MODE });
-      engine.tiltGravity(10);
+      engine.stageGravityDrop(3);
       expect(engine.state.phase).toBe(GamePhase.Aiming);
 
       const result = engine.drop(3);
@@ -749,62 +736,68 @@ describe('GameEngine', () => {
       expect(result.reason).toBe('wrong-phase');
     });
 
-    test('drop rejects an out-of-range lane', () => {
+    test('staging rejects an out-of-range lane without changing phase', () => {
       const engine = new GameEngine({ mode: GRAVITY_MODE });
-      expect(engine.drop(-1).reason).toBe('invalid-column');
-      expect(engine.drop(7).reason).toBe('invalid-column');
+      expect(engine.stageGravityDrop(-1)).toBe('invalid-column');
+      expect(engine.stageGravityDrop(7)).toBe('invalid-column');
+      expect(engine.state.phase).toBe(GamePhase.WaitingForDrop);
+      expect(engine.state.dropCount).toBe(0);
     });
 
-    test('drop rejects a full lane', () => {
+    test('staging rejects a full lane without changing the board', () => {
       const board = makeEmptyBoard();
       for (let r = 0; r < 7; r++) placeDisc(board, r, 2, makeDisc(1, DiscKind.Numbered));
       const engine = new GameEngine({ mode: GRAVITY_MODE, board });
-      const result = engine.drop(2);
-      expect(result.accepted).toBe(false);
-      expect(result.reason).toBe('full-column');
+      const before = engine.state.board.map(row => [...row]);
+
+      expect(engine.stageGravityDrop(2)).toBe('full-column');
       expect(engine.state.phase).toBe(GamePhase.WaitingForDrop);
+      expect(engine.state.board).toEqual(before);
     });
 
-    test('tiltGravity begins Aiming on its first call and clamps within the allowed range', () => {
+    test('tiltGravity stays within the configured per-turn range', () => {
       const engine = new GameEngine({ mode: GRAVITY_MODE });
-      expect(engine.state.phase).toBe(GamePhase.WaitingForDrop);
+      engine.stageGravityDrop(3);
+      expect(engine.state.phase).toBe(GamePhase.Aiming);
 
       engine.tiltGravity(10);
-      expect(engine.state.phase).toBe(GamePhase.Aiming);
       expect(engine.state.gravity!.angle).toBe(10);
       expect(engine.state.gravity!.turnStartAngle).toBe(0);
 
-      engine.tiltGravity(1000); // clamps to turnStartAngle(0) + maxTiltDelta(45)
-      expect(engine.state.gravity!.angle).toBe(45);
+      engine.tiltGravity(1000);
+      expect(engine.state.gravity!.angle).toBe(90);
 
-      engine.tiltGravity(-1000); // clamps to turnStartAngle(0) - maxTiltDelta(45)
-      expect(engine.state.gravity!.angle).toBe(-45);
+      engine.tiltGravity(-1000);
+      expect(engine.state.gravity!.angle).toBe(-90);
     });
 
-    test('previewSettledBoard shows the would-be result without mutating state.board', () => {
+    test('previewSettledBoard includes every disc without mutating state.board', () => {
       const board = makeEmptyBoard();
-      placeDisc(board, 3, 0, makeDisc(2, DiscKind.Numbered));
-      const engine = new GameEngine({ mode: GRAVITY_MODE, board });
+      const existing = makeDisc(2, DiscKind.Numbered);
+      placeDisc(board, 3, 0, existing);
+      const engine = new GameEngine({ mode: GRAVITY_MODE, board, discFactory: numberedFactory(7) });
+      const staged = engine.state.currentDisc;
+      const before = engine.state.board.map(row => [...row]);
 
-      engine.tiltGravity(45); // begins Aiming; 45deg = down-right diagonal
+      engine.stageGravityDrop(6);
+      engine.tiltGravity(45);
       const preview = engine.previewSettledBoard();
 
-      // Ray-march for a single disc at (3,0) at 45deg: (3,0)->(4,1)->(5,2)->(6,3).
-      expect(preview[6]![3]).toMatchObject({ value: 2 });
-      expect(preview[3]![0]).toBeNull();
-      // Nothing is committed until commitTilt — state.board is untouched.
-      expect(engine.state.board[3]![0]).toMatchObject({ value: 2 });
-      expect(engine.state.board[6]![3]).toBeNull();
+      const previewIds = preview.flatMap(row => row.filter(cell => cell !== null).map(cell => cell.id));
+      expect(new Set(previewIds)).toEqual(new Set([existing.id, staged.id]));
+      expect(previewIds).toHaveLength(2);
+      expect(engine.state.board).toEqual(before);
     });
 
     test('previewDropLanding shows the true landing cell without mutating anything', () => {
       const engine = new GameEngine({ mode: GRAVITY_MODE, discFactory: numberedFactory(2) });
 
-      engine.tiltGravity(45); // begins Aiming; still previewable — it only reads state.gravity.angle
+      engine.stageGravityDrop(0);
+      engine.tiltGravity(45);
       const landing = engine.previewDropLanding(0);
 
-      // Entry edge at exactly 45deg is 'left', so lane 0 -> entry (row 0, col
-      // 0). Ray-march on an empty board rides the full diagonal to the
+      // The staged entry edge remains the starting top edge, so lane 0 begins
+      // at (0,0). Ray-march on an empty board rides the full diagonal to the
       // opposite corner: (0,0)->(1,1)->(2,2)->(3,3)->(4,4)->(5,5)->(6,6).
       expect(landing).toEqual({ row: 6, col: 6 });
       expect(engine.state.board[0]![0]).toBeNull(); // nothing was actually placed
@@ -823,12 +816,14 @@ describe('GameEngine', () => {
 
     test('cancelTilt reverts to the turn-start angle and phase for free (no turn spent)', () => {
       const engine = new GameEngine({ mode: GRAVITY_MODE });
+      engine.stageGravityDrop(3);
       engine.tiltGravity(45);
       expect(engine.state.phase).toBe(GamePhase.Aiming);
 
       engine.cancelTilt();
       expect(engine.state.phase).toBe(GamePhase.WaitingForDrop);
       expect(engine.state.gravity!.angle).toBe(0);
+      expect(engine.state.gravity!.pendingLane).toBeUndefined();
       expect(engine.state.dropCount).toBe(0);
     });
 
@@ -837,23 +832,6 @@ describe('GameEngine', () => {
       const result = engine.commitTilt();
       expect(result.accepted).toBe(false);
       expect(result.reason).toBe('wrong-phase');
-    });
-
-    test('commitTilt settles the whole board under the tilted angle and costs a turn', () => {
-      const board = makeEmptyBoard();
-      placeDisc(board, 3, 0, makeDisc(2, DiscKind.Numbered));
-      const engine = new GameEngine({ mode: GRAVITY_MODE, board });
-
-      engine.tiltGravity(90); // clamps to turnStartAngle(0) + maxTiltDelta(45) => 45deg
-      const result = engine.commitTilt();
-
-      expect(engine.state.gravity!.angle).toBe(45);
-      expect(result.accepted).toBe(true);
-      expect(engine.state.phase).toBe(GamePhase.WaitingForDrop);
-      expect(engine.state.dropCount).toBe(1); // costs a turn, same as a drop
-      expect(engine.state.board[6]![3]).toMatchObject({ value: 2 });
-      expect(result.steps.some(step => step.kind === StepKind.Fall)).toBe(true);
-      expect(result.steps.some(step => step.kind === StepKind.Drop)).toBe(false); // no new disc
     });
 
     // Settling only produces a shape the clear-checker fully recognizes as a
@@ -866,74 +844,54 @@ describe('GameEngine', () => {
     // stays on that same 8-shape lattice.
     test('commitTilt snaps the raw dragged angle to the nearest of 8 directions and persists the snapped value', () => {
       const engine = new GameEngine({ mode: GRAVITY_MODE });
-      engine.tiltGravity(20); // raw angle 20deg — nearest of 8 is 0
-      expect(engine.state.gravity!.angle).toBe(20); // still raw while Aiming
+      engine.stageGravityDrop(3);
+      engine.tiltGravity(30);
+      expect(engine.state.gravity!.angle).toBe(30);
 
       const result = engine.commitTilt();
       expect(result.accepted).toBe(true);
-      expect(engine.state.gravity!.angle).toBe(0); // snapped and persisted, not 20
+      expect(engine.state.gravity!.angle).toBe(45);
     });
 
-    test.each([
-      [10, 0], [20, 0], [30, 45], [40, 45], [45, 45],
-    ])('commitTilt at raw angle %ideg (clamped to +/-45 from start) persists snapped angle %ideg', (raw, expectedSnapped) => {
-      const engine = new GameEngine({ mode: GRAVITY_MODE });
-      engine.tiltGravity(raw);
-      engine.commitTilt();
-      expect(engine.state.gravity!.angle).toBe(expectedSnapped);
-    });
-
-    test('previewSettledBoard shows the SNAPPED result during Aiming, not the raw dragged angle', () => {
+    test('previewSettledBoard matches the board produced by commitTilt', () => {
       const board = makeEmptyBoard();
       placeDisc(board, 3, 0, makeDisc(2, DiscKind.Numbered));
-      const engine = new GameEngine({ mode: GRAVITY_MODE, board });
+      const engine = new GameEngine({ mode: GRAVITY_MODE, board, discFactory: numberedFactory(7) });
 
-      engine.tiltGravity(40); // raw 40deg, snaps to 45deg
+      engine.stageGravityDrop(6);
+      engine.tiltGravity(40);
       const preview = engine.previewSettledBoard();
-      const committed = (() => {
-        const clone = new GameEngine({ mode: GRAVITY_MODE, board: makeEmptyBoard() });
-        placeDisc(clone.state.board, 3, 0, makeDisc(2, DiscKind.Numbered));
-        clone.tiltGravity(40);
-        clone.commitTilt();
-        return clone.state.board;
-      })();
+      const result = engine.commitTilt();
 
-      // Same disc must land in the same cell in the preview as it actually
-      // does on commit — if the preview used the raw 40deg instead of the
-      // snapped 45deg, these would disagree.
-      expect(preview[6]![3]).toMatchObject({ value: 2 });
-      expect(committed[6]![3]).toMatchObject({ value: 2 });
+      expect(result.accepted).toBe(true);
+      expect(engine.state.board).toEqual(preview);
     });
 
     // The one rule that must never break, regardless of how the angle gets
-    // snapped: every disc still ends up on exactly one cell. Runs many
-    // tilt+commit turns at arbitrary raw angles and checks after every
-    // single one that no disc id is missing or duplicated.
-    test('a long sequence of tilts at arbitrary raw angles never loses or duplicates a disc', () => {
-      const engine = new GameEngine({ mode: GRAVITY_MODE, discFactory: numberedFactory(1, 2, 3, 4, 5, 6, 7) });
+    // clamped or snapped: every existing and staged disc appears exactly once
+    // in the preview.
+    test('previews at arbitrary raw angles never lose or duplicate a disc', () => {
       const rawAngles = [7, 130, 244, 18, 89, 356, 91, 179, 271, 12, 200, 315.4, 44.9, 45.1];
-      let dropsSoFar = 0;
 
       for (const raw of rawAngles) {
-        if (engine.state.phase === GamePhase.GameOver) break;
-        // Alternate drop and tilt so the board actually has discs on it to move around.
-        if (dropsSoFar % 2 === 0) {
-          engine.drop(engine.state.cursorCol);
-        } else {
-          engine.tiltGravity(raw);
-          engine.commitTilt();
-          expect(engine.state.gravity!.angle % 45).toBe(0); // always snapped after commit
-        }
-        dropsSoFar++;
+        const board = makeEmptyBoard();
+        const existing = [
+          makeDisc(2, DiscKind.Numbered),
+          makeDisc(3, DiscKind.Numbered),
+          makeDisc(4, DiscKind.DoubleCracked),
+        ];
+        placeDisc(board, 6, 0, existing[0]!);
+        placeDisc(board, 5, 2, existing[1]!);
+        placeDisc(board, 3, 5, existing[2]!);
+        const engine = new GameEngine({ mode: GRAVITY_MODE, board, discFactory: numberedFactory(7) });
+        const staged = engine.state.currentDisc;
+        engine.stageGravityDrop(3);
+        engine.tiltGravity(raw);
 
-        const seen = new Set<number>();
-        for (const row of engine.state.board) {
-          for (const cell of row) {
-            if (!cell) continue;
-            expect(seen.has(cell.id)).toBe(false); // no cell shares a disc with another
-            seen.add(cell.id);
-          }
-        }
+        const previewIds = engine.previewSettledBoard()
+          .flatMap(row => row.filter(cell => cell !== null).map(cell => cell.id));
+        expect(new Set(previewIds)).toEqual(new Set([...existing.map(disc => disc.id), staged.id]));
+        expect(previewIds).toHaveLength(4);
       }
     });
 
@@ -955,10 +913,13 @@ describe('GameEngine', () => {
         crackedDiscFactory: () => makeDisc(2, DiscKind.DoubleCracked),
       });
 
-      engine.tiltGravity(90); // clamps to +45deg from the 0deg start
-      engine.commitTilt(); // turn 1 of 2 — persists the snapped 45deg angle (entry edge 'left')
+      engine.stageGravityDrop(0);
+      engine.tiltGravity(45);
+      engine.commitTilt();
 
-      const result = engine.drop(0); // turn 2 of 2 — exhausts the budget, triggers a push
+      engine.stageGravityDrop(0);
+      engine.tiltGravity(45);
+      const result = engine.commitTilt();
       const push = result.steps.find(step => step.kind === StepKind.Push);
 
       expect(push?.kind).toBe(StepKind.Push);
@@ -972,7 +933,7 @@ describe('GameEngine', () => {
       expect(engine.state.gravity).toBeUndefined();
 
       engine.reconfigure(GRAVITY_MODE);
-      expect(engine.state.gravity).toEqual({ angle: 0, turnStartAngle: 0, maxTiltDelta: 45 });
+      expect(engine.state.gravity).toEqual({ angle: 0, turnStartAngle: 0, maxTiltDelta: 90 });
 
       engine.reconfigure(CLASSIC_MODE);
       expect(engine.state.gravity).toBeUndefined();
