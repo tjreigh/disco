@@ -21,6 +21,7 @@ function classicRevealAdjacent(board: Board, cleared: GridPos[]): RevealStep {
   const rows = board.length;
   const cols = board[0]!.length;
   const positions: GridPos[] = [];
+  const temporalRepairs: GridPos[] = [];
   const updated = new Set<string>();
 
   for (const { row, col } of cleared) {
@@ -39,6 +40,10 @@ function classicRevealAdjacent(board: Board, cleared: GridPos[]): RevealStep {
         positions.push({ row: r, col: c });
       } else if (disc.kind === DiscKind.SingleCracked) {
         disc.kind = DiscKind.Numbered;
+        if (disc.temporalFracture) {
+          temporalRepairs.push({ row: r, col: c });
+          delete disc.temporalFracture;
+        }
         positions.push({ row: r, col: c });
       }
     }
@@ -47,7 +52,12 @@ function classicRevealAdjacent(board: Board, cleared: GridPos[]): RevealStep {
   // Animation steps are an event log, so capture values rather than mutable board
   // references. A later chain may reveal the same disc again before playback starts.
   const discs = positions.map(p => ({ ...board[p.row]![p.col]! }));
-  return { kind: StepKind.Reveal, positions, discs };
+  return {
+    kind: StepKind.Reveal,
+    positions,
+    discs,
+    ...(temporalRepairs.length > 0 ? { temporalRepairs } : {}),
+  };
 }
 
 function classicIsGameOver(board: Board): boolean {

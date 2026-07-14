@@ -8,6 +8,10 @@ export interface Disc {
   readonly id: number;
   value: number;
   kind: DiscKind;
+  /** Present while a Paradox rewind fracture is still covered. */
+  temporalFracture?: {
+    createdAtInstability: number;
+  };
 }
 
 export type Cell = Disc | null;

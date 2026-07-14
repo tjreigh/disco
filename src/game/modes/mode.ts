@@ -10,6 +10,13 @@ export type ScoringConfig =
     readonly pointsPerStackUnit: number;
   };
 
+/** Enables deterministic one-turn rewind for a mode. */
+export interface RewindModeConfig {
+  readonly historyDepth: 1;
+  /** Instability value at which presentation should communicate critical damage. */
+  readonly criticalInstability: number;
+}
+
 export interface GameModeConfig {
   readonly id: string;
   readonly name: string;
@@ -28,6 +35,8 @@ export interface GameModeConfig {
   readonly maxUnnumberedProbability: number;
   readonly discGeneration: DiscGenerationConfig;
   readonly scoring: ScoringConfig;
+  /** Present only for modes that can restore a completed turn. */
+  readonly rewind?: RewindModeConfig;
   /** Base points per disc in a clear, before the chain-length exponent is applied. See {@link pointsForChain}. */
   readonly pointsPerDisc: number;
   /** Exponent on chain length in the scoring formula (points = pointsPerDisc * chainLength^chainExponent). >1 makes longer chains reward superlinearly; higher values make big chains far more lucrative than several small ones. */

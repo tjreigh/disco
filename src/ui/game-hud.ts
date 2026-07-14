@@ -25,6 +25,10 @@ export interface GameHudState {
   /** Shared full-width pip capacity; modes with fewer turns occupy the leftmost slots. */
   turnPipCapacity?: number;
   hasGravity: boolean;
+  hasRewind?: boolean;
+  isRewindPreview?: boolean;
+  instability?: number | undefined;
+  criticalInstability?: number | undefined;
   gravityAngle?: number | undefined;
   /** Angle at the start of the in-progress tilt (GravityState.turnStartAngle) — only meaningful during Aiming. */
   gravityTurnStartAngle?: number | undefined;
@@ -43,6 +47,11 @@ export interface GameHudState {
     stack: number;
     points: number;
   } | null;
+}
+
+interface ControlHint {
+  controls: string;
+  action: string;
 }
 
 // gravity.ts's angle convention (0 = down, increasing = counterclockwise on
@@ -69,6 +78,7 @@ export class GameHud {
   private readonly next: HTMLElement;
   private readonly hint: HTMLElement;
   private readonly gravity: HTMLElement;
+  private readonly instability: HTMLElement;
   private readonly gravitySr: HTMLElement;
   private readonly gravityArc: SVGPathElement;
   private readonly gravityArrow: SVGLineElement;
@@ -76,6 +86,7 @@ export class GameHud {
   private turnsRenderKey = '';
   private currentDiscRenderKey = '';
   private nextDiscRenderKey = '';
+  private hintRenderKey = '';
 
   constructor(container?: HTMLElement | null) {
     this.root = document.createElement('section');
@@ -165,6 +176,8 @@ export class GameHud {
     this.gravitySr.setAttribute('aria-live', 'polite');
 
     this.gravity.append(dial, this.gravitySr);
+    this.instability = document.createElement('span');
+    this.instability.className = 'game-hud__instability';
     this.hint = document.createElement('p');
     this.hint.className = 'game-hud__hint';
 
@@ -179,7 +192,7 @@ export class GameHud {
     this.stackReceipt.append(this.stackReceiptTotal, this.stackReceiptBreakdown);
     status.append(this.stackReceipt, this.hint);
 
-    top.append(this.gravity);
+    top.append(this.gravity, this.instability);
     bottom.append(queue, status);
     this.root.append(top, bottom);
     (container ?? document.querySelector<HTMLElement>('.game-stage') ?? document.body).append(this.root);
@@ -189,6 +202,8 @@ export class GameHud {
     this.root.hidden = state.phase === GamePhase.Menu;
     this.root.dataset.phase = state.phase;
     this.root.dataset.stackMode = String(Boolean(state.isStackMode));
+    this.root.dataset.rewindMode = String(Boolean(state.hasRewind));
+    this.root.dataset.rewindPreview = String(Boolean(state.isRewindPreview));
     this.score.textContent = state.score.toLocaleString('en-US');
     this.level.textContent = `Level ${state.level}`;
     if (state.isStackMode) {
@@ -259,6 +274,20 @@ export class GameHud {
       this.gravitySr.textContent = '';
       this.gravity.hidden = true;
     }
+    if (state.hasRewind) {
+      const instability = state.instability ?? 0;
+      this.instability.textContent = `INSTABILITY ${instability}`;
+      this.instability.setAttribute('aria-label', `Timeline instability ${instability}`);
+      this.instability.classList.toggle(
+        'game-hud__instability--critical',
+        instability >= (state.criticalInstability ?? Number.POSITIVE_INFINITY),
+      );
+      this.instability.hidden = false;
+    } else {
+      this.instability.textContent = '';
+      this.instability.hidden = true;
+      this.instability.classList.remove('game-hud__instability--critical');
+    }
     // Same defensive guard as GameControls: an inconsistent caller must not
     // pulse attention cues outside a gravity Aiming phase.
     const attention = state.phase === GamePhase.Aiming && state.hasGravity && Boolean(state.needsTilt);
@@ -267,7 +296,7 @@ export class GameHud {
     this.gravity.classList.toggle('game-hud__gravity--attention', attention);
     this.hint.classList.toggle('game-hud__hint--attention', attention);
     this.hint.classList.toggle('game-hud__hint--ready', confirmReady);
-    this.hint.textContent = hintFor(state, attention, confirmReady);
+    this.renderHint(state, attention, confirmReady);
   }
 
   destroy(): void {
@@ -353,6 +382,37 @@ export class GameHud {
     crack.append(document.createElement('i'), document.createElement('i'));
     return crack;
   }
+
+  private renderHint(state: GameHudState, needsTilt: boolean, confirmReady: boolean): void {
+    const controls = controlHintsFor(state, needsTilt, confirmReady);
+    const text = controls ? '' : hintFor(state, needsTilt, confirmReady);
+    const renderKey = controls
+      ? `controls:${controls.map((hint) => `${hint.controls}:${hint.action}`).join('|')}`
+      : `text:${text}`;
+    if (renderKey === this.hintRenderKey) return;
+
+    this.hintRenderKey = renderKey;
+    this.hint.replaceChildren();
+    this.hint.classList.toggle('game-hud__hint--controls', Boolean(controls));
+    if (!controls) {
+      this.hint.textContent = text;
+      return;
+    }
+
+    for (const hint of controls) {
+      const group = document.createElement('span');
+      group.className = 'game-hud__hint-action';
+      group.setAttribute('aria-label', `${hint.controls}: ${hint.action}`);
+      const keycap = document.createElement('kbd');
+      keycap.textContent = hint.controls;
+      keycap.setAttribute('aria-hidden', 'true');
+      const label = document.createElement('span');
+      label.textContent = hint.action;
+      label.setAttribute('aria-hidden', 'true');
+      group.append(keycap, label);
+      this.hint.append(group);
+    }
+  }
 }
 
 function discLabel(disc: Disc): string {
@@ -369,6 +429,37 @@ function gravityDirection(angle: number): string {
 // action, so their hint stays a short tap prompt. Desktop hides those
 // buttons (see the pointer:fine media query), so its hint spells out the
 // keyboard shortcuts instead.
+function controlHintsFor(
+  state: GameHudState,
+  needsTilt = false,
+  confirmReady = false,
+): ControlHint[] | null {
+  if (isTouchDevice() || state.phase === GamePhase.Animating) return null;
+  if (state.phase === GamePhase.Aiming) {
+    if (needsTilt || confirmReady) return null;
+    return [
+      { controls: 'Q / E', action: 'Tilt' },
+      { controls: '↓ / Enter', action: 'Confirm' },
+      { controls: 'Esc', action: 'Cancel' },
+    ];
+  }
+  if (state.hasGravity) {
+    return [
+      { controls: '← →', action: 'Choose lane' },
+      { controls: '↓', action: 'Stage drop' },
+      { controls: 'R', action: 'New game' },
+    ];
+  }
+
+  const hints: ControlHint[] = [
+    { controls: '← →', action: 'Move' },
+    { controls: '↓ / Click', action: 'Drop' },
+  ];
+  if (state.hasRewind) hints.push({ controls: 'Z', action: 'Rewind' });
+  hints.push({ controls: 'R', action: 'New game' });
+  return hints;
+}
+
 function hintFor(state: GameHudState, needsTilt = false, confirmReady = false): string {
   if (state.phase === GamePhase.Animating) return 'Resolving turn';
   const touch = isTouchDevice();
@@ -382,6 +473,9 @@ function hintFor(state: GameHudState, needsTilt = false, confirmReady = false): 
   }
   if (state.hasGravity) {
     return touch ? 'Tap lane to stage a drop' : '← → choose lane  ↓ stage drop  R restart';
+  }
+  if (state.hasRewind) {
+    return touch ? 'Tap column to drop · REWIND undoes one turn' : '← → move  ↓ / click drop  Z rewind  R restart';
   }
   return touch ? 'Tap column to drop' : '← → move  ↓ / click drop  R restart';
 }

@@ -19,7 +19,12 @@ export function cloneBoard(b: Board): Board {
 // the board before physics runs so the visual board starts at the correct pre-drop
 // state and can be advanced step-by-step as animations complete.
 export function deepCloneBoard(b: Board): Board {
-  return b.map(row => row.map(cell => cell != null ? { ...cell } : null));
+  return b.map(row => row.map(cell => cell != null ? {
+    ...cell,
+    ...(cell.temporalFracture
+      ? { temporalFracture: { ...cell.temporalFracture } }
+      : {}),
+  } : null));
 }
 
 export function placeDisc(board: Board, row: number, col: number, disc: Disc): void {

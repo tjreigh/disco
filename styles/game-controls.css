@@ -15,6 +15,7 @@
   min-height: 64px;
   padding: 8px 0;
 }
+.game-controls[hidden] { display: none !important; }
 .game-control {
   min-width: 44px;
   min-height: 44px;
@@ -28,6 +29,13 @@
   touch-action: manipulation;
 }
 .game-control--drop, .game-control--confirm { min-width: 76px; background: #1769aa; border-color: #62b0e8; }
+.game-control--rewind {
+  min-width: 76px;
+  border-color: #c084fc;
+  background: #3b1d5c;
+  color: #f5e9ff;
+}
+.game-control--rewind:hover:not(:disabled) { border-color: #e879f9; background: #55267a; }
 .game-control:hover:not(:disabled) { border-color: #62b0e8; background: #16324f; }
 .game-control:disabled { opacity: .38; cursor: default; }
 .game-control[hidden] { display: none; }
@@ -62,11 +70,25 @@
   .game-controls { gap: 4px; width: calc(100vw - 12px); }
   .game-control { min-width: 40px; padding-inline: 7px; }
   .game-control--drop, .game-control--confirm { min-width: 68px; }
+  .game-control--rewind { min-width: 68px; font-size: 12px; }
 }
 @media (hover: hover) and (pointer: fine) and (min-width: 721px) {
   :root { --game-controls-height: 0px; }
   .shell-region--bottom { min-height: 0; padding-bottom: 0; }
   .game-controls { display: none; }
+  .game-controls[data-rewind-mode="true"] {
+    position: fixed;
+    top: max(16px, env(safe-area-inset-top));
+    /* Stay aligned with the game canvas, leaving the global top-right utility
+       rail free for the Report/Logic control. */
+    right: max(112px, calc((100vw - 680px) / 2 + 16px));
+    z-index: 20;
+    display: flex;
+    width: auto;
+    min-height: 0;
+    padding: 0;
+  }
+  .game-controls[data-rewind-mode="true"] .game-control:not(.game-control--rewind) { display: none; }
 }
 .game-stage {
   position: relative;

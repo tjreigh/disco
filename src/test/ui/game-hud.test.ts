@@ -33,7 +33,10 @@ describe('GameHud', () => {
     expect(hud.root.querySelector('[data-kind="double-cracked"]')).toBeTruthy();
     expect(hud.root.querySelector('[data-kind="double-cracked"]')!.textContent).toBe('');
     expect(hud.root.querySelector('[data-kind="double-cracked"]')!.querySelectorAll('.game-hud__disc-crack')).toHaveLength(2);
-    expect(hud.root.textContent).toContain('← → move  ↓ / click drop  R restart');
+    const controls = Array.from(hud.root.querySelectorAll('.game-hud__hint-action'));
+    expect(controls.map((control) => control.getAttribute('aria-label'))).toEqual([
+      '← →: Move', '↓ / Click: Drop', 'R: New game',
+    ]);
   });
 
   test('renders cracked queue discs with board-style crack marks', () => {
@@ -50,6 +53,38 @@ describe('GameHud', () => {
     expect(singleCracked.querySelectorAll('.game-hud__disc-crack')).toHaveLength(1);
     expect(doubleCracked.textContent).toBe('');
     expect(doubleCracked.querySelectorAll('.game-hud__disc-crack')).toHaveLength(2);
+  });
+
+  test('shows Paradox instability and marks its critical tier', () => {
+    const hud = new GameHud();
+    const base = {
+      phase: GamePhase.WaitingForDrop, score: 0,
+      currentDisc: disc(3), nextDisc: disc(4),
+      level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 30,
+      hasGravity: false, hasRewind: true, criticalInstability: 5,
+    };
+    hud.render({ ...base, instability: 4 });
+    const indicator = hud.root.querySelector<HTMLElement>('.game-hud__instability')!;
+    expect(hud.root.dataset.rewindMode).toBe('true');
+    expect(indicator.textContent).toBe('INSTABILITY 4');
+    expect(indicator.classList).not.toContain('game-hud__instability--critical');
+    expect(hud.root.querySelector('.game-hud__hint')?.classList).toContain('game-hud__hint--controls');
+    expect(Array.from(hud.root.querySelectorAll('.game-hud__hint-action'))
+      .map((control) => control.getAttribute('aria-label'))).toContain('Z: Rewind');
+
+    hud.render({ ...base, instability: 5 });
+    expect(indicator.classList).toContain('game-hud__instability--critical');
+  });
+
+  test('marks rewind inspection so the ordinary bottom HUD can be replaced by the tray', () => {
+    const hud = new GameHud();
+    hud.render({
+      phase: GamePhase.WaitingForDrop, score: 0,
+      currentDisc: disc(3), nextDisc: disc(4),
+      level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 29,
+      hasGravity: false, hasRewind: true, isRewindPreview: true,
+    });
+    expect(hud.root.dataset.rewindPreview).toBe('true');
   });
 
   test('keeps unchanged turn and queue DOM stable across animation frames', () => {
@@ -88,7 +123,10 @@ describe('GameHud', () => {
     expect(Number(arrow.getAttribute('x2'))).toBeGreaterThan(Number(arrow.getAttribute('x1')));
     // Tilt-range arc is drawn while Aiming.
     expect(hud.root.querySelector('.game-hud__gravity-dial path')).toHaveProperty('style.display', '');
-    expect(hud.root.textContent).toContain('Q/E tilt');
+    expect(Array.from(hud.root.querySelectorAll('.game-hud__hint-action'))
+      .map((control) => control.getAttribute('aria-label'))).toEqual([
+      'Q / E: Tilt', '↓ / Enter: Confirm', 'Esc: Cancel',
+    ]);
     hud.render({
       phase: GamePhase.Menu, score: 0, currentDisc: disc(1), nextDisc: disc(2),
       level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 30, hasGravity: false,

@@ -11,13 +11,16 @@ export const SAVE_GAME_RULES_VERSION = 1 as const;
 export interface SavedDisc {
   value: number;
   kind: DiscKind;
+  temporalFracture?: {
+    createdAtInstability: number;
+  };
 }
 
 export type SavedCell = SavedDisc | null;
 export type SavedBoard = SavedCell[][];
 
 export interface SavedGameState {
-  phase: 'waiting';
+  phase: 'waiting' | 'game-over';
   board: SavedBoard;
   cursorCol: number;
   score: number;
@@ -28,6 +31,21 @@ export interface SavedGameState {
   gravity?: {
     angle: number;
   };
+}
+
+export interface SavedRewindCheckpoint {
+  state: SavedGameState & { phase: 'waiting' };
+  generation: SavedGenerationState;
+  anchor: { row: number; col: number };
+  instability: number;
+  session: {
+    longestStreak: number;
+  };
+}
+
+export interface SavedParadoxState {
+  instability: number;
+  rewind?: SavedRewindCheckpoint;
 }
 
 export interface SavedGenerationState {
@@ -55,6 +73,7 @@ export interface SaveGameV1 {
   session: {
     longestStreak: number;
   };
+  paradox?: SavedParadoxState;
   meta: {
     source: 'autosave';
   };
@@ -91,12 +110,24 @@ function isDiscKind(value: unknown): value is DiscKind {
 }
 
 function parseDisc(value: unknown, mode: GameModeConfig, playableOnly = false): SavedDisc | null {
-  if (!isObject(value) || !hasOnlyKeys(value, ['value', 'kind'])) return null;
+  if (!isObject(value) || !hasOnlyKeys(value, ['value', 'kind'], ['temporalFracture'])) return null;
   if (!isPositiveInteger(value.value)
     || value.value < mode.discValueMin
     || value.value > mode.discValueMax
     || !isDiscKind(value.kind)
     || (playableOnly && !PLAYABLE_DISC_KINDS.has(value.kind))) return null;
+  if (value.temporalFracture !== undefined) {
+    if (!mode.rewind || playableOnly
+      || (value.kind !== DiscKind.SingleCracked && value.kind !== DiscKind.DoubleCracked)
+      || !isObject(value.temporalFracture)
+      || !hasOnlyKeys(value.temporalFracture, ['createdAtInstability'])
+      || !isPositiveInteger(value.temporalFracture.createdAtInstability)) return null;
+    return {
+      value: value.value,
+      kind: value.kind,
+      temporalFracture: { createdAtInstability: value.temporalFracture.createdAtInstability },
+    };
+  }
   return { value: value.value, kind: value.kind };
 }
 
@@ -121,12 +152,20 @@ function parseBoard(value: unknown, mode: GameModeConfig): SavedBoard | null {
 }
 
 export function serializeDisc(disc: Disc): SavedDisc {
-  return { value: disc.value, kind: disc.kind };
+  return {
+    value: disc.value,
+    kind: disc.kind,
+    ...(disc.temporalFracture
+      ? { temporalFracture: { ...disc.temporalFracture } }
+      : {}),
+  };
 }
 
 /** Creates a runtime disc with a fresh animation ID. */
 export function deserializeDisc(disc: SavedDisc): Disc {
-  return makeDisc(disc.value, disc.kind);
+  const restored = makeDisc(disc.value, disc.kind);
+  if (disc.temporalFracture) restored.temporalFracture = { ...disc.temporalFracture };
+  return restored;
 }
 
 export function serializeBoard(board: Board): SavedBoard {
@@ -138,18 +177,19 @@ export function deserializeBoard(board: SavedBoard): Board {
   return board.map(row => row.map(cell => cell === null ? null : deserializeDisc(cell)));
 }
 
-function parseState(value: unknown, mode: GameModeConfig): SavedGameState | null {
+function parseState(value: unknown, mode: GameModeConfig, allowGameOver = false): SavedGameState | null {
   if (!isObject(value) || !hasOnlyKeys(value, [
     'phase', 'board', 'cursorCol', 'score', 'dropCount', 'level',
     'turnsPerLevel', 'turnsRemaining',
   ], ['gravity'])) return null;
-  if (value.phase !== 'waiting'
+  if ((value.phase !== 'waiting' && (!allowGameOver || value.phase !== 'game-over'))
     || !isNonNegativeInteger(value.cursorCol)
     || !isNonNegativeInteger(value.score)
     || !isNonNegativeInteger(value.dropCount)
     || !isPositiveInteger(value.level)
     || !isPositiveInteger(value.turnsPerLevel)
-    || !isPositiveInteger(value.turnsRemaining)) return null;
+    || !isNonNegativeInteger(value.turnsRemaining)
+    || (value.phase === 'waiting' && value.turnsRemaining === 0)) return null;
 
   const expectedTurns = turnsForLevel(mode, value.level);
   if (value.turnsPerLevel !== expectedTurns || value.turnsRemaining > value.turnsPerLevel) return null;
@@ -165,7 +205,7 @@ function parseState(value: unknown, mode: GameModeConfig): SavedGameState | null
     const laneCount = edge === 'top' || edge === 'bottom' ? mode.board.cols : mode.board.rows;
     if (value.cursorCol >= laneCount) return null;
     return {
-      phase: 'waiting', board, cursorCol: value.cursorCol, score: value.score,
+      phase: value.phase, board, cursorCol: value.cursorCol, score: value.score,
       dropCount: value.dropCount, level: value.level, turnsPerLevel: value.turnsPerLevel,
       turnsRemaining: value.turnsRemaining, gravity: { angle },
     };
@@ -173,10 +213,43 @@ function parseState(value: unknown, mode: GameModeConfig): SavedGameState | null
 
   if (value.gravity !== undefined || value.cursorCol >= mode.board.cols) return null;
   return {
-    phase: 'waiting', board, cursorCol: value.cursorCol, score: value.score,
+    phase: value.phase, board, cursorCol: value.cursorCol, score: value.score,
     dropCount: value.dropCount, level: value.level, turnsPerLevel: value.turnsPerLevel,
     turnsRemaining: value.turnsRemaining,
   };
+}
+
+function parseAnchor(value: unknown, mode: GameModeConfig): { row: number; col: number } | null {
+  if (!isObject(value) || !hasOnlyKeys(value, ['row', 'col'])
+    || !isNonNegativeInteger(value.row) || value.row >= mode.board.rows
+    || !isNonNegativeInteger(value.col) || value.col >= mode.board.cols) return null;
+  return { row: value.row, col: value.col };
+}
+
+function parseRewindCheckpoint(value: unknown, mode: GameModeConfig): SavedRewindCheckpoint | null {
+  if (!isObject(value) || !hasOnlyKeys(value, ['state', 'generation', 'anchor', 'instability', 'session'])) return null;
+  const state = parseState(value.state, mode);
+  const generation = parseGeneration(value.generation, mode);
+  const anchor = parseAnchor(value.anchor, mode);
+  if (!state || state.phase !== 'waiting' || !generation || !anchor
+    || !isNonNegativeInteger(value.instability)
+    || !isObject(value.session) || !hasOnlyKeys(value.session, ['longestStreak'])
+    || !isNonNegativeInteger(value.session.longestStreak)) return null;
+  return {
+    state: { ...state, phase: 'waiting' },
+    generation,
+    anchor,
+    instability: value.instability,
+    session: { longestStreak: value.session.longestStreak },
+  };
+}
+
+function parseParadoxState(value: unknown, mode: GameModeConfig): SavedParadoxState | null {
+  if (!isObject(value) || !hasOnlyKeys(value, ['instability'], ['rewind'])
+    || !isNonNegativeInteger(value.instability)) return null;
+  if (value.rewind === undefined) return { instability: value.instability };
+  const rewind = parseRewindCheckpoint(value.rewind, mode);
+  return rewind ? { instability: value.instability, rewind } : null;
 }
 
 function parseGeneration(value: unknown, mode: GameModeConfig): SavedGenerationState | null {
@@ -223,18 +296,25 @@ export function parseSaveGame(value: unknown, mode: GameModeConfig): SaveGameV1 
   if (!isObject(value) || !hasOnlyKeys(value, [
     'version', 'rulesVersion', 'savedAt', 'modeId', 'state',
     'generation', 'session', 'meta',
-  ], ['appBuild'])) return null;
+  ], ['appBuild', 'paradox'])) return null;
   if (value.version !== SAVE_GAME_VERSION || value.rulesVersion !== SAVE_GAME_RULES_VERSION
     || !isNonNegativeInteger(value.savedAt) || value.modeId !== mode.id
     || (value.appBuild !== undefined && typeof value.appBuild !== 'string')) return null;
 
-  const state = parseState(value.state, mode);
+  const state = parseState(value.state, mode, mode.rewind !== undefined);
   const generation = parseGeneration(value.generation, mode);
   if (!state || !generation) return null;
   if (!isObject(value.session) || !hasOnlyKeys(value.session, ['longestStreak'])
     || !isNonNegativeInteger(value.session.longestStreak)) return null;
   if (!isObject(value.meta) || !hasOnlyKeys(value.meta, ['source'])
     || value.meta.source !== 'autosave') return null;
+
+  const paradox = mode.rewind ? parseParadoxState(value.paradox, mode) : null;
+  if (mode.rewind) {
+    if (!paradox || (state.phase === 'game-over' && !paradox.rewind)) return null;
+  } else if (value.paradox !== undefined || state.phase !== 'waiting') {
+    return null;
+  }
 
   const save: SaveGameV1 = {
     version: SAVE_GAME_VERSION,
@@ -244,6 +324,7 @@ export function parseSaveGame(value: unknown, mode: GameModeConfig): SaveGameV1 
     state,
     generation,
     session: { longestStreak: value.session.longestStreak },
+    ...(paradox ? { paradox } : {}),
     meta: { source: 'autosave' },
   };
   if (typeof value.appBuild === 'string') save.appBuild = value.appBuild;

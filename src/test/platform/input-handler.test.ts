@@ -77,12 +77,12 @@ describe('InputHandler', () => {
     expect(intents).toEqual([{ kind: 'drop', col: 3 }]);
   });
 
-  test('keyboard emits movement, drop, tilt, cancel, and restart intents', () => {
+  test('keyboard emits movement, drop, tilt, cancel, rewind, and restart intents', () => {
     const intents: InputIntent[] = [];
     const canvas = createCanvas();
     new InputHandler(canvas, intent => intents.push(intent), () => 3);
 
-    for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowDown', ' ', 'Enter', 'q', 'e', 'Escape', 'r']) {
+    for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowDown', ' ', 'Enter', 'q', 'e', 'Escape', 'z', 'r']) {
       document.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
     }
 
@@ -95,6 +95,7 @@ describe('InputHandler', () => {
       { kind: 'tilt', delta: -45 },
       { kind: 'tilt', delta: 45 },
       { kind: 'cancel' },
+      { kind: 'rewind' },
       { kind: 'restart' },
     ]);
   });
@@ -127,6 +128,25 @@ describe('InputHandler', () => {
     editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
 
     expect(intents).toEqual([]);
+  });
+
+  test('rewind remains global on focused buttons and recognizes the physical Z key', () => {
+    const intents: InputIntent[] = [];
+    const canvas = createCanvas();
+    new InputHandler(canvas, intent => intents.push(intent), () => 3);
+    const button = document.createElement('button');
+    const input = document.createElement('input');
+    document.body.append(button, input);
+    button.addEventListener('keydown', event => event.stopPropagation());
+
+    button.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Dead', code: 'KeyZ', bubbles: true, cancelable: true,
+    }));
+    input.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'z', code: 'KeyZ', bubbles: true, cancelable: true,
+    }));
+
+    expect(intents).toEqual([{ kind: 'rewind' }]);
   });
 
   test('touch tap drops and drag only moves', () => {

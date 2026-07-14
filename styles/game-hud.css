@@ -13,6 +13,7 @@
   width: min(100%, var(--game-canvas-width, 680px));
   transform: translateX(-50%);
 }
+.game-hud[data-rewind-preview="true"] .game-hud__bottom { display: none; }
 .game-hud__top {
   top: calc(50% - var(--game-canvas-height, 0px) / 2);
   height: 96px;
@@ -112,6 +113,24 @@
   height: 48px;
 }
 .game-hud__gravity[hidden] { display: none; }
+.game-hud__instability {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  left: max(16px, env(safe-area-inset-left), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2));
+  border: 1px solid #a855f7;
+  border-radius: 999px;
+  padding: 5px 8px;
+  background: rgba(59, 29, 92, .88);
+  color: #e9d5ff;
+  font: 800 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .06em;
+}
+.game-hud__instability[hidden] { display: none; }
+.game-hud__instability--critical {
+  border-color: #f472b6;
+  color: #fbcfe8;
+  box-shadow: 0 0 14px rgba(244, 114, 182, .4);
+}
 .game-hud__gravity-dial { display: block; width: 100%; height: 100%; overflow: visible; }
 .game-hud__gravity-attention-ring { opacity: 0; }
 .game-hud__gravity--attention .game-hud__gravity-attention-ring {
@@ -137,6 +156,9 @@
   align-self: flex-start;
   padding-top: 2px;
 }
+@media (min-width: 721px) and (pointer: fine) {
+  .game-hud[data-rewind-mode="true"] .game-hud__status { max-width: 70%; }
+}
 .game-hud__stack-receipt {
   display: grid;
   justify-items: end;
@@ -148,6 +170,38 @@
 .game-hud__stack-receipt-breakdown { color: #cbd5e1; }
 .game-hud__stack-receipt[hidden] { display: none; }
 .game-hud__hint { color: #a0aec0; font-size: 10px; text-align: right; }
+.game-hud__hint--controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px 12px;
+}
+.game-hud__hint-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  color: #94a3b8;
+  font: 700 9px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+.game-hud__hint-action kbd {
+  display: inline-flex;
+  min-height: 20px;
+  align-items: center;
+  padding: 2px 5px;
+  border: 1px solid #486581;
+  border-bottom-color: #243b53;
+  border-radius: 4px;
+  background: rgba(11, 32, 52, .9);
+  box-shadow: 0 1px 0 #071523;
+  color: #e2e8f0;
+  font: 700 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0;
+  text-transform: none;
+}
 .game-hud__hint--attention {
   color: #9ecdf0;
   animation: hint-attention 1s ease-in-out infinite;
@@ -185,4 +239,5 @@
   .game-hud__hint,
   .game-hud__stack-receipt { font-size: 9px; }
   .game-hud__gravity { width: 40px; height: 40px; }
+  .game-hud__instability { top: max(10px, env(safe-area-inset-top)); font-size: 9px; }
 }

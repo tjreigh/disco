@@ -164,7 +164,7 @@ import { GamePhase } from '../../game/state.js';
 import type { Board } from '../../game/model.js';
 import { DiscKind } from '../../game/model.js';
 import { makeDisc } from '../../game/disc.js';
-import { CLASSIC_MODE, GRAVITY_MODE, STACK_MODE } from '../../game/modes/index.js';
+import { CLASSIC_MODE, GRAVITY_MODE, PARADOX_MODE, STACK_MODE } from '../../game/modes/index.js';
 import { CLASSIC_TUTORIAL, GRAVITY_TUTORIAL } from '../../app/tutorial.js';
 import { StepKind } from '../../game/events.js';
 import { GameEngine } from '../../game/engine.js';
@@ -500,6 +500,86 @@ describe('normal drop flow', () => {
     expect(controller.lastStackScore).toEqual({
       initial: 1, chains: [], stack: 1, points: 10,
     });
+  });
+});
+
+describe('Paradox playable rewind flow', () => {
+  test('queues a rewind pressed during turn animation and opens it at the stable boundary', () => {
+    createGame();
+    lastOf(homeScreenInstances).onSelectMode(PARADOX_MODE);
+    const input = lastOf(inputHandlerInstances);
+
+    input.onIntent({ kind: 'drop', col: 3 });
+    input.onIntent({ kind: 'rewind' });
+    expect(document.querySelector('.rewind-dialog--open')).toBeNull();
+
+    drainAnimations();
+    expect(document.querySelector('.rewind-dialog--open')).not.toBeNull();
+    expect(document.querySelector('.rewind-dialog')?.textContent).toContain('Instability 0 → 1');
+  });
+
+  test('previews and confirms a turn rewind, then persists consumed instability', () => {
+    const { game } = createGame();
+    const homeScreen = lastOf(homeScreenInstances);
+    const saveStore = lastOf(saveStoreInstances);
+    homeScreen.onSelectMode(PARADOX_MODE);
+    const input = lastOf(inputHandlerInstances);
+
+    input.onIntent({ kind: 'drop', col: 3 });
+    drainAnimations();
+    frame(0);
+    expect(document.querySelector<HTMLButtonElement>('[data-control="rewind"]')!.disabled).toBe(false);
+
+    input.onIntent({ kind: 'rewind' });
+    frame(0);
+    const dialog = document.querySelector<HTMLElement>('.rewind-dialog--open')!;
+    expect(dialog.textContent).toContain('Instability 0 → 1');
+    dialog.querySelector<HTMLButtonElement>('.rewind-panel__button--primary')!.click();
+    frame(16);
+
+    const controller = game as unknown as { state: { dropCount: number; paradox?: { instability: number } } };
+    expect(controller.state.dropCount).toBe(0);
+    expect(controller.state.paradox?.instability).toBe(1);
+    expect(document.querySelector('.rewind-dialog--open')).toBeNull();
+    const saved = saveStore.write.mock.calls.at(-1)![1];
+    expect(saved.paradox).toEqual({ instability: 1 });
+    expect(lastOf(statsStoreInstances).recordCompletedGame).not.toHaveBeenCalled();
+  });
+
+  test('keeps a fatal turn provisional, allows rescue, and records only when the player starts over', () => {
+    const { game } = createGame();
+    lastOf(homeScreenInstances).onSelectMode(PARADOX_MODE);
+    const controller = game as unknown as { engine: GameEngine; state: { phase: GamePhase } };
+    const engine = controller.engine;
+    for (let row = 0; row < 7; row++) {
+      for (let col = 0; col < 7; col++) {
+        if (row !== 0 || col !== 0) engine.state.board[row]![col] = makeDisc(7, DiscKind.DoubleCracked);
+      }
+    }
+
+    const input = lastOf(inputHandlerInstances);
+    input.onIntent({ kind: 'drop', col: 0 });
+    drainAnimations();
+    const statsStore = lastOf(statsStoreInstances);
+    expect(controller.state.phase).toBe(GamePhase.GameOver);
+    expect(statsStore.recordCompletedGame).not.toHaveBeenCalled();
+
+    const gameOver = document.querySelector<HTMLElement>('.game-over-screen--open')!;
+    const rewind = Array.from(gameOver.querySelectorAll<HTMLButtonElement>('button'))
+      .find(button => button.textContent === 'REWIND')!;
+    expect(rewind.hidden).toBe(false);
+    rewind.click();
+    document.querySelector<HTMLButtonElement>('.rewind-panel__button--primary')!.click();
+    expect(controller.state.phase).toBe(GamePhase.WaitingForDrop);
+    expect(statsStore.recordCompletedGame).not.toHaveBeenCalled();
+
+    input.onIntent({ kind: 'drop', col: 0 });
+    drainAnimations();
+    const newGame = Array.from(document.querySelectorAll<HTMLButtonElement>('.game-over-button'))
+      .find(button => button.textContent === 'NEW GAME')!;
+    newGame.click();
+    expect(statsStore.recordCompletedGame).toHaveBeenCalledTimes(1);
+    expect(controller.state.phase).toBe(GamePhase.WaitingForDrop);
   });
 });
 

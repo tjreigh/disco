@@ -7,6 +7,7 @@ export type InputIntent =
   | { kind: 'move'; col: number }
   | { kind: 'tilt'; delta: number }
   | { kind: 'cancel' }
+  | { kind: 'rewind' }
   | { kind: 'restart' };
 
 const TILT_STEP_DEG = 45;
@@ -44,6 +45,14 @@ export class InputHandler {
 
   private attach(): void {
     const sig = { signal: this.abortCtrl.signal };
+    const isRewindKey = (event: KeyboardEvent): boolean => event.code === 'KeyZ'
+      || event.key.toLowerCase() === 'z'
+      || event.key.toLowerCase() === 'keyz'
+      || event.keyCode === 90;
+    const isTextEntry = (target: EventTarget | null): boolean => target instanceof HTMLInputElement
+      || target instanceof HTMLTextAreaElement
+      || target instanceof HTMLSelectElement
+      || (target instanceof HTMLElement && target.isContentEditable);
 
     this.canvas.addEventListener('mousemove', (e: MouseEvent) => {
       const lane = this.pixelToLane(e.clientX, e.clientY);
@@ -55,12 +64,25 @@ export class InputHandler {
       if (lane !== null) this.emit({ kind: 'drop', col: lane });
     }, sig);
 
-    document.addEventListener('keydown', (e: KeyboardEvent) => {
-      // Game keys must not fire while the user is interacting with a focusable
-      // control (e.g. the debug panel's textarea or its keyboard-focusable flag
-      // cells) — only dispatch when focus is on a non-interactive element such
-      // as document.body or the canvas (both default to tabIndex -1).
-      if (e.target instanceof HTMLElement && (e.target.isContentEditable || e.target.tabIndex >= 0)) return;
+    window.addEventListener('keydown', (e: KeyboardEvent) => {
+      // Most game keys must not fire while the user is interacting with a
+      // focusable control. Rewind is intentionally global outside text-entry
+      // fields, though: the game-over dialog focuses its REWIND button for
+      // accessibility, and swallowing Z there makes the advertised shortcut
+      // appear broken at the moment it matters most.
+      const target = e.target;
+      if (isTextEntry(target)) return;
+      const rewindKey = isRewindKey(e);
+      if (target instanceof HTMLElement && target.tabIndex >= 0 && !rewindKey) return;
+
+      // Use KeyboardEvent.code as well as key so the physical Z shortcut also
+      // works on non-QWERTY layouts, where the key may report a different
+      // character even though the player pressed the advertised keycap.
+      if (rewindKey) {
+        e.preventDefault();
+        this.emit({ kind: 'rewind' });
+        return;
+      }
 
       const axis = this.getAxis();
       switch (e.key) {
@@ -116,7 +138,7 @@ export class InputHandler {
           this.emit({ kind: 'cancel' });
           break;
       }
-    }, sig);
+    }, { ...sig, capture: true });
 
     // passive: false is required to allow e.preventDefault() inside the handler.
     // Browsers silently ignore preventDefault() on passive listeners, which would

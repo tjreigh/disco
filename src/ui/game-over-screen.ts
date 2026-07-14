@@ -11,6 +11,7 @@ export interface GameOverSummary {
   previousHighScore: number;
   previousBestRecord: number;
   reason?: GameOverReason;
+  canRewind?: boolean;
 }
 
 /** Accessible end-of-game actions layered above the canvas presentation. */
@@ -24,11 +25,14 @@ export class GameOverScreen {
   private readonly records: HTMLElement;
   private readonly average: HTMLElement;
   private readonly newGameButton: HTMLButtonElement;
+  private readonly rewindButton: HTMLButtonElement;
+  private readonly actions: HTMLElement;
   private readonly homeButton: HTMLButtonElement;
   private readonly modal: ModalController;
 
   onRequestNewGame?: () => void;
   onRequestHome?: () => void;
+  onRequestRewind?: () => void;
 
   constructor(
     mount: HTMLElement = document.body,
@@ -75,16 +79,19 @@ export class GameOverScreen {
     this.average = document.createElement('p');
     this.average.className = 'game-over-average';
 
-    const actions = document.createElement('div');
-    actions.className = 'game-over-actions';
+    this.actions = document.createElement('div');
+    this.actions.className = 'game-over-actions';
 
+    this.rewindButton = this.createButton('REWIND', 'game-over-button--rewind', () => {
+      this.onRequestRewind?.();
+    });
     this.newGameButton = this.createButton('NEW GAME', 'game-over-button--primary', () => {
       this.onRequestNewGame?.();
     });
     this.homeButton = this.createButton('HOME', '', () => {
       this.onRequestHome?.();
     });
-    actions.append(this.newGameButton, this.homeButton);
+    this.actions.append(this.rewindButton, this.newGameButton, this.homeButton);
 
     panel.append(
       title,
@@ -94,13 +101,13 @@ export class GameOverScreen {
       runSummary,
       this.records,
       this.average,
-      actions,
+      this.actions,
     );
     this.overlay.append(panel);
     mount.append(this.overlay);
     this.modal = new ModalController(this.overlay, {
       openClass: 'game-over-screen--open',
-      initialFocus: () => this.newGameButton,
+      initialFocus: () => this.rewindButton.hidden ? this.newGameButton : this.rewindButton,
       inertTargets: modalBackground,
     });
   }
@@ -113,6 +120,7 @@ export class GameOverScreen {
     previousHighScore,
     previousBestRecord,
     reason,
+    canRewind = false,
   }: GameOverSummary): void {
     const recordLabel = isStackMode ? 'Best stack' : 'Longest chain';
     const newHighScore = score > previousHighScore;
@@ -144,6 +152,9 @@ export class GameOverScreen {
     this.runRecord.hidden = bestRunRecord <= 0;
     this.records.textContent = `High ${stats.highScore.toLocaleString('en-US')} · ${recordLabel} ${stats.longestStreak.toLocaleString('en-US')}`;
     this.average.textContent = `Average ${stats.averageScore.toLocaleString('en-US')} over ${stats.gamesPlayed.toLocaleString('en-US')} game${stats.gamesPlayed === 1 ? '' : 's'}`;
+    this.rewindButton.hidden = !canRewind;
+    this.actions.classList.toggle('game-over-actions--rewind', canRewind);
+    this.newGameButton.classList.toggle('game-over-button--primary', !canRewind);
     this.modal.open();
   }
 

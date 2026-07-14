@@ -4,6 +4,8 @@ import { GamePhase } from '../game/state.js';
 export interface GameControlsState {
   phase: GamePhase;
   hasGravity: boolean;
+  hasRewind?: boolean;
+  canRewind?: boolean;
   cursorLane: number;
   laneCount: number;
   axis: 'col' | 'row';
@@ -12,6 +14,7 @@ export interface GameControlsState {
   /** No committable tilt exists yet — the ↺/↻ buttons pulse for attention. */
   needsTilt?: boolean;
   disabled?: boolean;
+  isRewindPreview?: boolean;
 }
 
 /** Small, touch-friendly DOM controls that forward directly to InputIntent. */
@@ -24,6 +27,7 @@ export class GameControls {
   private readonly clockwiseButton: HTMLButtonElement;
   private readonly cancelButton: HTMLButtonElement;
   private readonly confirmButton: HTMLButtonElement;
+  private readonly rewindButton: HTMLButtonElement;
   private readonly onIntent: (intent: InputIntent) => void;
 
   constructor(onIntent: (intent: InputIntent) => void, container?: HTMLElement | null) {
@@ -54,10 +58,14 @@ export class GameControls {
     this.confirmButton = this.createButton('confirm', 'CONFIRM', 'Confirm tilt', () => {
       this.onIntent({ kind: 'drop', col: this.lastState.cursorLane });
     });
+    this.rewindButton = this.createButton('rewind', 'REWIND', 'Rewind last turn', () => {
+      this.onIntent({ kind: 'rewind' });
+    });
+    this.rewindButton.setAttribute('aria-keyshortcuts', 'Z');
 
     this.root.append(
       this.previousButton, this.counterClockwiseButton, this.cancelButton,
-      this.dropButton, this.confirmButton, this.clockwiseButton, this.nextButton,
+      this.dropButton, this.confirmButton, this.clockwiseButton, this.nextButton, this.rewindButton,
     );
     (container ?? document.querySelector<HTMLElement>('.shell-region--bottom') ?? document.body).append(this.root);
   }
@@ -74,7 +82,8 @@ export class GameControls {
     this.lastState = state;
     const waiting = state.phase === GamePhase.WaitingForDrop;
     const aiming = state.phase === GamePhase.Aiming && state.hasGravity;
-    this.root.hidden = !waiting && !aiming;
+    this.root.hidden = Boolean(state.isRewindPreview) || (!waiting && !aiming);
+    this.root.dataset.rewindMode = String(Boolean(state.hasRewind));
     this.root.classList.toggle('game-controls--aiming', aiming);
     this.root.setAttribute('aria-hidden', String(this.root.hidden));
 
@@ -87,6 +96,8 @@ export class GameControls {
     this.previousButton.disabled = !waiting || state.cursorLane <= 0 || Boolean(state.disabled);
     this.nextButton.disabled = !waiting || state.cursorLane >= state.laneCount - 1 || Boolean(state.disabled);
     this.dropButton.hidden = !waiting;
+    this.rewindButton.hidden = !waiting || !state.hasRewind;
+    this.rewindButton.disabled = !waiting || !state.canRewind || Boolean(state.disabled);
     this.counterClockwiseButton.hidden = !aiming;
     this.clockwiseButton.hidden = !aiming;
     this.cancelButton.hidden = !aiming;

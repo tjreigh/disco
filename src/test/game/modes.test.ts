@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { CLASSIC_MODE, GAME_MODES, GRAVITY_MODE, STACK_MODE } from '../../game/modes/index.js';
+import { CLASSIC_MODE, GAME_MODES, GRAVITY_MODE, PARADOX_MODE, STACK_MODE } from '../../game/modes/index.js';
 import { turnsForLevel, unnumberedProbabilityForLevel } from '../../game/modes/mode.js';
 import { makeEmptyBoard, placeDisc } from '../../game/board.js';
 import { makeDisc } from '../../game/disc.js';
@@ -34,8 +34,8 @@ describe('CLASSIC_MODE', () => {
     expect(CLASSIC_MODE.gravity).toBeUndefined();
   });
 
-  test('GAME_MODES contains Classic, Gravity, and Stack', () => {
-    expect(GAME_MODES).toEqual([CLASSIC_MODE, GRAVITY_MODE, STACK_MODE]);
+  test('GAME_MODES contains every player-facing mode', () => {
+    expect(GAME_MODES).toEqual([CLASSIC_MODE, GRAVITY_MODE, STACK_MODE, PARADOX_MODE]);
   });
 
   test('isClearable: a numbered disc clears when value equals its run length', () => {
@@ -84,6 +84,18 @@ describe('STACK_MODE', () => {
     expect(unnumberedProbabilityForLevel(STACK_MODE, 100)).toBe(0);
     expect(STACK_MODE.levelBonus).toBe(CLASSIC_MODE.levelBonus);
     expect(STACK_MODE.boardClearBonus).toBe(CLASSIC_MODE.boardClearBonus);
+  });
+});
+
+describe('PARADOX_MODE', () => {
+  test('inherits Classic rules and exposes one-turn rewind as a player-facing mode', () => {
+    expect(PARADOX_MODE.board).toEqual(CLASSIC_MODE.board);
+    expect(PARADOX_MODE.scoring).toEqual(CLASSIC_MODE.scoring);
+    expect(PARADOX_MODE.isClearable).toBe(CLASSIC_MODE.isClearable);
+    expect(PARADOX_MODE.revealAdjacent).toBe(CLASSIC_MODE.revealAdjacent);
+    expect(PARADOX_MODE.rewind).toEqual({ historyDepth: 1, criticalInstability: 5 });
+    expect(PARADOX_MODE.hasTutorial).toBe(false);
+    expect(GAME_MODES).toContain(PARADOX_MODE);
   });
 });
 

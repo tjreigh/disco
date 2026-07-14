@@ -30,6 +30,10 @@ export interface GravityState {
   pendingLane?: number;
 }
 
+export interface ParadoxState {
+  instability: number;
+}
+
 export interface GameState {
   /** Seed controlling both deterministic disc-generation streams. */
   generationSeed: number;
@@ -55,4 +59,6 @@ export interface GameState {
   turnsRemaining: number;
   /** Only present for Gravity mode. */
   gravity?: GravityState | undefined;
+  /** Only present for rewind-capable modes. */
+  paradox?: ParadoxState | undefined;
 }

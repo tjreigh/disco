@@ -43,6 +43,8 @@ export interface RevealStep {
   kind: StepKind.Reveal;
   positions: GridPos[];
   discs: Disc[];
+  /** Temporal fractures whose final cover was removed by this reveal batch. */
+  temporalRepairs?: GridPos[];
 }
 
 export interface PushStep {

@@ -68,9 +68,9 @@ describe('GameOverScreen', () => {
     });
 
     const overlay = document.querySelector<HTMLElement>('.game-over-screen')!;
-    const buttons = overlay.querySelectorAll<HTMLButtonElement>('button');
-    const newGame = buttons[0]!;
-    const home = buttons[1]!;
+    const buttons = Array.from(overlay.querySelectorAll<HTMLButtonElement>('button'));
+    const newGame = buttons.find(button => button.textContent === 'NEW GAME')!;
+    const home = buttons.find(button => button.textContent === 'HOME')!;
     expect(overlay.textContent).toContain('Best stack 4');
     expect(overlay.textContent).toContain('The level push overflowed the board.');
     expect(overlay.querySelector<HTMLElement>('.game-over-highlights')!.hidden).toBe(true);
@@ -86,5 +86,27 @@ describe('GameOverScreen', () => {
     expect(overlay.classList).not.toContain('game-over-screen--open');
     expect(overlay.getAttribute('aria-hidden')).toBe('true');
     expect(document.activeElement).not.toBe(home);
+  });
+
+  test('makes Rewind the primary game-over action when the run can be rescued', () => {
+    const screen = new GameOverScreen();
+    const onRewind = vi.fn();
+    screen.onRequestRewind = onRewind;
+    screen.open({
+      score: 99,
+      stats: { highScore: 99, longestStreak: 1, averageScore: 99, gamesPlayed: 1, totalScore: 99 },
+      isStackMode: false,
+      bestRunRecord: 1,
+      previousHighScore: 0,
+      previousBestRecord: 0,
+      canRewind: true,
+    });
+
+    const rewind = Array.from(document.querySelectorAll<HTMLButtonElement>('.game-over-button'))
+      .find(button => button.textContent === 'REWIND')!;
+    expect(rewind.hidden).toBe(false);
+    expect(document.activeElement).toBe(rewind);
+    rewind.click();
+    expect(onRewind).toHaveBeenCalledTimes(1);
   });
 });

@@ -31,6 +31,13 @@ export interface TutorialVisualState {
   needsTilt: boolean;
 }
 
+export interface RewindVisualState {
+  targets: ReadonlyArray<{
+    position: GridPos;
+    resultingKind: DiscKind.SingleCracked | DiscKind.DoubleCracked;
+  }>;
+}
+
 // Computed each draw call so it stays proportional after a resize.
 function discR(): number { return cellSize() / 2 - Math.max(3, cellSize() * 0.07); }
 
@@ -111,6 +118,7 @@ export class Renderer {
     previewLanding?: GridPos | null,
     isStackMode = false,
     gravityShiftCue?: GravityShiftCue | null,
+    rewind?: RewindVisualState | null,
   ): void {
     const { ctx } = this;
     // Build a set of disc IDs currently being animated. drawStaticDiscs uses
@@ -137,8 +145,9 @@ export class Renderer {
     // During Aiming, `board` is already the live settle preview (the caller
     // substitutes it) — drawn through the same static-disc path as any other
     // committed board, no separate staged-disc rendering needed.
-    this.drawStaticDiscs(board, animations, animIds);
+    this.drawStaticDiscs(board, animations, animIds, rewind ?? null);
     this.drawAnimatedDiscs(animations);
+    if (rewind) this.drawPendingFractures(rewind);
     // The shift-cue's edge glow draws on top of the board so the pulse is
     // visible while discs are still animating into their post-tilt positions.
     if (gravityShiftCue) this.drawGravityShiftGlow(gravityShiftCue);
@@ -445,18 +454,79 @@ export class Renderer {
     }
   }
 
-  private drawStaticDiscs(board: Board, animations: readonly RichDiscAnimation[], animIds: Set<number>): void {
+  private drawStaticDiscs(
+    board: Board,
+    animations: readonly RichDiscAnimation[],
+    animIds: Set<number>,
+    rewind: RewindVisualState | null,
+  ): void {
     // A top/bottom push only ever produces offsetY, left/right only ever
     // offsetX — see pushBoardOffsetX/Y — so applying both unconditionally is
     // always correct, not just for the vertical case Classic always used.
     const offsetX = pushBoardOffsetX(animations);
     const offsetY = pushBoardOffsetY(animations);
+    const targets = new Set(rewind?.targets.map(target => `${target.position.row}:${target.position.col}`) ?? []);
     for (let r = 0; r < board.length; r++) {
       for (let c = 0; c < board[r]!.length; c++) {
         const disc = board[r]![c];
         if (!disc || animIds.has(disc.id)) continue;
-        this.drawDisc(disc, cellCenterX(c) + offsetX, cellCenterY(r) + offsetY, discR(), 1, 1);
+        const alpha = rewind && !targets.has(`${r}:${c}`) ? 0.48 : 1;
+        this.drawDisc(disc, cellCenterX(c) + offsetX, cellCenterY(r) + offsetY, discR(), alpha, 1);
       }
+    }
+  }
+
+  private drawPendingFractures(rewind: RewindVisualState): void {
+    const { ctx } = this;
+    const radius = discR();
+    for (const target of rewind.targets) {
+      const cx = cellCenterX(target.position.col);
+      const cy = cellCenterY(target.position.row);
+      const double = target.resultingKind === DiscKind.DoubleCracked;
+
+      ctx.save();
+      ctx.translate(cx, cy);
+
+      // A bright cell-scale halo keeps the target legible even in a crowded
+      // board without replacing the numbered disc the player needs to identify.
+      ctx.shadowColor = '#e879f9';
+      ctx.shadowBlur = Math.max(14, radius * 0.5);
+      ctx.strokeStyle = '#e879f9';
+      ctx.lineWidth = Math.max(3, radius * 0.1);
+      ctx.beginPath();
+      ctx.arc(0, 0, radius + Math.max(6, radius * 0.18), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      ctx.strokeStyle = '#67e8f9';
+      ctx.lineWidth = Math.max(2, radius * 0.065);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-radius * 0.22, -radius * 0.62);
+      ctx.lineTo(-radius * 0.04, -radius * 0.12);
+      ctx.lineTo(radius * 0.3, radius * 0.62);
+      ctx.stroke();
+      if (double) {
+        ctx.beginPath();
+        ctx.moveTo(radius * 0.4, -radius * 0.54);
+        ctx.lineTo(radius * 0.08, -radius * 0.08);
+        ctx.lineTo(-radius * 0.36, radius * 0.56);
+        ctx.stroke();
+      }
+
+      const badgeRadius = Math.max(8, radius * 0.25);
+      const badgeX = radius * 0.82;
+      const badgeY = -radius * 0.82;
+      ctx.fillStyle = '#e879f9';
+      ctx.beginPath();
+      ctx.arc(badgeX, badgeY, badgeRadius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#1a1027';
+      ctx.font = `900 ${Math.round(badgeRadius * 1.35)}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('!', badgeX, badgeY + 0.5);
+      ctx.restore();
     }
   }
 
@@ -599,6 +669,7 @@ export class Renderer {
       drawNumberedDisc(ctx, disc.value, r);
     } else {
       drawCrackedDisc(ctx, disc.kind, r);
+      if (disc.temporalFracture) drawTemporalFracture(ctx, r);
     }
 
     ctx.restore();
@@ -678,6 +749,23 @@ function drawCrackedDisc(ctx: CanvasRenderingContext2D, kind: DiscKind, r: numbe
     ctx.lineTo(-r * 0.32,  r * 0.52);
     ctx.stroke();
   }
+}
+
+function drawTemporalFracture(ctx: CanvasRenderingContext2D, r: number): void {
+  ctx.save();
+  ctx.lineWidth = Math.max(1.5, r * 0.07);
+  ctx.lineCap = 'round';
+  ctx.setLineDash([r * 0.18, r * 0.12]);
+  ctx.strokeStyle = '#22d3ee';
+  ctx.beginPath();
+  ctx.arc(-r * 0.05, 0, r * 0.82, -Math.PI * 0.72, Math.PI * 0.18);
+  ctx.stroke();
+  ctx.strokeStyle = '#e879f9';
+  ctx.beginPath();
+  ctx.arc(r * 0.05, 0, r * 0.9, Math.PI * 0.28, Math.PI * 1.14);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
 }
 
 // Adds a fixed amount of brightness to each RGB channel of a 6-digit hex color.

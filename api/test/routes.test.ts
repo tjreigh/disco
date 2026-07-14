@@ -34,7 +34,7 @@ async function createAuthedApp() {
   return { repos, account, cookie: `disco_session=${token}` };
 }
 
-function savePayload(modeId: 'classic' | 'gravity' | 'stack', overrides: Record<string, unknown> = {}) {
+function savePayload(modeId: 'classic' | 'gravity' | 'stack' | 'paradox', overrides: Record<string, unknown> = {}) {
   return {
     version: 1,
     rulesVersion: 1,

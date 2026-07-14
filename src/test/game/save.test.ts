@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import { makeDisc } from '../../game/disc.js';
 import { DiscKind } from '../../game/model.js';
-import { CLASSIC_MODE, GRAVITY_MODE } from '../../game/modes/index.js';
+import { CLASSIC_MODE, GRAVITY_MODE, PARADOX_MODE } from '../../game/modes/index.js';
+import { GameEngine } from '../../game/engine.js';
 import type { GameModeConfig } from '../../game/modes/mode.js';
 import {
   deserializeBoard,
@@ -77,6 +78,18 @@ describe('save disc and board serialization', () => {
     expect(first).toMatchObject(saved);
     expect(first.id).not.toBe(original.id);
     expect(second.id).not.toBe(first.id);
+  });
+
+  test('temporal fracture metadata round-trips independently', () => {
+    const original = makeDisc(5, DiscKind.DoubleCracked);
+    original.temporalFracture = { createdAtInstability: 4 };
+    const saved = serializeDisc(original);
+    const restored = deserializeDisc(saved);
+
+    expect(saved.temporalFracture).toEqual({ createdAtInstability: 4 });
+    expect(restored.temporalFracture).toEqual({ createdAtInstability: 4 });
+    restored.temporalFracture!.createdAtInstability = 9;
+    expect(saved.temporalFracture).toEqual({ createdAtInstability: 4 });
   });
 
   test('boards round-trip independently with fresh disc IDs', () => {
@@ -244,5 +257,38 @@ describe('SaveGameV1 parsing', () => {
     expect(parseSaveGame(save, rectangularGravity)).toBeNull();
     save.state.cursorCol = 2;
     expect(parseSaveGame(save, rectangularGravity)).not.toBeNull();
+  });
+
+  test('validates Paradox instability, checkpoints, and temporal board metadata', () => {
+    const source = new GameEngine({ mode: PARADOX_MODE, seed: 1 });
+    source.state.board[6]![0] = makeDisc(7, DiscKind.Numbered);
+    source.drop(6);
+    source.commitRewind();
+    const fractured = source.exportSave({ savedAt: 20 });
+    expect(parseSaveGame(fractured, PARADOX_MODE)).toEqual(fractured);
+
+    const checkpointSource = new GameEngine({ mode: PARADOX_MODE, seed: 2 });
+    checkpointSource.drop(3);
+    const checkpoint = checkpointSource.exportSave({ savedAt: 21, rewindLongestStreak: 3 });
+    expect(parseSaveGame(checkpoint, PARADOX_MODE)).toEqual(checkpoint);
+
+    const missingParadox = jsonClone(checkpoint) as Record<string, unknown>;
+    delete missingParadox.paradox;
+    expect(parseSaveGame(missingParadox, PARADOX_MODE)).toBeNull();
+
+    const missingFatalCheckpoint = jsonClone(checkpoint) as SaveGameV1;
+    missingFatalCheckpoint.state.phase = 'game-over';
+    delete missingFatalCheckpoint.paradox!.rewind;
+    expect(parseSaveGame(missingFatalCheckpoint, PARADOX_MODE)).toBeNull();
+  });
+
+  test('rejects temporal metadata in modes without rewind', () => {
+    const save = validSave();
+    save.state.board[6]![0] = {
+      value: 7,
+      kind: DiscKind.SingleCracked,
+      temporalFracture: { createdAtInstability: 1 },
+    };
+    expect(parseSaveGame(save, CLASSIC_MODE)).toBeNull();
   });
 });

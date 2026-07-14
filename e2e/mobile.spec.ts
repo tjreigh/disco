@@ -52,6 +52,19 @@ test.describe('mobile playability', () => {
     expect((await readSummary(page)).drops).toBe('1');
   });
 
+  test('Paradox exposes a touch Rewind control that enables after a completed turn', async ({ page }) => {
+    await gotoSeeded(page);
+    await playMode(page, 'Paradox');
+    const rewind = page.locator('[data-control="rewind"]');
+    await expect(rewind).toBeVisible();
+    await expect(rewind).toBeDisabled();
+
+    await page.locator('[data-control="drop"]').tap();
+    await openDebugPanel(page);
+    await waitForPhase(page, 'waiting');
+    await expect(rewind).toBeEnabled();
+  });
+
   test('resize keeps HUD geometry variables aligned with the canvas and board', async ({ page }) => {
     await gotoSeeded(page);
     await playMode(page, 'Classic');

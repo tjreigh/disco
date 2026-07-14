@@ -44,6 +44,20 @@ describe('GameControls', () => {
     expect(document.querySelector('[data-control="tilt-counter-clockwise"]')).toHaveProperty('hidden', true);
   });
 
+  test('rewind-capable play exposes a disabled-or-actionable Rewind control', () => {
+    render({ hasRewind: true, canRewind: false });
+    const rewind = document.querySelector<HTMLButtonElement>('[data-control="rewind"]')!;
+    expect(rewind.hidden).toBe(false);
+    expect(rewind.disabled).toBe(true);
+
+    render({ hasRewind: true, canRewind: true });
+    rewind.click();
+    expect(intents).toEqual([{ kind: 'rewind' }]);
+
+    render({ hasRewind: false });
+    expect(rewind.hidden).toBe(true);
+  });
+
   test('gravity aiming exposes tilt controls and keeps row-aware labels', () => {
     render({ phase: GamePhase.Aiming, hasGravity: true, axis: 'row' });
 
@@ -118,6 +132,11 @@ describe('GameControls', () => {
       render({ phase, hasGravity: true });
       expect(controls.root.hidden).toBe(true);
     }
+  });
+
+  test('rewind inspection replaces the ordinary controls', () => {
+    render({ hasRewind: true, canRewind: true, isRewindPreview: true });
+    expect(controls.root.hidden).toBe(true);
   });
 
   test('disabled state prevents control clicks while visible', () => {

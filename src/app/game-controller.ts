@@ -8,7 +8,7 @@ import type { GravityShiftCue, ScoreIndicator, ScorePopup } from '../ui/renderin
 import { deepCloneBoard, makeEmptyBoard } from '../game/board.js';
 import { entryEdgeForAngle, snapAngleToEightDirections } from '../game/gravity.js';
 import { GameEngine } from '../game/engine.js';
-import type { GameOverReason, TurnResult } from '../game/engine.js';
+import type { GameOverReason, RewindPreview, TurnResult } from '../game/engine.js';
 import { CLASSIC_MODE, GAME_MODES } from '../game/modes/index.js';
 import { DebugPanel } from '../ui/debug/debug-panel.js';
 import {
@@ -34,6 +34,7 @@ import { GameControls } from '../ui/game-controls.js';
 import { GameHud } from '../ui/game-hud.js';
 import { SyncedSaveStore } from '../platform/synced-save-store.js';
 import { SavedGameDialog } from '../ui/saved-game-dialog.js';
+import { RewindDialog } from '../ui/rewind-dialog.js';
 import type { SaveGameV1 } from '../game/save.js';
 import type { UiMounts } from '../ui/ui-root.js';
 
@@ -60,6 +61,7 @@ export class Game {
   private gameHud: GameHud;
   private readonly saveStore: SyncedSaveStore;
   private readonly savedGameDialog: SavedGameDialog;
+  private readonly rewindDialog: RewindDialog;
   private saveDialogMode: GameModeConfig | null = null;
   private animQueue: AnimationQueue | null = null;
   private rafId = 0;
@@ -82,6 +84,10 @@ export class Game {
   private unsubscribeStatsStore: (() => void) | null = null;
   private unsubscribeSaveStore: (() => void) | null = null;
   private longestStreakThisGame = 0;
+  private rewindLongestStreak: number | null = null;
+  private rewindPreview: RewindPreview | null = null;
+  private pendingRewind = false;
+  private lastGameOverReason: GameOverReason | undefined;
   private highScoreAtGameStart = 0;
   private bestRecordAtGameStart = 0;
   // Stack mode's current player-triggered cascade. This is presentation-only;
@@ -123,6 +129,7 @@ export class Game {
     this.gameControls = new GameControls(intent => this.handleIntent(intent), controlsMount);
     this.gameHud = new GameHud(stageMount);
     this.savedGameDialog = new SavedGameDialog(overlayMount, modalBackground);
+    this.rewindDialog = new RewindDialog(overlayMount, modalBackground);
     this.visualBoard = makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
     this.statsStore = new AccountStatsStore(GAME_MODES);
     this.saveStore = new SyncedSaveStore(GAME_MODES);
@@ -146,8 +153,11 @@ export class Game {
     this.homeScreen.onRequestHome = () => this.returnToMenu();
     this.homeScreen.onRequestToggleSound = () => this.toggleSound();
     this.homeScreen.onRequestTutorial = mode => this.startTutorial(mode);
+    this.gameOverScreen.onRequestRewind = () => this.requestRewind();
     this.gameOverScreen.onRequestNewGame = () => this.restart();
     this.gameOverScreen.onRequestHome = () => this.returnToMenu();
+    this.rewindDialog.onConfirm = () => this.confirmRewind();
+    this.rewindDialog.onCancel = () => this.cancelRewind();
     this.tutorialOverlay.onRetry = () => this.retryTutorialStep();
     this.tutorialOverlay.onExit = () => this.returnToMenu();
     this.tutorialOverlay.onContinue = () => this.tutorialOverlay.hide();
@@ -236,6 +246,7 @@ export class Game {
 
   private startGame(mode: GameModeConfig): void {
     this.gameOverScreen.close();
+    this.rewindDialog.hide();
     this.saveDialogMode = null;
     this.activeTutorial = null;
     this.tutorialOverlay.hide();
@@ -252,6 +263,10 @@ export class Game {
     this.scoreIndicators = [];
     this.gravityShiftCue = null;
     this.longestStreakThisGame = 0;
+    this.rewindLongestStreak = null;
+    this.rewindPreview = null;
+    this.pendingRewind = false;
+    this.lastGameOverReason = undefined;
     this.activeStack = 0;
     this.stackInitialClearSize = 0;
     this.stackChainBatches = [];
@@ -266,6 +281,7 @@ export class Game {
 
   private startTutorial(mode: GameModeConfig): void {
     this.gameOverScreen.close();
+    this.rewindDialog.hide();
     const tutorial = TUTORIALS[mode.id];
     if (!tutorial) return;
     this.mode = mode;
@@ -294,8 +310,10 @@ export class Game {
   }
 
   private returnToMenu(): void {
+    this.finalizeCurrentGame();
     this.isPaused = false;
     this.gameOverScreen.close();
+    this.rewindDialog.hide();
     this.homeScreen.closeGameMenu();
     this.activeTutorial = null;
     this.tutorialOverlay.hide();
@@ -305,6 +323,8 @@ export class Game {
     this.gravityShiftCue = null;
     this.displayedScore = this.state.score;
     this.state.phase = GamePhase.Menu;
+    this.rewindPreview = null;
+    this.pendingRewind = false;
     this.homeScreen.open();
   }
 
@@ -339,6 +359,11 @@ export class Game {
     // Restart is always accepted, even mid-animation or after game over.
     if (intent.kind === 'restart') {
       this.restart();
+      return;
+    }
+
+    if (intent.kind === 'rewind') {
+      this.requestRewind();
       return;
     }
 
@@ -401,8 +426,9 @@ export class Game {
 
   private handleDrop(col: number): void {
     const previousLevelProgress = this.snapshotLevelProgress();
+    const previousLongestStreak = this.longestStreakThisGame;
     const result = this.engine.drop(col);
-    this.processTurnResult(result, previousLevelProgress);
+    this.processTurnResult(result, previousLevelProgress, previousLongestStreak);
   }
 
   private handleCommitTilt(): void {
@@ -416,10 +442,14 @@ export class Game {
     if (result.accepted && gravity) {
       this.gravityShiftCue = spawnGravityShiftCue(fromAngle, gravity.angle, performance.now());
     }
-    this.processTurnResult(result, previousLevelProgress);
+    this.processTurnResult(result, previousLevelProgress, this.longestStreakThisGame);
   }
 
-  private processTurnResult(result: TurnResult, previousLevelProgress: LevelProgressDisplay): void {
+  private processTurnResult(
+    result: TurnResult,
+    previousLevelProgress: LevelProgressDisplay,
+    previousLongestStreak: number,
+  ): void {
     if (!result.accepted) {
       this.debug.recordTurn(result);
       if (result.gameOver) {
@@ -438,25 +468,22 @@ export class Game {
     );
     const recordForTurn = this.isStackMode() ? result.stackSize : longestStreakThisTurn;
     this.longestStreakThisGame = Math.max(this.longestStreakThisGame, recordForTurn);
+    if (this.mode.rewind) this.rewindLongestStreak = previousLongestStreak;
     this.activeStack = 0;
     this.stackInitialClearSize = 0;
     this.stackChainBatches = [];
     this.stackCascadeActive = this.isStackMode();
     if (!this.activeTutorial) {
-      const recordsImproved = updateRecords(this.stats, this.state.score, this.longestStreakThisGame);
-      if (recordsImproved && !result.gameOver) this.statsStore.saveStats(this.mode.id, this.stats);
-      if (result.gameOver) {
-        this.saveStore.remove(this.mode.id);
-      } else {
-        this.saveStore.write(
-          this.mode.id,
-          this.engine.exportSave({ longestStreak: this.longestStreakThisGame }),
-        );
+      if (!this.mode.rewind) {
+        const recordsImproved = updateRecords(this.stats, this.state.score, this.longestStreakThisGame);
+        if (recordsImproved && !result.gameOver) this.statsStore.saveStats(this.mode.id, this.stats);
       }
+      if (result.gameOver && !this.mode.rewind) this.saveStore.remove(this.mode.id);
+      else this.writeCurrentSave();
     }
     this.visualBoard = result.boardBefore;
     this.setAnimatedLevelProgress(previousLevelProgress);
-    if (result.gameOver && !this.activeTutorial) this.recordGameEnd();
+    if (result.gameOver && !this.activeTutorial && !this.engine.canRewind()) this.recordGameEnd();
 
     // The engine has already completed the turn synchronously. The browser
     // temporarily overrides its final phase while replaying the returned steps.
@@ -484,6 +511,10 @@ export class Game {
         } else {
           this.state.phase = GamePhase.WaitingForDrop;
           this.debug.refresh();
+        }
+        if (this.pendingRewind) {
+          this.pendingRewind = false;
+          this.requestRewind();
         }
       },
     );
@@ -562,29 +593,49 @@ export class Game {
   }
 
   private setGameOver(reason?: GameOverReason, clearSave = true): void {
-    if (clearSave) this.saveStore.remove(this.mode.id);
     this.state.phase = GamePhase.GameOver;
+    this.lastGameOverReason = reason;
+    const canRewind = this.engine.canRewind();
+    if (canRewind) {
+      this.writeCurrentSave();
+    } else if (clearSave) {
+      this.saveStore.remove(this.mode.id);
+    }
     this.syncLevelProgressDisplay();
-    this.recordGameEnd();
+    if (!canRewind) this.recordGameEnd();
     this.debug.refresh();
     this.audio.playGameOver();
-    this.gameOverScreen.open({
-      score: this.state.score,
-      stats: this.stats,
-      isStackMode: this.isStackMode(),
-      bestRunRecord: this.longestStreakThisGame,
-      previousHighScore: this.highScoreAtGameStart,
-      previousBestRecord: this.bestRecordAtGameStart,
-      ...(reason ? { reason } : {}),
-    });
+    this.openGameOverSummary(canRewind);
     // Drop any in-progress animation — the game-over overlay renders on top,
     // so partial animation state is invisible and we can discard it safely.
     this.animQueue = null;
   }
 
+  private openGameOverSummary(canRewind = this.engine.canRewind()): void {
+    const displayedStats = canRewind ? this.projectedFinalStats() : this.stats;
+    this.gameOverScreen.open({
+      score: this.state.score,
+      stats: displayedStats,
+      isStackMode: this.isStackMode(),
+      bestRunRecord: this.longestStreakThisGame,
+      previousHighScore: this.highScoreAtGameStart,
+      previousBestRecord: this.bestRecordAtGameStart,
+      canRewind,
+      ...(this.lastGameOverReason ? { reason: this.lastGameOverReason } : {}),
+    });
+  }
+
+  private projectedFinalStats(): GameStats {
+    const projected = { ...this.stats };
+    updateRecords(projected, this.state.score, this.longestStreakThisGame);
+    recordCompletedGame(projected, this.state.score);
+    return projected;
+  }
+
   private recordGameEnd(): void {
     if (this.activeTutorial) return;
     if (!this.gameRecorded) {
+      updateRecords(this.stats, this.state.score, this.longestStreakThisGame);
       recordCompletedGame(this.stats, this.state.score);
       this.statsStore.recordCompletedGame(
         this.mode.id,
@@ -594,6 +645,24 @@ export class Game {
       );
       this.gameRecorded = true;
     }
+  }
+
+  private finalizeCurrentGame(): void {
+    if (this.state.phase !== GamePhase.GameOver || this.gameRecorded) return;
+    this.recordGameEnd();
+    this.saveStore.remove(this.mode.id);
+  }
+
+  private writeCurrentSave(): void {
+    this.saveStore.write(
+      this.mode.id,
+      this.engine.exportSave({
+        longestStreak: this.longestStreakThisGame,
+        ...(this.rewindLongestStreak !== null
+          ? { rewindLongestStreak: this.rewindLongestStreak }
+          : {}),
+      }),
+    );
   }
 
   private handleStatsStoreUpdate(): void {
@@ -608,14 +677,66 @@ export class Game {
     this.homeScreen.setSaveLoading(this.saveStore.getState().loading);
   }
 
+  private requestRewind(): void {
+    if (this.rewindDialog.isOpen()) return;
+    if (this.mode.rewind && this.state.phase === GamePhase.Animating) {
+      this.pendingRewind = true;
+      return;
+    }
+    const preview = this.engine.previewRewind();
+    if (!preview) return;
+    this.rewindPreview = preview;
+    this.pausePlayback();
+    this.gameOverScreen.close();
+    this.rewindDialog.show(preview);
+  }
+
+  private cancelRewind(): void {
+    if (!this.rewindDialog.isOpen()) return;
+    this.rewindDialog.hide();
+    this.rewindPreview = null;
+    this.pendingRewind = false;
+    if (this.state.phase === GamePhase.GameOver) this.openGameOverSummary(true);
+    else this.resumePlayback();
+  }
+
+  private confirmRewind(): void {
+    const rewind = this.engine.commitRewind();
+    if (!rewind) {
+      this.cancelRewind();
+      return;
+    }
+    this.rewindDialog.hide();
+    this.gameOverScreen.close();
+    this.rewindPreview = null;
+    this.pendingRewind = false;
+    this.lastGameOverReason = undefined;
+    this.longestStreakThisGame = this.rewindLongestStreak ?? this.longestStreakThisGame;
+    this.rewindLongestStreak = null;
+    this.visualBoard = deepCloneBoard(this.state.board);
+    this.displayedScore = this.state.score;
+    this.syncLevelProgressDisplay();
+    this.animQueue = null;
+    this.scorePopups = [];
+    this.scoreIndicators = [];
+    this.gravityShiftCue = null;
+    this.isPaused = false;
+    this.pauseStartedAt = 0;
+    this.writeCurrentSave();
+    this.debug.refresh();
+    this.releaseGameplayFocus();
+  }
+
   private async logout(): Promise<void> {
     await this.statsStore.logout();
     await this.saveStore.setAuthState(null);
   }
 
   private restart(): void {
+    this.finalizeCurrentGame();
     this.isPaused = false;
     this.gameOverScreen.close();
+    this.rewindDialog.hide();
     this.homeScreen.closeGameMenu();
     this.animQueue = null;
     if (this.activeTutorial) {
@@ -633,6 +754,9 @@ export class Game {
     this.scoreIndicators = [];
     this.gravityShiftCue = null;
     this.longestStreakThisGame = 0;
+    this.rewindLongestStreak = null;
+    this.rewindPreview = null;
+    this.lastGameOverReason = undefined;
     this.captureGameStartRecords();
     this.activeStack = 0;
     this.stackInitialClearSize = 0;
@@ -740,6 +864,9 @@ export class Game {
       this.gravityShiftCue = null;
       this.animQueue = null;
       this.longestStreakThisGame = loaded.session.longestStreak;
+      this.rewindLongestStreak = loaded.paradox?.rewind?.session.longestStreak ?? null;
+      this.rewindPreview = null;
+      this.lastGameOverReason = undefined;
       this.activeStack = 0;
       this.stackInitialClearSize = 0;
       this.stackChainBatches = [];
@@ -753,6 +880,7 @@ export class Game {
       this.homeScreen.closeGameMenu();
       this.homeScreen.close();
       this.releaseGameplayFocus();
+      if (this.state.phase === GamePhase.GameOver) this.setGameOver(undefined, false);
     } catch {
       this.saveStore.remove(mode.id);
     }
@@ -822,6 +950,7 @@ export class Game {
     this.unsubscribeStatsStore?.();
     this.unsubscribeSaveStore?.();
     this.savedGameDialog.hide();
+    this.rewindDialog.hide();
     this.input.destroy();
     this.gameControls.destroy();
     this.gameHud.destroy();
@@ -859,27 +988,39 @@ export class Game {
       && gravity !== undefined
       && snapAngleToEightDirections(gravity.angle) === snapAngleToEightDirections(gravity.turnStartAngle);
     const canConfirmTilt = this.state.phase === GamePhase.Aiming && !needsTilt;
+    const rewindPreview = this.rewindPreview;
     this.gameControls.render({
       phase: this.state.phase,
       hasGravity: Boolean(this.mode.gravity),
+      hasRewind: Boolean(this.mode.rewind),
+      canRewind: this.engine.canRewind(),
       cursorLane: this.state.cursorCol,
       laneCount: this.currentLaneCount(),
       axis: this.currentAxis(),
       canConfirmTilt,
       needsTilt,
       disabled: this.homeScreen.isGameMenuOpen() || this.isPaused,
+      isRewindPreview: Boolean(rewindPreview),
     });
     this.gameHud.render({
       phase: this.state.phase,
-      score: this.displayedScore,
-      currentDisc: this.state.currentDisc,
-      nextDisc: this.state.nextDisc,
-      level: this.displayedLevelProgress.level,
+      score: rewindPreview?.score ?? this.displayedScore,
+      currentDisc: rewindPreview
+        ? { ...this.state.currentDisc, ...rewindPreview.currentDisc }
+        : this.state.currentDisc,
+      nextDisc: rewindPreview
+        ? { ...this.state.nextDisc, ...rewindPreview.nextDisc }
+        : this.state.nextDisc,
+      level: rewindPreview?.level ?? this.displayedLevelProgress.level,
       initialTurnsPerLevel: this.mode.initialTurnsPerLevel,
-      turnsPerLevel: this.displayedLevelProgress.turnsPerLevel,
-      turnsRemaining: this.displayedLevelProgress.turnsRemaining,
+      turnsPerLevel: rewindPreview?.turnsPerLevel ?? this.displayedLevelProgress.turnsPerLevel,
+      turnsRemaining: rewindPreview?.turnsRemaining ?? this.displayedLevelProgress.turnsRemaining,
       turnPipCapacity: TURN_PIP_CAPACITY,
       hasGravity: Boolean(this.mode.gravity),
+      hasRewind: Boolean(this.mode.rewind),
+      isRewindPreview: Boolean(rewindPreview),
+      instability: this.state.paradox?.instability,
+      criticalInstability: this.mode.rewind?.criticalInstability,
       gravityAngle: this.state.gravity?.angle,
       gravityTurnStartAngle: this.state.gravity?.turnStartAngle,
       gravityMaxTiltDelta: this.state.gravity?.maxTiltDelta,
@@ -895,17 +1036,21 @@ export class Game {
     // current angle rather than its actual (untouched) committed state —
     // this is a pure preview, recomputed every frame, nothing is mutated
     // until the tilt is confirmed.
-    const boardToDraw = this.state.phase === GamePhase.Aiming
-      ? this.engine.previewSettledBoard()
-      : this.visualBoard;
+    const boardToDraw = this.rewindPreview?.board
+      ?? (this.state.phase === GamePhase.Aiming
+        ? this.engine.previewSettledBoard()
+        : this.visualBoard);
     // Gravity mode's ghost preview shows the TRUE predicted landing cell
     // (not just the entry edge) so a drop's outcome is never a surprise —
     // only meaningful while a lane is actually selectable.
     const previewLanding = this.state.phase === GamePhase.WaitingForDrop && this.mode.gravity
       ? this.engine.previewDropLanding(this.state.cursorCol)
       : null;
+    const renderState = this.rewindPreview
+      ? { ...this.state, phase: GamePhase.Animating }
+      : this.state;
     this.renderer.draw(
-      this.state,
+      renderState,
       boardToDraw,
       anims,
       this.stats,
@@ -917,6 +1062,7 @@ export class Game {
       previewLanding,
       this.isStackMode(),
       this.gravityShiftCue,
+      this.rewindPreview ? { targets: this.rewindPreview.fractures } : null,
     );
   }
 

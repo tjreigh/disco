@@ -2,7 +2,7 @@
 
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { Renderer } from '../../ui/rendering/renderer.js';
-import type { TutorialVisualState } from '../../ui/rendering/renderer.js';
+import type { RewindVisualState, TutorialVisualState } from '../../ui/rendering/renderer.js';
 import { GamePhase } from '../../game/state.js';
 import type { GameState, GravityState } from '../../game/state.js';
 import { makeEmptyBoard, placeDisc } from '../../game/board.js';
@@ -127,11 +127,12 @@ function callDraw(
     previewLanding?: { row: number; col: number } | null;
     tutorial?: TutorialVisualState | null;
     animations?: readonly RichDiscAnimation[];
+    rewind?: RewindVisualState | null;
   } = {},
 ): void {
   renderer.draw(
     state, board, opts.animations ?? [], makeStats(), [], [],
-    opts.tutorial ?? null, opts.previewLanding ?? null,
+    opts.tutorial ?? null, opts.previewLanding ?? null, false, null, opts.rewind ?? null,
   );
 }
 
@@ -232,6 +233,26 @@ describe('draw phase gating', () => {
     callDraw(renderer, makeState({ phase: GamePhase.WaitingForDrop }));
     expect(ctx.calls.some(c => c.method === 'fillRect' && c.fillStyle === COLOR_GAMEOVER_BG)).toBe(false);
     expect(ctx.calls.some(c => c.method === 'fillText' && c.args[0] === 'GAME OVER')).toBe(false);
+  });
+});
+
+describe('rewind inspection preview', () => {
+  test('keeps the target disc intact, dims other discs, and draws a pending-fracture marker', () => {
+    const board = makeEmptyBoard();
+    const target = makeDisc(6, DiscKind.Numbered);
+    placeDisc(board, 6, 2, target);
+    placeDisc(board, 6, 3, makeDisc(4, DiscKind.Numbered));
+
+    callDraw(renderer, makeState({ phase: GamePhase.Animating, board }), board, {
+      rewind: {
+        targets: [{ position: { row: 6, col: 2 }, resultingKind: DiscKind.SingleCracked }],
+      },
+    });
+
+    expect(target.kind).toBe(DiscKind.Numbered);
+    expect(ctx.calls.some(call => call.globalAlpha === 0.48)).toBe(true);
+    expect(ctx.calls.some(call => call.method === 'stroke' && call.strokeStyle === '#e879f9')).toBe(true);
+    expect(ctx.calls.some(call => call.method === 'fillText' && call.args[0] === '!')).toBe(true);
   });
 });
 
