@@ -1006,6 +1006,11 @@ export class Game {
     this.gameHud.render({
       phase: this.state.phase,
       score: rewindPreview?.score ?? this.displayedScore,
+      highScore: Math.max(this.stats.highScore, rewindPreview?.score ?? this.state.score),
+      bestRecord: Math.max(
+        this.stats.longestStreak,
+        rewindPreview ? (this.rewindLongestStreak ?? this.longestStreakThisGame) : this.longestStreakThisGame,
+      ),
       currentDisc: rewindPreview
         ? { ...this.state.currentDisc, ...rewindPreview.currentDisc }
         : this.state.currentDisc,
@@ -1029,7 +1034,7 @@ export class Game {
       canConfirmTilt,
       isStackMode: this.isStackMode(),
       currentStack: this.activeStack,
-      bestStack: Math.max(this.stats.longestStreak, this.longestStreakThisGame),
+      stackCascadeActive: this.stackCascadeActive,
       lastStackScore: this.lastStackScore,
     });
     const tutorialStep = this.currentTutorialStep();

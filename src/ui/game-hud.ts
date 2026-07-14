@@ -16,6 +16,8 @@ const DIAL_ARC_R = 38;
 export interface GameHudState {
   phase: GamePhase;
   score: number;
+  highScore?: number;
+  bestRecord?: number;
   currentDisc: Disc;
   nextDisc: Disc;
   level: number;
@@ -40,7 +42,7 @@ export interface GameHudState {
   canConfirmTilt?: boolean;
   isStackMode?: boolean;
   currentStack?: number;
-  bestStack?: number;
+  stackCascadeActive?: boolean;
   lastStackScore?: {
     initial: number;
     chains: ReadonlyArray<{ level: number; cleared: number }>;
@@ -70,7 +72,7 @@ export class GameHud {
   private readonly turns: HTMLElement;
   private readonly turnsLabel: HTMLElement;
   private readonly turnPips: HTMLElement;
-  private readonly stack: HTMLElement;
+  private readonly records: HTMLElement;
   private readonly stackReceipt: HTMLElement;
   private readonly stackReceiptTotal: HTMLElement;
   private readonly stackReceiptBreakdown: HTMLElement;
@@ -106,8 +108,8 @@ export class GameHud {
     this.turnPips.className = 'game-hud__pips';
     this.turnPips.setAttribute('aria-hidden', 'true');
     this.turns.append(this.turnsLabel, this.turnPips);
-    this.stack = this.makeValue('Stack', 'game-hud__stack');
-    summary.append(this.score, this.stack, this.turns, this.level);
+    this.records = this.makeValue('Records', 'game-hud__records');
+    summary.append(this.score, this.records, this.turns, this.level);
 
     top.append(summary);
 
@@ -206,11 +208,20 @@ export class GameHud {
     this.root.dataset.rewindPreview = String(Boolean(state.isRewindPreview));
     this.score.textContent = state.score.toLocaleString('en-US');
     this.level.textContent = `Level ${state.level}`;
+    const highScoreValue = state.highScore ?? 0;
+    const bestRecordValue = state.bestRecord ?? 0;
+    const highScore = highScoreValue.toLocaleString('en-US');
+    const bestRecord = bestRecordValue.toLocaleString('en-US');
+    this.records.textContent = state.isStackMode
+      ? `High ${highScore} · Best turn ${bestRecord} cleared`
+      : `High ${highScore} · Best chain ${bestRecord} wave${bestRecordValue === 1 ? '' : 's'}`;
     if (state.isStackMode) {
-      this.stack.textContent = `This turn ${state.currentStack ?? 0} cleared · Best ${state.bestStack ?? 0}`;
-      this.stack.hidden = false;
       const receipt = state.lastStackScore;
-      if (receipt) {
+      if (state.stackCascadeActive && (state.currentStack ?? 0) > 0) {
+        this.stackReceiptTotal.textContent = `This turn: ${state.currentStack} cleared so far`;
+        this.stackReceiptBreakdown.textContent = 'Clear waves combine into one total';
+        this.stackReceipt.hidden = false;
+      } else if (receipt) {
         this.stackReceiptTotal.textContent = `Last turn: ${receipt.stack} total cleared · +${receipt.points.toLocaleString('en-US')}`;
         this.stackReceiptBreakdown.textContent = receipt.chains.length === 0
           ? `1 clear wave · ${receipt.initial} cleared together`
@@ -222,8 +233,6 @@ export class GameHud {
         this.stackReceipt.hidden = true;
       }
     } else {
-      this.stack.textContent = '';
-      this.stack.hidden = true;
       this.stackReceiptTotal.textContent = '';
       this.stackReceiptBreakdown.textContent = '';
       this.stackReceipt.hidden = true;

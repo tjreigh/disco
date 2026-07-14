@@ -36,9 +36,8 @@
   height: 100%;
   font: 700 13px ui-monospace, SFMono-Regular, Menlo, monospace;
 }
-.game-hud__score { margin-bottom: 12px; font-size: 24px; line-height: 1.1; color: #ffffff; }
-.game-hud[data-stack-mode="true"] .game-hud__score { margin-bottom: 5px; }
-.game-hud__stack { margin-bottom: 3px; color: #62b0e8; font-size: 11px; white-space: nowrap; }
+.game-hud__score { margin-bottom: 5px; font-size: 24px; line-height: 1.1; color: #ffffff; }
+.game-hud__records { margin-bottom: 3px; color: #62b0e8; font-size: 11px; white-space: nowrap; }
 .game-hud__level { margin-top: 7px; color: #a0aec0; white-space: nowrap; }
 .game-hud__turns { display: grid; justify-items: center; gap: 7px; color: #a0aec0; white-space: nowrap; }
 .game-hud__pips {

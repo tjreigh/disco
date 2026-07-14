@@ -15,7 +15,7 @@ describe('GameHud', () => {
     expect(hud.root.hidden).toBe(true);
 
     hud.render({
-      phase: GamePhase.WaitingForDrop, score: 12345,
+      phase: GamePhase.WaitingForDrop, score: 12345, highScore: 15000, bestRecord: 4,
       currentDisc: disc(3, DiscKind.Numbered), nextDisc: disc(4, DiscKind.DoubleCracked),
       level: 2, initialTurnsPerLevel: 30, turnsPerLevel: 20, turnsRemaining: 17, hasGravity: false,
     });
@@ -24,6 +24,8 @@ describe('GameHud', () => {
     expect(hud.root.querySelector('.game-hud__top')).toBeTruthy();
     expect(hud.root.querySelector('.game-hud__bottom')).toBeTruthy();
     expect(hud.root.textContent).toContain('12,345');
+    expect(hud.root.querySelector('.game-hud__records')?.textContent)
+      .toBe('High 15,000 · Best chain 4 waves');
     expect(hud.root.textContent).toContain('Level 2');
     expect(hud.root.textContent).toContain('Turn 17 / 20');
     expect(hud.root.querySelectorAll('.game-hud__pip--remaining')).toHaveLength(17);
@@ -55,10 +57,10 @@ describe('GameHud', () => {
     expect(doubleCracked.querySelectorAll('.game-hud__disc-crack')).toHaveLength(2);
   });
 
-  test('shows Paradox instability and marks its critical tier', () => {
+  test('shows Paradox records and instability, and marks its critical tier', () => {
     const hud = new GameHud();
     const base = {
-      phase: GamePhase.WaitingForDrop, score: 0,
+      phase: GamePhase.WaitingForDrop, score: 0, highScore: 900, bestRecord: 1,
       currentDisc: disc(3), nextDisc: disc(4),
       level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 30,
       hasGravity: false, hasRewind: true, criticalInstability: 5,
@@ -66,6 +68,8 @@ describe('GameHud', () => {
     hud.render({ ...base, instability: 4 });
     const indicator = hud.root.querySelector<HTMLElement>('.game-hud__instability')!;
     expect(hud.root.dataset.rewindMode).toBe('true');
+    expect(hud.root.querySelector('.game-hud__records')?.textContent)
+      .toBe('High 900 · Best chain 1 wave');
     expect(indicator.textContent).toBe('INSTABILITY 4');
     expect(indicator.classList).not.toContain('game-hud__instability--critical');
     expect(hud.root.querySelector('.game-hud__hint')?.classList).toContain('game-hud__hint--controls');
@@ -107,15 +111,18 @@ describe('GameHud', () => {
     expect(hud.root.querySelector('.game-hud__disc-slot .game-hud__disc')).toBe(currentDisc);
   });
 
-  test('updates Gravity aiming status and hides in Menu', () => {
+  test('shows Gravity records alongside aiming status and hides in Menu', () => {
     const hud = new GameHud();
     hud.render({
-      phase: GamePhase.Aiming, score: 0, currentDisc: disc(1), nextDisc: disc(2),
+      phase: GamePhase.Aiming, score: 0, highScore: 4500, bestRecord: 3,
+      currentDisc: disc(1), nextDisc: disc(2),
       level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 30, hasGravity: true,
       gravityAngle: 90, gravityTurnStartAngle: 90, gravityMaxTiltDelta: 45,
     });
     expect(hud.root.hidden).toBe(false);
     expect(hud.root.querySelector('.game-hud__gravity')).toHaveProperty('hidden', false);
+    expect(hud.root.querySelector('.game-hud__records')?.textContent)
+      .toBe('High 4,500 · Best chain 3 waves');
     expect(hud.root.textContent).toContain('Gravity right');
     expect(hud.root.querySelector('.game-hud__gravity-dial')).toBeTruthy();
     // Arrow tip should point right (gx≈1, gy≈0) at a 90deg angle.
@@ -240,32 +247,50 @@ describe('GameHud', () => {
     expect(hud.root.querySelector('.game-hud__hint')!.classList.contains('game-hud__hint--attention')).toBe(false);
   });
 
-  test('explains the per-turn clear total only in Stack mode', () => {
+  test('shows Stack records and explains the last turn total', () => {
     const hud = new GameHud();
     hud.render({
-      phase: GamePhase.Animating, score: 810,
+      phase: GamePhase.Animating, score: 810, highScore: 1200, bestRecord: 12,
       currentDisc: disc(3), nextDisc: disc(4),
       level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 29,
-      hasGravity: false, isStackMode: true, currentStack: 9, bestStack: 12,
+      hasGravity: false, isStackMode: true, currentStack: 9,
       lastStackScore: { initial: 3, chains: [{ level: 2, cleared: 2 }], stack: 5, points: 250 },
     });
 
     expect(hud.root.dataset.stackMode).toBe('true');
-    expect(hud.root.textContent).toContain('This turn 9 cleared · Best 12');
+    expect(hud.root.querySelector('.game-hud__records')?.textContent)
+      .toBe('High 1,200 · Best turn 12 cleared');
     expect(hud.root.querySelector('.game-hud__stack-receipt-total')?.textContent)
       .toBe('Last turn: 5 total cleared · +250');
     expect(hud.root.querySelector('.game-hud__stack-receipt-breakdown')?.textContent)
       .toBe('2 clear waves · 3 + 2');
 
     hud.render({
-      phase: GamePhase.WaitingForDrop, score: 810,
+      phase: GamePhase.WaitingForDrop, score: 810, highScore: 1200, bestRecord: 4,
       currentDisc: disc(3), nextDisc: disc(4),
       level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 29,
       hasGravity: false,
     });
     expect(hud.root.dataset.stackMode).toBe('false');
-    expect(hud.root.querySelector<HTMLElement>('.game-hud__stack')?.hidden).toBe(true);
+    expect(hud.root.querySelector('.game-hud__records')?.textContent)
+      .toBe('High 1,200 · Best chain 4 waves');
     expect(hud.root.querySelector<HTMLElement>('.game-hud__stack-receipt')?.hidden).toBe(true);
+  });
+
+  test('shows the live combined clear total while a Stack cascade is resolving', () => {
+    const hud = new GameHud();
+    hud.render({
+      phase: GamePhase.Animating, score: 90, highScore: 810, bestRecord: 9,
+      currentDisc: disc(3), nextDisc: disc(4),
+      level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 29,
+      hasGravity: false, isStackMode: true, currentStack: 5, stackCascadeActive: true,
+      lastStackScore: { initial: 3, chains: [], stack: 3, points: 90 },
+    });
+
+    expect(hud.root.querySelector('.game-hud__stack-receipt-total')?.textContent)
+      .toBe('This turn: 5 cleared so far');
+    expect(hud.root.querySelector('.game-hud__stack-receipt-breakdown')?.textContent)
+      .toBe('Clear waves combine into one total');
   });
 
   test('uses the initial turn budget as the pip spacing scale on later levels', () => {
