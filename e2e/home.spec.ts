@@ -9,6 +9,10 @@ test.describe('home screen', () => {
     const names = await page.locator('.home-mode-card strong').allTextContents();
     expect(names).toEqual(['Classic', 'Gravity', 'Stack', 'Paradox']);
     await expect(page.locator('.home-mode-card[aria-checked="true"]')).toHaveText(/Classic/);
+    await expect(page.locator('.home-mode-record dt')).toHaveText(['HIGH SCORE', 'BEST CHAIN', 'GAMES']);
+
+    await page.locator('.home-mode-card', { hasText: 'Stack' }).click();
+    await expect(page.locator('.home-mode-record dt')).toHaveText(['HIGH SCORE', 'BEST TURN', 'GAMES']);
   });
 
   test('selects a compact mode before launching it from shared actions', async ({ page }) => {

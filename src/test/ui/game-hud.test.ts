@@ -240,7 +240,7 @@ describe('GameHud', () => {
     expect(hud.root.querySelector('.game-hud__hint')!.classList.contains('game-hud__hint--attention')).toBe(false);
   });
 
-  test('shows the live and best stack only in Stack mode', () => {
+  test('explains the per-turn clear total only in Stack mode', () => {
     const hud = new GameHud();
     hud.render({
       phase: GamePhase.Animating, score: 810,
@@ -251,11 +251,11 @@ describe('GameHud', () => {
     });
 
     expect(hud.root.dataset.stackMode).toBe('true');
-    expect(hud.root.textContent).toContain('Stack 9 / Best 12');
+    expect(hud.root.textContent).toContain('This turn 9 cleared · Best 12');
     expect(hud.root.querySelector('.game-hud__stack-receipt-total')?.textContent)
-      .toBe('Last stack: 5 cleared · +250');
+      .toBe('Last turn: 5 total cleared · +250');
     expect(hud.root.querySelector('.game-hud__stack-receipt-breakdown')?.textContent)
-      .toBe('3 initial + 2 on chain 2');
+      .toBe('2 clear waves · 3 + 2');
 
     hud.render({
       phase: GamePhase.WaitingForDrop, score: 810,

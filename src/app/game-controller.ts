@@ -570,6 +570,7 @@ export class Game {
     } else if (step.kind === StepKind.Bonus && !this.activeTutorial) {
       if (step.bonusKind === 'stack') {
         this.stackCascadeActive = false;
+        const stackUnit = this.mode.scoring.kind === 'stack' ? this.mode.scoring.pointsPerStackUnit : 0;
         this.lastStackScore = {
           initial: this.stackInitialClearSize,
           chains: this.stackChainBatches.map(batch => ({ ...batch })),
@@ -577,8 +578,8 @@ export class Game {
           points: step.pointsAwarded,
         };
         this.scoreIndicators.push(spawnScoreIndicator(
-          `STACK ${this.activeStack}`,
-          `+${step.pointsAwarded.toLocaleString('en-US')}`,
+          `TURN TOTAL ${this.activeStack}`,
+          `${stackUnit} × ${this.activeStack}² · +${step.pointsAwarded.toLocaleString('en-US')}`,
           now,
         ));
         return;

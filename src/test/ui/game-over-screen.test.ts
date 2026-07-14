@@ -44,8 +44,8 @@ describe('GameOverScreen', () => {
     expect(overlay.textContent).toContain('NEW BEST CHAIN');
     expect(overlay.textContent).toContain('2,345 above your previous best');
     expect(overlay.textContent).toContain('The board filled with no legal moves left.');
-    expect(overlay.textContent).toContain('Best chain this game: 7');
-    expect(overlay.textContent).toContain('High 20,000 · Longest chain 6');
+    expect(overlay.textContent).toContain('Best chain this game: 7 waves');
+    expect(overlay.textContent).toContain('High 20,000 · Best chain 6 waves');
     expect(overlay.textContent).toContain('Average 4,321 over 3 games');
     expect(document.activeElement).toBe(newGame);
 
@@ -55,7 +55,7 @@ describe('GameOverScreen', () => {
     expect(onHome).toHaveBeenCalledTimes(1);
   });
 
-  test('uses the Stack record label and keeps keyboard focus inside the dialog', () => {
+  test('uses the Stack best-turn label and keeps keyboard focus inside the dialog', () => {
     const screen = new GameOverScreen();
     screen.open({
       score: 10,
@@ -71,7 +71,8 @@ describe('GameOverScreen', () => {
     const buttons = Array.from(overlay.querySelectorAll<HTMLButtonElement>('button'));
     const newGame = buttons.find(button => button.textContent === 'NEW GAME')!;
     const home = buttons.find(button => button.textContent === 'HOME')!;
-    expect(overlay.textContent).toContain('Best stack 4');
+    expect(overlay.textContent).toContain('Most cleared in one turn: 4');
+    expect(overlay.textContent).toContain('Best turn 4 cleared');
     expect(overlay.textContent).toContain('The level push overflowed the board.');
     expect(overlay.querySelector<HTMLElement>('.game-over-highlights')!.hidden).toBe(true);
 

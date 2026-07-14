@@ -207,19 +207,14 @@ export class GameHud {
     this.score.textContent = state.score.toLocaleString('en-US');
     this.level.textContent = `Level ${state.level}`;
     if (state.isStackMode) {
-      this.stack.textContent = `Stack ${state.currentStack ?? 0} / Best ${state.bestStack ?? 0}`;
+      this.stack.textContent = `This turn ${state.currentStack ?? 0} cleared · Best ${state.bestStack ?? 0}`;
       this.stack.hidden = false;
       const receipt = state.lastStackScore;
       if (receipt) {
-        this.stackReceiptTotal.textContent = `Last stack: ${receipt.stack} cleared · +${receipt.points.toLocaleString('en-US')}`;
+        this.stackReceiptTotal.textContent = `Last turn: ${receipt.stack} total cleared · +${receipt.points.toLocaleString('en-US')}`;
         this.stackReceiptBreakdown.textContent = receipt.chains.length === 0
-          ? `${receipt.initial} initial · no chain`
-          : `${receipt.initial} initial + ${receipt.chains.map((batch, index) => {
-            const label = receipt.chains.length === 1 || index === 0
-              ? `chain ${batch.level}`
-              : `C${batch.level}`;
-            return `${batch.cleared} on ${label}`;
-          }).join(' + ')}`;
+          ? `1 clear wave · ${receipt.initial} cleared together`
+          : `${receipt.chains.length + 1} clear waves · ${[receipt.initial, ...receipt.chains.map(batch => batch.cleared)].join(' + ')}`;
         this.stackReceipt.hidden = false;
       } else {
         this.stackReceiptTotal.textContent = '';

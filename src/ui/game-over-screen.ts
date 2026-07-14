@@ -122,14 +122,14 @@ export class GameOverScreen {
     reason,
     canRewind = false,
   }: GameOverSummary): void {
-    const recordLabel = isStackMode ? 'Best stack' : 'Longest chain';
+    const recordLabel = isStackMode ? 'Best turn' : 'Best chain';
     const newHighScore = score > previousHighScore;
     const newBestRecord = bestRunRecord > previousBestRecord;
 
     this.highlights.replaceChildren();
     if (newHighScore) this.highlights.append(this.makeHighlight('NEW HIGH SCORE'));
     if (newBestRecord) {
-      this.highlights.append(this.makeHighlight(isStackMode ? 'NEW BEST STACK' : 'NEW BEST CHAIN'));
+      this.highlights.append(this.makeHighlight(isStackMode ? 'NEW BEST TURN' : 'NEW BEST CHAIN'));
     }
     this.highlights.hidden = !newHighScore && !newBestRecord;
 
@@ -147,10 +147,13 @@ export class GameOverScreen {
         ? 'The board filled with no legal moves left.'
         : 'The run has ended.';
     this.runRecord.textContent = bestRunRecord > 0
-      ? `Best ${isStackMode ? 'stack' : 'chain'} this game: ${bestRunRecord.toLocaleString('en-US')}`
+      ? isStackMode
+        ? `Most cleared in one turn: ${bestRunRecord.toLocaleString('en-US')}`
+        : `Best chain this game: ${bestRunRecord.toLocaleString('en-US')} wave${bestRunRecord === 1 ? '' : 's'}`
       : '';
     this.runRecord.hidden = bestRunRecord <= 0;
-    this.records.textContent = `High ${stats.highScore.toLocaleString('en-US')} · ${recordLabel} ${stats.longestStreak.toLocaleString('en-US')}`;
+    const recordUnit = isStackMode ? 'cleared' : `wave${stats.longestStreak === 1 ? '' : 's'}`;
+    this.records.textContent = `High ${stats.highScore.toLocaleString('en-US')} · ${recordLabel} ${stats.longestStreak.toLocaleString('en-US')} ${recordUnit}`;
     this.average.textContent = `Average ${stats.averageScore.toLocaleString('en-US')} over ${stats.gamesPlayed.toLocaleString('en-US')} game${stats.gamesPlayed === 1 ? '' : 's'}`;
     this.rewindButton.hidden = !canRewind;
     this.actions.classList.toggle('game-over-actions--rewind', canRewind);

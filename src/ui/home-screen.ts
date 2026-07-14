@@ -297,7 +297,7 @@ export class HomeScreen {
 
       const best = document.createElement('span');
       best.className = 'home-mode-card-stat';
-      best.textContent = stats.gamesPlayed > 0 ? `BEST ${stats.highScore}` : 'NEW';
+      best.textContent = stats.gamesPlayed > 0 ? `HIGH ${stats.highScore}` : 'NEW';
 
       card.append(name, best);
       this.cardsContainer.append(card);
@@ -332,9 +332,12 @@ export class HomeScreen {
 
     const records = document.createElement('dl');
     records.className = 'home-mode-records';
-    this.appendRecord(records, 'BEST SCORE', stats.gamesPlayed > 0 ? String(stats.highScore) : '—');
-    if (mode.id === 'stack') {
-      this.appendRecord(records, 'BEST STACK', stats.gamesPlayed > 0 ? String(stats.longestStreak) : '—');
+    this.appendRecord(records, 'HIGH SCORE', stats.gamesPlayed > 0 ? String(stats.highScore) : '—');
+    if (mode.scoring.kind === 'stack') {
+      this.appendRecord(records, 'BEST TURN', stats.gamesPlayed > 0 ? `${stats.longestStreak} CLEARED` : '—');
+    } else {
+      const unit = stats.longestStreak === 1 ? 'WAVE' : 'WAVES';
+      this.appendRecord(records, 'BEST CHAIN', stats.gamesPlayed > 0 ? `${stats.longestStreak} ${unit}` : '—');
     }
     this.appendRecord(records, 'GAMES', String(stats.gamesPlayed));
 

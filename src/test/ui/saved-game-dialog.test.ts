@@ -82,7 +82,7 @@ describe('SavedGameDialog', () => {
     expect(overlay.textContent).toContain('Score12,450');
     expect(overlay.textContent).toContain('Level4');
     expect(overlay.textContent).toContain('Turns played37');
-    expect(overlay.textContent).toContain('Longest streak6');
+    expect(overlay.textContent).toContain('Best chain6 waves');
     expect(overlay.textContent).toContain('Last played');
     expect(overlay.querySelector('time')?.dateTime).toBe('2026-07-13T18:30:00.000Z');
     expect(document.activeElement).toBe(resume);
@@ -94,7 +94,7 @@ describe('SavedGameDialog', () => {
     expect(document.activeElement).toBe(opener);
   });
 
-  test('uses Best stack for Stack mode and routes start-new and cancel actions', () => {
+  test('uses Best turn for Stack mode and routes start-new and cancel actions', () => {
     const dialog = new SavedGameDialog();
     const onStartNew = vi.fn();
     const onCancel = vi.fn();
@@ -102,8 +102,8 @@ describe('SavedGameDialog', () => {
     dialog.onCancel = onCancel;
 
     dialog.showSave(STACK_MODE, savedGame({ modeId: 'stack', longestStreak: 8 }));
-    expect(root().textContent).toContain('Best stack8');
-    expect(root().textContent).not.toContain('Longest streak');
+    expect(root().textContent).toContain('Best turn8 cleared');
+    expect(root().textContent).not.toContain('Best chain');
     expect(button('START NEW GAME').classList).toContain('saved-game-dialog__button--destructive');
     button('START NEW GAME').click();
     expect(onStartNew).toHaveBeenCalledTimes(1);

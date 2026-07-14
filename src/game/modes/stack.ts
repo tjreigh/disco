@@ -8,7 +8,7 @@ export const STACK_MODE: GameModeConfig = {
   ...CLASSIC_MODE,
   id: 'stack',
   name: 'Stack',
-  tagline: 'Break as many discs as possible each turn.',
+  tagline: 'One drop, one cascade—the more discs it clears, the bigger the payoff.',
   // The player always receives a numbered disc. Cracked discs remain part of
   // Stack's level-push pressure, not the normal drop queue.
   initialUnnumberedProbability: 0,

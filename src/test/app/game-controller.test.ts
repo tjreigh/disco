@@ -419,8 +419,8 @@ describe('normal drop flow', () => {
     expect(controller.scorePopups).toHaveLength(3);
     expect(controller.scoreIndicators).toEqual([
       expect.objectContaining({
-        title: 'STACK 3',
-        detail: '+90',
+        title: 'TURN TOTAL 3',
+        detail: '10 × 3² · +90',
       }),
     ]);
     expect(controller.lastStackScore).toEqual({
@@ -463,8 +463,8 @@ describe('normal drop flow', () => {
 
     expect(controller.scoreIndicators).toEqual([
       expect.objectContaining({
-        title: 'STACK 5',
-        detail: '+250',
+        title: 'TURN TOTAL 5',
+        detail: '10 × 5² · +250',
       }),
     ]);
     expect(controller.lastStackScore).toEqual({

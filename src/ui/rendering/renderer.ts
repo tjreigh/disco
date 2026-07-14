@@ -649,8 +649,11 @@ export class Renderer {
 
     ctx.font = '14px system-ui, sans-serif';
     ctx.fillStyle = COLOR_TEXT_DIM;
-    const recordLabel = isStackMode ? 'Best stack' : 'Longest chain';
-    ctx.fillText(`High ${stats.highScore.toLocaleString('en-US')}   •   ${recordLabel} ${stats.longestStreak.toLocaleString('en-US')}`, lw / 2, lh / 2 + 8);
+    const recordLabel = isStackMode ? 'Best turn' : 'Best chain';
+    const recordValue = isStackMode
+      ? `${stats.longestStreak.toLocaleString('en-US')} cleared`
+      : `${stats.longestStreak.toLocaleString('en-US')} wave${stats.longestStreak === 1 ? '' : 's'}`;
+    ctx.fillText(`High ${stats.highScore.toLocaleString('en-US')}   •   ${recordLabel} ${recordValue}`, lw / 2, lh / 2 + 8);
     ctx.fillText(`Average ${stats.averageScore.toLocaleString('en-US')} over ${stats.gamesPlayed.toLocaleString('en-US')} game${stats.gamesPlayed === 1 ? '' : 's'}`, lw / 2, lh / 2 + 30);
 
     const restartHint = isTouchDevice() ? 'Tap to restart' : 'Press R to restart';

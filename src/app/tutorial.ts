@@ -211,10 +211,10 @@ export const STACK_TUTORIAL: TutorialDefinition = {
   id: 'stack',
   title: 'Stack Tutorial',
   steps: [
-    step('clear-a-run', 'Clear a run', 'Drop the 3 to complete the row. The whole run clears at once — every disc counts toward your stack.', stackRowBoard, numbered(3), numbered(4), [2], { accepted: true, stackSizeAtLeast: 3 }),
-    step('bigger-run', 'Bigger run, bigger stack', 'Drop the 5 to complete the column of five. Stack scores the whole cascade, so longer runs pay off fast.', stackLongRunBoard, numbered(5), numbered(4), [1], { accepted: true, stackSizeAtLeast: 5 }),
-    step('chain-the-stack', 'Chain the stack', 'Drop the 2 to clear the pair, then watch the fallen 2 chain into a second clear. Each cleared disc still adds to your stack.', stackChainBoard, numbered(2), numbered(3), [3], { accepted: true, stackSizeAtLeast: 3, chainLengthAtLeast: 2 }),
-    step('big-stack', 'Go for the big stack', 'Drop the 6 to complete the row of six. The bigger the cascade, the bigger the payoff.', stackBigStackBoard, numbered(6), numbered(4), [5], { accepted: true, stackSizeAtLeast: 6 }),
+    step('clear-a-run', 'Build a turn total', 'Drop the 3 to complete the row. Three discs clear together, so this drop’s turn total is 3.', stackRowBoard, numbered(3), numbered(4), [2], { accepted: true, stackSizeAtLeast: 3 }),
+    step('bigger-run', 'Square the total', 'Drop the 5 to clear five discs. Stack scores 10 × total², so a turn total of 5 earns 250 points.', stackLongRunBoard, numbered(5), numbered(4), [1], { accepted: true, stackSizeAtLeast: 5 }),
+    step('chain-the-stack', 'Falling versus clearing', 'Drop the 2 to clear the pair. Falling scores nothing by itself—but when the fallen 2 clears in the next wave, it joins the same turn total.', stackChainBoard, numbered(2), numbered(3), [3], { accepted: true, stackSizeAtLeast: 3, chainLengthAtLeast: 2 }),
+    step('big-stack', 'One drop, one total', 'Drop the 6 to clear the row. Whether discs clear together or in later waves, every clear before the cascade ends is combined once.', stackBigStackBoard, numbered(6), numbered(4), [5], { accepted: true, stackSizeAtLeast: 6 }),
   ],
 };
 

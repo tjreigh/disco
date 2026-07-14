@@ -196,8 +196,10 @@ export class SavedGameDialog {
     this.appendStat(stats, 'Turns played', save.state.dropCount.toLocaleString('en-US'));
     this.appendStat(
       stats,
-      mode.scoring.kind === 'stack' ? 'Best stack' : 'Longest streak',
-      save.session.longestStreak.toLocaleString('en-US'),
+      mode.scoring.kind === 'stack' ? 'Best turn' : 'Best chain',
+      mode.scoring.kind === 'stack'
+        ? `${save.session.longestStreak.toLocaleString('en-US')} cleared`
+        : `${save.session.longestStreak.toLocaleString('en-US')} wave${save.session.longestStreak === 1 ? '' : 's'}`,
     );
 
     const lastPlayed = document.createElement('p');

@@ -159,6 +159,14 @@ describe('STACK_TUTORIAL', () => {
     }
   });
 
+  test('explicitly distinguishes falling from clearing and explains the squared turn total', () => {
+    const copy = STACK_TUTORIAL.steps.map(step => `${step.title} ${step.prompt}`).join(' ');
+    expect(copy).toContain('10 × total²');
+    expect(copy).toContain('Falling scores nothing by itself');
+    expect(copy).toContain('joins the same turn total');
+    expect(copy).toContain('clear together or in later waves');
+  });
+
   test('starts every tutorial step from a physically grounded board', () => {
     for (const step of STACK_TUTORIAL.steps) {
       for (let col = 0; col < step.board[0]!.length; col++) {

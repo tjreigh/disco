@@ -65,6 +65,7 @@ describe('HomeScreen', () => {
     expect(document.querySelector('.home-screen--open')).not.toBeNull();
     expect(document.body.textContent).toContain(CLASSIC_MODE.name);
     expect(document.body.textContent).toContain(GRAVITY_MODE.name);
+    expect(document.querySelector('[data-mode-id="classic"]')?.textContent).toContain('HIGH 1200');
     expect(document.querySelector('.home-mode-detail')?.textContent).toContain('1200');
     expect(document.body.textContent).toContain('NEW');
     expect(loadStats).toHaveBeenCalledWith(CLASSIC_MODE.id);
@@ -107,19 +108,31 @@ describe('HomeScreen', () => {
     expect(classicCard.isConnected).toBe(false);
   });
 
-  test("shows Stack mode's best stack record separately from its best score", () => {
+  test('shows the appropriate secondary record for chain and Stack modes', () => {
     const home = createHome({
-      loadStats: modeId => modeId === STACK_MODE.id
-        ? stats({ highScore: 810, longestStreak: 9, gamesPlayed: 1, totalScore: 810, averageScore: 810 })
-        : stats(),
+      loadStats: modeId => {
+        if (modeId === STACK_MODE.id) {
+          return stats({ highScore: 810, longestStreak: 9, gamesPlayed: 1, totalScore: 810, averageScore: 810 });
+        }
+        if (modeId === CLASSIC_MODE.id) {
+          return stats({ highScore: 1200, longestStreak: 4, gamesPlayed: 2, totalScore: 1800, averageScore: 900 });
+        }
+        return stats();
+      },
     });
 
     home.open();
+    let details = document.querySelector('.home-mode-detail');
+    expect(details?.textContent).toContain('HIGH SCORE1200');
+    expect(details?.textContent).toContain('BEST CHAIN4 WAVES');
+
     document.querySelector<HTMLButtonElement>('[data-mode-id="stack"]')!.click();
 
-    const details = document.querySelector('.home-mode-detail');
-    expect(details?.textContent).toContain('810');
-    expect(details?.textContent).toContain('BEST STACK9');
+    details = document.querySelector('.home-mode-detail');
+    expect(details?.textContent).toContain('HIGH SCORE810');
+    expect(details?.textContent).toContain('One drop, one cascade');
+    expect(details?.textContent).toContain('BEST TURN9 CLEARED');
+    expect(details?.textContent).not.toContain('BEST CHAIN');
   });
 
   test('tutorial button starts tutorial without also starting normal play', () => {
