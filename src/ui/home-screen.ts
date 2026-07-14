@@ -10,12 +10,14 @@ export class HomeScreen {
   private readonly overlay: HTMLElement;
   private readonly authBar: HTMLElement;
   private readonly cardsContainer: HTMLElement;
+  private readonly modeDetails: HTMLElement;
   private readonly menuButton: HTMLButtonElement;
   private readonly gameMenu: HTMLElement;
   private readonly soundButton: HTMLButtonElement;
   private readonly gameMenuModal: ModalController;
   private readonly homePriorInert = new Map<HTMLElement, boolean>();
   private saveLoading = false;
+  private selectedModeId: string;
 
   // Set by Game after construction, avoiding a constructor-time forward
   // reference to a not-yet-defined method.
@@ -40,6 +42,13 @@ export class HomeScreen {
     this.overlay.className = 'home-screen';
     this.overlay.setAttribute('aria-label', 'Disco home screen');
     this.overlay.setAttribute('aria-hidden', 'true');
+    this.selectedModeId = this.modes[0]?.id ?? '';
+
+    const shell = document.createElement('div');
+    shell.className = 'home-shell';
+
+    const header = document.createElement('header');
+    header.className = 'home-header';
 
     const title = document.createElement('h1');
     title.className = 'home-title';
@@ -48,10 +57,46 @@ export class HomeScreen {
     this.authBar = document.createElement('div');
     this.authBar.className = 'home-auth';
 
+    header.append(title, this.authBar);
+
+    const modeSection = document.createElement('section');
+    modeSection.className = 'home-mode-section';
+    modeSection.setAttribute('aria-labelledby', 'home-mode-section-title');
+
+    const sectionHeader = document.createElement('header');
+    sectionHeader.className = 'home-mode-section-header';
+
+    const category = document.createElement('span');
+    category.className = 'home-mode-category';
+    category.textContent = 'SOLO';
+
+    const sectionTitle = document.createElement('h2');
+    sectionTitle.id = 'home-mode-section-title';
+    sectionTitle.textContent = 'CHOOSE A MODE';
+
+    const sectionDescription = document.createElement('p');
+    sectionDescription.textContent = 'Pick a ruleset, then jump in when you’re ready.';
+
+    sectionHeader.append(category, sectionTitle, sectionDescription);
+
+    const browser = document.createElement('div');
+    browser.className = 'home-mode-browser';
+
     this.cardsContainer = document.createElement('div');
     this.cardsContainer.className = 'home-mode-list';
+    this.cardsContainer.setAttribute('role', 'radiogroup');
+    this.cardsContainer.setAttribute('aria-label', 'Solo game modes');
 
-    this.overlay.append(title, this.authBar, this.cardsContainer);
+    this.modeDetails = document.createElement('div');
+    this.modeDetails.className = 'home-mode-detail';
+    this.modeDetails.id = 'home-mode-detail';
+    this.modeDetails.setAttribute('role', 'region');
+    this.modeDetails.setAttribute('aria-live', 'polite');
+
+    browser.append(this.cardsContainer, this.modeDetails);
+    modeSection.append(sectionHeader, browser);
+    shell.append(header, modeSection);
+    this.overlay.append(shell);
     this.mount.append(this.overlay);
 
     this.menuButton = document.createElement('button');
@@ -207,73 +252,125 @@ export class HomeScreen {
 
   private renderCards(): void {
     this.cardsContainer.replaceChildren();
+    this.modeDetails.replaceChildren();
 
-    for (const mode of this.modes) {
+    const selectedMode = this.modes.find(mode => mode.id === this.selectedModeId) ?? this.modes[0];
+    if (!selectedMode) {
+      const empty = document.createElement('p');
+      empty.className = 'home-mode-empty';
+      empty.textContent = 'No modes are available yet.';
+      this.modeDetails.append(empty);
+      return;
+    }
+    this.selectedModeId = selectedMode.id;
+
+    this.modes.forEach((mode, index) => {
       const stats = this.loadStats(mode.id);
-      const card = document.createElement('div');
+      const selected = mode.id === this.selectedModeId;
+      const card = document.createElement('button');
+      card.type = 'button';
       card.className = 'home-mode-card';
-      card.classList.toggle('home-mode-card--disabled', this.saveLoading);
-      card.tabIndex = this.saveLoading ? -1 : 0;
-      card.role = 'button';
-      card.setAttribute('aria-disabled', String(this.saveLoading));
+      card.classList.toggle('home-mode-card--selected', selected);
+      card.id = `home-mode-${mode.id}`;
+      card.dataset.modeId = mode.id;
+      card.setAttribute('role', 'radio');
+      card.setAttribute('aria-checked', String(selected));
+      card.setAttribute('aria-controls', this.modeDetails.id);
+      card.tabIndex = selected ? 0 : -1;
       card.addEventListener('click', event => {
-        if (this.saveLoading) return;
-        if (event.target instanceof HTMLElement && event.target.closest('.home-mode-action')) return;
-        this.onSelectMode(mode);
+        this.selectMode(mode.id, event.detail === 0);
       });
       card.addEventListener('keydown', event => {
-        if (this.saveLoading) return;
-        if (event.target !== card) return;
-        if (event.key !== 'Enter' && event.key !== ' ') return;
+        let nextIndex: number | undefined;
+        if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = (index + 1) % this.modes.length;
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextIndex = (index - 1 + this.modes.length) % this.modes.length;
+        if (event.key === 'Home') nextIndex = 0;
+        if (event.key === 'End') nextIndex = this.modes.length - 1;
+        if (nextIndex === undefined) return;
         event.preventDefault();
-        this.onSelectMode(mode);
-        card.blur();
+        this.selectMode(this.modes[nextIndex]!.id, true);
       });
 
       const name = document.createElement('strong');
+      name.className = 'home-mode-card-name';
       name.textContent = mode.name;
 
-      const tagline = document.createElement('p');
-      tagline.textContent = mode.tagline;
-
       const best = document.createElement('span');
-      best.className = 'home-mode-best';
-      best.textContent = stats.gamesPlayed > 0 ? `Best ${stats.highScore}` : 'Not played yet';
+      best.className = 'home-mode-card-stat';
+      best.textContent = stats.gamesPlayed > 0 ? `BEST ${stats.highScore}` : 'NEW';
 
-      const record = document.createElement('span');
-      record.className = 'home-mode-record';
-      if (mode.id === 'stack' && stats.gamesPlayed > 0) {
-        record.textContent = `Best stack ${stats.longestStreak}`;
-      } else {
-        record.hidden = true;
-      }
-
-      const actions = document.createElement('div');
-      actions.className = 'home-mode-actions';
-
-      const playButton = document.createElement('button');
-      playButton.type = 'button';
-      playButton.className = 'home-mode-action home-mode-action--play';
-      playButton.textContent = this.saveLoading ? 'CHECKING SAVES…' : 'PLAY';
-      playButton.disabled = this.saveLoading;
-      playButton.addEventListener('click', () => this.onSelectMode(mode));
-      blurOnClick(playButton);
-
-      actions.append(playButton);
-      if (mode.hasTutorial !== false) {
-        const tutorialButton = document.createElement('button');
-        tutorialButton.type = 'button';
-        tutorialButton.className = 'home-mode-action';
-        tutorialButton.textContent = 'TUTORIAL';
-        tutorialButton.addEventListener('click', event => {
-          event.stopPropagation();
-          this.onRequestTutorial?.(mode);
-        });
-        blurOnClick(tutorialButton);
-        actions.append(tutorialButton);
-      }
-      card.append(name, tagline, best, record, actions);
+      card.append(name, best);
       this.cardsContainer.append(card);
+    });
+
+    this.renderModeDetails(selectedMode, this.loadStats(selectedMode.id));
+  }
+
+  private selectMode(modeId: string, focusSelected: boolean): void {
+    if (modeId !== this.selectedModeId) {
+      this.selectedModeId = modeId;
+      this.renderCards();
     }
+    if (focusSelected) {
+      this.cardsContainer.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus();
+    }
+  }
+
+  private renderModeDetails(mode: GameModeConfig, stats: GameStats): void {
+    const eyebrow = document.createElement('span');
+    eyebrow.className = 'home-mode-detail-eyebrow';
+    eyebrow.textContent = 'SELECTED MODE';
+
+    const title = document.createElement('h3');
+    title.id = 'home-mode-detail-title';
+    title.textContent = mode.name;
+    this.modeDetails.setAttribute('aria-labelledby', title.id);
+
+    const tagline = document.createElement('p');
+    tagline.className = 'home-mode-tagline';
+    tagline.textContent = mode.tagline;
+
+    const records = document.createElement('dl');
+    records.className = 'home-mode-records';
+    this.appendRecord(records, 'BEST SCORE', stats.gamesPlayed > 0 ? String(stats.highScore) : '—');
+    if (mode.id === 'stack') {
+      this.appendRecord(records, 'BEST STACK', stats.gamesPlayed > 0 ? String(stats.longestStreak) : '—');
+    }
+    this.appendRecord(records, 'GAMES', String(stats.gamesPlayed));
+
+    const actions = document.createElement('div');
+    actions.className = 'home-mode-actions';
+
+    const playButton = document.createElement('button');
+    playButton.type = 'button';
+    playButton.className = 'home-mode-action home-mode-action--play';
+    playButton.textContent = this.saveLoading ? 'CHECKING SAVES…' : 'PLAY';
+    playButton.disabled = this.saveLoading;
+    playButton.addEventListener('click', () => this.onSelectMode(mode));
+    blurOnClick(playButton);
+    actions.append(playButton);
+
+    if (mode.hasTutorial !== false) {
+      const tutorialButton = document.createElement('button');
+      tutorialButton.type = 'button';
+      tutorialButton.className = 'home-mode-action';
+      tutorialButton.textContent = 'TUTORIAL';
+      tutorialButton.addEventListener('click', () => this.onRequestTutorial?.(mode));
+      blurOnClick(tutorialButton);
+      actions.append(tutorialButton);
+    }
+
+    this.modeDetails.append(eyebrow, title, tagline, records, actions);
+  }
+
+  private appendRecord(list: HTMLDListElement, label: string, value: string): void {
+    const record = document.createElement('div');
+    record.className = 'home-mode-record';
+    const term = document.createElement('dt');
+    term.textContent = label;
+    const description = document.createElement('dd');
+    description.textContent = value;
+    record.append(term, description);
+    list.append(record);
   }
 }

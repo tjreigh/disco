@@ -1,8 +1,8 @@
 import { expect, type Page } from '@playwright/test';
 
 export async function playMode(page: Page, modeName: string): Promise<void> {
-  const card = page.locator('.home-mode-card', { hasText: modeName });
-  await card.locator('.home-mode-action--play').click();
+  await page.locator('.home-mode-card', { hasText: modeName }).click();
+  await page.locator('.home-mode-action--play').click();
 }
 
 export async function openDebugPanel(page: Page): Promise<void> {

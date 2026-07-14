@@ -7,8 +7,7 @@ import { gotoSeeded, readSummary, waitForPhase } from './helpers.js';
 test.describe('overlay buttons do not steal keyboard input', () => {
   test('plain click on PLAY, then keyboard play works immediately', async ({ page }) => {
     await gotoSeeded(page);
-    await page.locator('.home-mode-card', { hasText: 'Classic' })
-      .locator('.home-mode-action--play').click();
+    await page.locator('.home-mode-action--play').click();
 
     const focusedClass = await page.evaluate(() => document.activeElement?.className ?? '');
     expect(focusedClass).not.toContain('home-mode-action');
@@ -26,8 +25,7 @@ test.describe('overlay buttons do not steal keyboard input', () => {
 
   test('hidden home-screen buttons are unfocusable mid-game', async ({ page }) => {
     await gotoSeeded(page);
-    await page.locator('.home-mode-card', { hasText: 'Classic' })
-      .locator('.home-mode-action--play').click();
+    await page.locator('.home-mode-action--play').click();
     await page.waitForTimeout(400); // let the close fade finish so visibility:hidden applies
 
     const tookFocus = await page.evaluate(() => {
@@ -40,8 +38,7 @@ test.describe('overlay buttons do not steal keyboard input', () => {
 
   test('MENU round-trip leaves keyboard alive and Space does not reopen the menu', async ({ page }) => {
     await gotoSeeded(page);
-    await page.locator('.home-mode-card', { hasText: 'Classic' })
-      .locator('.home-mode-action--play').click();
+    await page.locator('.home-mode-action--play').click();
 
     await page.locator('.home-back-button').click(); // open in-game menu
     await page.locator('.game-menu-button', { hasText: 'RESUME' }).click();
@@ -61,8 +58,7 @@ test.describe('overlay buttons do not steal keyboard input', () => {
 
   test('tutorial RETRY click does not capture Enter', async ({ page }) => {
     await gotoSeeded(page);
-    await page.locator('.home-mode-card', { hasText: 'Classic' })
-      .locator('.home-mode-action', { hasText: 'TUTORIAL' }).click();
+    await page.locator('.home-mode-action', { hasText: 'TUTORIAL' }).click();
     await page.locator('.tutorial-button', { hasText: 'RETRY' }).click();
 
     const focusedClass = await page.evaluate(() => document.activeElement?.className ?? '');
