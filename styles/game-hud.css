@@ -228,6 +228,10 @@
     font-size: 22px;
   }
   .game-hud__status { max-width: 58%; }
+  .game-hud__instability {
+    right: max(16px, env(safe-area-inset-right), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2));
+    left: auto;
+  }
 }
 @media (max-width: 420px) {
   .game-hud__top { height: 96px; }

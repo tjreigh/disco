@@ -73,6 +73,7 @@ vi.mock('../../ui/home-screen.js', () => ({
     onRequestRestart?: () => void;
     onRequestHome?: () => void;
     onRequestToggleSound?: () => void;
+    onRequestDebug?: () => void;
     onRequestTutorial?: (mode: unknown) => void;
     open = vi.fn();
     close = vi.fn();
@@ -133,6 +134,7 @@ vi.mock('../../ui/saved-game-dialog.js', () => ({
 
 vi.mock('../../ui/debug/debug-panel.js', () => ({
   DebugPanel: class {
+    open = vi.fn();
     reset = vi.fn();
     recordTurn = vi.fn();
     advancePlayback = vi.fn();
@@ -267,6 +269,20 @@ describe('constructor / home state', () => {
   test('constructs exactly one InputHandler wired to the canvas', () => {
     createGame();
     expect(inputHandlerInstances).toHaveLength(1);
+  });
+
+  test('opens report/debug from home and dismisses the game menu first when needed', () => {
+    createGame();
+    const homeScreen = lastOf(homeScreenInstances);
+    const debugPanel = lastOf(debugPanelInstances);
+
+    homeScreen.onRequestDebug?.();
+    expect(debugPanel.open).toHaveBeenCalledOnce();
+
+    homeScreen.isGameMenuOpen.mockReturnValue(true);
+    homeScreen.onRequestDebug?.();
+    expect(homeScreen.closeGameMenu).toHaveBeenCalledOnce();
+    expect(debugPanel.open).toHaveBeenCalledTimes(2);
   });
 
   test('destroy cancels the rAF loop and destroys the input handler', () => {

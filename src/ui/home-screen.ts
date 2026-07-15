@@ -11,10 +11,13 @@ export class HomeScreen {
   private readonly authBar: HTMLElement;
   private readonly cardsContainer: HTMLElement;
   private readonly modeDetails: HTMLElement;
+  private readonly footer: HTMLElement;
   private readonly menuButton: HTMLButtonElement;
   private readonly gameMenu: HTMLElement;
+  private readonly restartDialog: HTMLElement;
   private readonly soundButton: HTMLButtonElement;
   private readonly gameMenuModal: ModalController;
+  private readonly restartDialogModal: ModalController;
   private readonly homePriorInert = new Map<HTMLElement, boolean>();
   private saveLoading = false;
   private selectedModeId: string;
@@ -26,6 +29,7 @@ export class HomeScreen {
   onRequestRestart?: () => void;
   onRequestHome?: () => void;
   onRequestToggleSound?: () => void;
+  onRequestDebug?: () => void;
   onRequestTutorial?: (mode: GameModeConfig) => void;
 
   constructor(
@@ -95,14 +99,51 @@ export class HomeScreen {
 
     browser.append(this.cardsContainer, this.modeDetails);
     modeSection.append(sectionHeader, browser);
+    this.footer = document.createElement('footer');
+    this.footer.className = 'home-footer';
+    this.footer.dataset.uiAboveHome = 'true';
+
+    const copyright = document.createElement('span');
+    copyright.className = 'home-footer__copyright';
+    copyright.textContent = `© ${new Date().getFullYear()} Trevor Reigh`;
+
+    const footerLinks = document.createElement('nav');
+    footerLinks.className = 'home-footer__links';
+    footerLinks.setAttribute('aria-label', 'Project links');
+
+    const github = document.createElement('a');
+    github.className = 'home-footer__link';
+    github.href = 'https://github.com/tjreigh/disco';
+    github.target = '_blank';
+    github.rel = 'noreferrer';
+    github.textContent = 'GITHUB';
+
+    const report = document.createElement('button');
+    report.type = 'button';
+    report.className = 'home-footer__link home-footer__button';
+    report.textContent = 'REPORT / DEBUG';
+    report.addEventListener('click', () => this.onRequestDebug?.());
+    blurOnClick(report);
+
+    footerLinks.append(github, report);
+    this.footer.append(copyright, footerLinks);
+
     shell.append(header, modeSection);
     this.overlay.append(shell);
-    this.mount.append(this.overlay);
+    this.mount.append(this.overlay, this.footer);
 
     this.menuButton = document.createElement('button');
     this.menuButton.type = 'button';
     this.menuButton.className = 'home-back-button';
-    this.menuButton.textContent = 'MENU';
+    this.menuButton.setAttribute('aria-label', 'Game menu');
+    const menuIcon = document.createElement('span');
+    menuIcon.className = 'home-back-button__icon';
+    menuIcon.setAttribute('aria-hidden', 'true');
+    menuIcon.append(document.createElement('i'), document.createElement('i'), document.createElement('i'));
+    const menuLabel = document.createElement('span');
+    menuLabel.className = 'home-back-button__label';
+    menuLabel.textContent = 'MENU';
+    this.menuButton.append(menuIcon, menuLabel);
     this.menuButton.setAttribute('aria-hidden', 'true');
     this.menuButton.addEventListener('click', () => this.onRequestGameMenu?.());
     blurOnClick(this.menuButton);
@@ -119,14 +160,59 @@ export class HomeScreen {
     const menuTitle = document.createElement('h2');
     menuTitle.textContent = 'MENU';
 
-    const resumeButton = this.createGameMenuButton('RESUME', () => this.onRequestResume?.());
-    const restartButton = this.createGameMenuButton('RESTART', () => this.onRequestRestart?.());
-    this.soundButton = this.createGameMenuButton('SOUND ON', () => this.onRequestToggleSound?.());
-    const homeButton = this.createGameMenuButton('HOME', () => this.onRequestHome?.());
+    const menuNote = document.createElement('p');
+    menuNote.className = 'game-menu-note';
+    menuNote.textContent = 'Progress saves automatically.';
 
-    panel.append(menuTitle, resumeButton, restartButton, this.soundButton, homeButton);
+    const closeMenuButton = document.createElement('button');
+    closeMenuButton.type = 'button';
+    closeMenuButton.className = 'game-menu-close';
+    closeMenuButton.textContent = '×';
+    closeMenuButton.setAttribute('aria-label', 'Resume game');
+    closeMenuButton.addEventListener('click', () => this.onRequestResume?.());
+    blurOnClick(closeMenuButton);
+
+    const resumeButton = this.createGameMenuButton('RESUME', () => this.onRequestResume?.());
+    resumeButton.classList.add('game-menu-button--primary');
+    const restartButton = this.createGameMenuButton('RESTART', () => this.restartDialogModal.open());
+    this.soundButton = this.createGameMenuButton('SOUND ON', () => this.onRequestToggleSound?.());
+    const homeButton = this.createGameMenuButton('SAVE & EXIT', () => this.onRequestHome?.());
+    const debugButton = this.createGameMenuButton('REPORT / DEBUG', () => this.onRequestDebug?.());
+    debugButton.classList.add('game-menu-button--secondary', 'game-menu-button--debug');
+
+    panel.append(menuTitle, closeMenuButton, menuNote, resumeButton, restartButton, this.soundButton, homeButton, debugButton);
     this.gameMenu.append(panel);
-    this.mount.append(this.menuButton, this.gameMenu);
+
+    this.restartDialog = document.createElement('div');
+    this.restartDialog.className = 'restart-confirmation';
+    this.restartDialog.setAttribute('role', 'alertdialog');
+    this.restartDialog.setAttribute('aria-modal', 'true');
+    this.restartDialog.setAttribute('aria-labelledby', 'restart-confirmation-title');
+    this.restartDialog.setAttribute('aria-describedby', 'restart-confirmation-description');
+
+    const restartPanel = document.createElement('div');
+    restartPanel.className = 'restart-confirmation__panel';
+    const restartTitle = document.createElement('h2');
+    restartTitle.id = 'restart-confirmation-title';
+    restartTitle.textContent = 'RESTART GAME?';
+    const restartDescription = document.createElement('p');
+    restartDescription.id = 'restart-confirmation-description';
+    restartDescription.textContent = 'Your current run will be replaced.';
+    const restartActions = document.createElement('div');
+    restartActions.className = 'restart-confirmation__actions';
+    const cancelRestartButton = document.createElement('button');
+    cancelRestartButton.type = 'button';
+    cancelRestartButton.className = 'restart-confirmation__button';
+    cancelRestartButton.textContent = 'CANCEL';
+    const confirmRestartButton = document.createElement('button');
+    confirmRestartButton.type = 'button';
+    confirmRestartButton.className = 'restart-confirmation__button restart-confirmation__button--danger';
+    confirmRestartButton.textContent = 'RESTART GAME';
+    restartActions.append(cancelRestartButton, confirmRestartButton);
+    restartPanel.append(restartTitle, restartDescription, restartActions);
+    this.restartDialog.append(restartPanel);
+
+    this.mount.append(this.menuButton, this.gameMenu, this.restartDialog);
     this.gameMenuModal = new ModalController(this.gameMenu, {
       openClass: 'game-menu--open',
       initialFocus: () => resumeButton,
@@ -134,6 +220,19 @@ export class HomeScreen {
       onEscape: () => this.onRequestResume?.(),
       restoreFocus: false,
     });
+    this.restartDialogModal = new ModalController(this.restartDialog, {
+      openClass: 'restart-confirmation--open',
+      initialFocus: () => cancelRestartButton,
+      inertTargets: this.modalBackground,
+      onEscape: () => this.restartDialogModal.close(),
+    });
+    cancelRestartButton.addEventListener('click', () => this.restartDialogModal.close());
+    confirmRestartButton.addEventListener('click', () => {
+      this.restartDialogModal.close();
+      this.onRequestRestart?.();
+    });
+    blurOnClick(cancelRestartButton);
+    blurOnClick(confirmRestartButton);
 
     this.renderCards();
     this.renderAuth();
@@ -159,12 +258,15 @@ export class HomeScreen {
 
   openGameMenu(): void {
     this.gameMenuModal.open();
+    this.footer.classList.add('home-footer--hidden');
     this.menuButton.classList.remove('home-back-button--visible');
     this.menuButton.setAttribute('aria-hidden', 'true');
   }
 
   closeGameMenu(): void {
+    this.restartDialogModal.close();
     this.gameMenuModal.close();
+    this.footer.classList.remove('home-footer--hidden');
     if (!this.overlay.classList.contains('home-screen--open')) {
       this.menuButton.classList.add('home-back-button--visible');
       this.menuButton.setAttribute('aria-hidden', 'false');
@@ -239,7 +341,9 @@ export class HomeScreen {
   private setBackgroundInert(inert: boolean): void {
     if (inert) {
       const siblings = Array.from(this.mount.children)
-        .filter((element): element is HTMLElement => element instanceof HTMLElement && element !== this.overlay);
+        .filter((element): element is HTMLElement => element instanceof HTMLElement
+          && element !== this.overlay
+          && element.dataset.uiAboveHome !== 'true');
       for (const element of new Set([...this.modalBackground, ...siblings])) {
         if (!this.homePriorInert.has(element)) this.homePriorInert.set(element, element.inert);
         element.inert = true;

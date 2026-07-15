@@ -71,6 +71,23 @@ describe('HomeScreen', () => {
     expect(loadStats).toHaveBeenCalledWith(CLASSIC_MODE.id);
   });
 
+  test('renders subdued project links and opens report/debug from the footer', () => {
+    const home = createHome();
+    const onRequestDebug = vi.fn();
+    home.onRequestDebug = onRequestDebug;
+
+    const footer = document.querySelector<HTMLElement>('.home-footer')!;
+    const github = footer.querySelector<HTMLAnchorElement>('[href="https://github.com/tjreigh/disco"]')!;
+    const report = footer.querySelector<HTMLButtonElement>('.home-footer__button')!;
+
+    expect(footer.textContent).toContain(`© ${new Date().getFullYear()} Trevor Reigh`);
+    expect(document.querySelector('.home-screen')?.contains(footer)).toBe(false);
+    expect(github.textContent).toBe('GITHUB');
+    expect(github.rel).toContain('noreferrer');
+    report.click();
+    expect(onRequestDebug).toHaveBeenCalledOnce();
+  });
+
   test('selects a mode separately from starting it', () => {
     const onSelectMode = vi.fn();
     const home = createHome({ onSelectMode });
@@ -178,10 +195,12 @@ describe('HomeScreen', () => {
     const onRestart = vi.fn();
     const onHome = vi.fn();
     const onToggleSound = vi.fn();
+    const onRequestDebug = vi.fn();
     home.onRequestResume = onResume;
     home.onRequestRestart = onRestart;
     home.onRequestHome = onHome;
     home.onRequestToggleSound = onToggleSound;
+    home.onRequestDebug = onRequestDebug;
 
     home.open();
     home.close();
@@ -190,28 +209,70 @@ describe('HomeScreen', () => {
     home.openGameMenu();
     expect(home.isGameMenuOpen()).toBe(true);
     expect(document.querySelector('.game-menu--open')).not.toBeNull();
+    expect(document.querySelector('.home-footer')?.classList).toContain('home-footer--hidden');
+    const closeMenuButton = document.querySelector<HTMLButtonElement>('.game-menu-close')!;
+    const resumeButton = Array.from(document.querySelectorAll<HTMLButtonElement>('.game-menu-button'))
+      .find(button => button.textContent === 'RESUME')!;
+    const restartButton = Array.from(document.querySelectorAll<HTMLButtonElement>('.game-menu-button'))
+      .find(button => button.textContent === 'RESTART')!;
+    expect(closeMenuButton.getAttribute('aria-label')).toBe('Resume game');
+    expect(resumeButton.classList).toContain('game-menu-button--primary');
+    expect(document.querySelector('.game-menu-note')?.textContent).toBe('Progress saves automatically.');
 
-    for (const label of ['RESUME', 'RESTART', 'HOME', 'SOUND ON']) {
+    for (const label of ['RESUME', 'SAVE & EXIT', 'SOUND ON', 'REPORT / DEBUG']) {
       Array.from(document.querySelectorAll<HTMLButtonElement>('.game-menu-button'))
         .find(button => button.textContent === label)!
         .click();
     }
+    closeMenuButton.click();
 
-    expect(onResume).toHaveBeenCalledTimes(1);
+    restartButton.click();
+    const restartDialog = document.querySelector<HTMLElement>('.restart-confirmation')!;
+    const cancelRestart = Array.from(restartDialog.querySelectorAll<HTMLButtonElement>('button'))
+      .find(button => button.textContent === 'CANCEL')!;
+    const confirmRestart = Array.from(restartDialog.querySelectorAll<HTMLButtonElement>('button'))
+      .find(button => button.textContent === 'RESTART GAME')!;
+    expect(restartDialog.classList).toContain('restart-confirmation--open');
+    expect(restartDialog.getAttribute('role')).toBe('alertdialog');
+    expect(restartDialog.textContent).toContain('Your current run will be replaced.');
+    expect(document.activeElement).toBe(cancelRestart);
+    expect(confirmRestart.classList).toContain('restart-confirmation__button--danger');
+    expect(onRestart).not.toHaveBeenCalled();
+
+    cancelRestart.click();
+    expect(restartDialog.classList).not.toContain('restart-confirmation--open');
+    restartButton.click();
+    confirmRestart.click();
+
+    expect(onResume).toHaveBeenCalledTimes(2);
     expect(onRestart).toHaveBeenCalledTimes(1);
     expect(onHome).toHaveBeenCalledTimes(1);
     expect(onToggleSound).toHaveBeenCalledTimes(1);
+    expect(onRequestDebug).toHaveBeenCalledTimes(1);
 
     home.closeGameMenu();
     expect(home.isGameMenuOpen()).toBe(false);
+    expect(document.querySelector('.home-footer')?.classList).not.toContain('home-footer--hidden');
+  });
+
+  test('uses a labelled three-line menu icon while retaining the desktop label', () => {
+    const home = createHome();
+    home.close();
+
+    const menu = document.querySelector<HTMLButtonElement>('.home-back-button')!;
+    expect(menu.getAttribute('aria-label')).toBe('Game menu');
+    expect(menu.querySelectorAll('.home-back-button__icon i')).toHaveLength(3);
+    expect(menu.querySelector('.home-back-button__label')?.textContent).toBe('MENU');
   });
 
   test('isolates the active home and game-menu layers from background UI', () => {
     const background = document.createElement('main');
     const mount = document.createElement('div');
     const peerOverlay = document.createElement('aside');
+    const auxiliaryOverlay = document.createElement('aside');
     peerOverlay.inert = true;
-    mount.append(peerOverlay);
+    auxiliaryOverlay.dataset.uiAboveHome = 'true';
+    mount.append(peerOverlay, auxiliaryOverlay);
     document.body.append(background, mount);
     const home = createHome({ mount, modalBackground: [background] });
     const overlay = mount.querySelector<HTMLElement>('.home-screen')!;
@@ -221,6 +282,7 @@ describe('HomeScreen', () => {
     expect(overlay.getAttribute('aria-hidden')).toBe('false');
     expect(background.inert).toBe(true);
     expect(peerOverlay.inert).toBe(true);
+    expect(auxiliaryOverlay.inert).toBe(false);
 
     home.close();
     expect(overlay.getAttribute('aria-hidden')).toBe('true');

@@ -175,7 +175,7 @@ export function snapshotTurnHistory(
 }
 
 export class DebugPanel {
-  private readonly panel: HTMLElement;
+  readonly root: HTMLElement;
   private readonly content: HTMLElement;
   private readonly access: DebugPanelAccess;
   private lastResult: TurnResult | null = null;
@@ -192,15 +192,11 @@ export class DebugPanel {
   ) {
     this.access = access;
 
-    const toggle = document.createElement('button');
-    toggle.className = 'debug-toggle';
-    toggle.type = 'button';
-    toggle.textContent = this.access === 'full' ? 'LOGIC' : 'REPORT';
-    toggle.title = this.access === 'full' ? 'Toggle logic debugger (D)' : 'Export an issue report (D)';
-
-    this.panel = document.createElement('aside');
-    this.panel.className = 'debug-panel';
-    this.panel.setAttribute('aria-label', this.access === 'full' ? 'Game logic debugger' : 'Issue report export');
+    this.root = document.createElement('aside');
+    this.root.className = 'debug-panel';
+    this.root.dataset.uiAboveHome = 'true';
+    this.root.setAttribute('aria-label', this.access === 'full' ? 'Game logic debugger' : 'Issue report export');
+    this.root.setAttribute('aria-hidden', 'true');
 
     const header = document.createElement('header');
     const title = document.createElement('strong');
@@ -213,21 +209,31 @@ export class DebugPanel {
 
     this.content = document.createElement('div');
     this.content.className = 'debug-content';
-    this.panel.append(header, this.content);
-    mount.append(toggle, this.panel);
+    this.root.append(header, this.content);
+    mount.append(this.root);
 
-    const setOpen = (open: boolean): void => {
-      this.panel.classList.toggle('debug-panel--open', open);
-    };
-    toggle.addEventListener('click', () => setOpen(!this.panel.classList.contains('debug-panel--open')));
-    close.addEventListener('click', () => setOpen(false));
-    blurOnClick(toggle);
+    close.addEventListener('click', () => this.close());
     blurOnClick(close);
     document.addEventListener('keydown', event => {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
-      if (event.key === 'd' || event.key === 'D') setOpen(!this.panel.classList.contains('debug-panel--open'));
+      if (event.key === 'd' || event.key === 'D') this.toggle();
     });
     this.render();
+  }
+
+  open(): void {
+    this.root.classList.add('debug-panel--open');
+    this.root.setAttribute('aria-hidden', 'false');
+  }
+
+  close(): void {
+    this.root.classList.remove('debug-panel--open');
+    this.root.setAttribute('aria-hidden', 'true');
+  }
+
+  toggle(): void {
+    if (this.root.classList.contains('debug-panel--open')) this.close();
+    else this.open();
   }
 
   recordTurn(result: TurnResult): void {

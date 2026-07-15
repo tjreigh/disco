@@ -18,6 +18,7 @@ const FOCUSABLE_SELECTOR = [
 /** Shared modal visibility, background inertness, and focus lifecycle. */
 export class ModalController {
   private previousFocus: HTMLElement | null = null;
+  private priorRootInert: boolean | null = null;
   private readonly priorInert = new Map<HTMLElement, boolean>();
 
   constructor(
@@ -30,6 +31,8 @@ export class ModalController {
 
   open(): void {
     if (this.isOpen()) return;
+    this.priorRootInert = this.root.inert;
+    this.root.inert = false;
     this.previousFocus = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
@@ -60,6 +63,8 @@ export class ModalController {
     } else if (shouldRestore && document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }
+    this.root.inert = this.priorRootInert ?? false;
+    this.priorRootInert = null;
     this.previousFocus = null;
   }
 

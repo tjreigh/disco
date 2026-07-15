@@ -39,6 +39,17 @@ describe('ModalController', () => {
     expect(document.activeElement).toBe(first);
   });
 
+  it('temporarily clears inertness on a nested modal root and restores it on close', () => {
+    const { modal, root } = createModal();
+    root.inert = true;
+
+    modal.open();
+    expect(root.inert).toBe(false);
+
+    modal.close();
+    expect(root.inert).toBe(true);
+  });
+
   it('traps focus at both ends of the modal', () => {
     const { modal, first, last } = createModal();
     modal.open();

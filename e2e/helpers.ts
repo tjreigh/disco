@@ -9,7 +9,13 @@ export async function openDebugPanel(page: Page): Promise<void> {
   const panel = page.locator('.debug-panel');
   const isOpen = await panel.evaluate(el => el.classList.contains('debug-panel--open'));
   if (!isOpen) {
-    await page.locator('.debug-toggle').click();
+    const home = page.locator('.home-screen--open');
+    if (await home.isVisible()) {
+      await home.locator('.home-footer__button').click();
+    } else {
+      await page.locator('.home-back-button').click();
+      await page.locator('.game-menu-button--debug').click();
+    }
   }
 }
 

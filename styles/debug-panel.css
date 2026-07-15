@@ -1,20 +1,6 @@
-.debug-toggle {
-  position: fixed;
-  right: max(12px, env(safe-area-inset-right));
-  top: max(12px, env(safe-area-inset-top));
-  z-index: 20;
-  border: 1px solid #486581;
-  border-radius: 5px;
-  padding: 7px 10px;
-  background: #102a43;
-  color: #9fb3c8;
-  font: 700 11px ui-monospace, SFMono-Regular, Menlo, monospace;
-  letter-spacing: .08em;
-  cursor: pointer;
-}
 .debug-panel {
   position: fixed;
-  z-index: 30;
+  z-index: 60;
   top: env(safe-area-inset-top);
   right: env(safe-area-inset-right);
   bottom: env(safe-area-inset-bottom);
@@ -160,8 +146,4 @@
 .debug-flag--active { border-color: #ffc857; background: #6b4f16; color: #fff2b2; }
 @media (max-width: 600px) {
   .debug-panel { width: 100vw; }
-  .debug-toggle {
-    top: max(6px, env(safe-area-inset-top));
-    right: max(6px, env(safe-area-inset-right));
-  }
 }

@@ -65,6 +65,38 @@ test.describe('mobile playability', () => {
     await expect(rewind).toBeEnabled();
   });
 
+  test('Paradox top utilities stay separated on an iPhone 16 Pro viewport', async ({ page }) => {
+    await page.setViewportSize({ width: 402, height: 874 });
+    await gotoSeeded(page);
+    await playMode(page, 'Paradox');
+
+    const menu = page.locator('.home-back-button');
+    const instability = page.locator('.game-hud__instability');
+    const score = page.locator('.game-hud__score');
+    const controls = page.locator('.game-controls');
+    const footer = page.locator('.home-footer');
+    const [menuBox, instabilityBox, scoreBox, controlsBox, footerBox] = await Promise.all([
+      menu.boundingBox(),
+      instability.boundingBox(),
+      score.boundingBox(),
+      controls.boundingBox(),
+      footer.boundingBox(),
+    ]);
+
+    expect(menuBox).not.toBeNull();
+    expect(instabilityBox).not.toBeNull();
+    expect(scoreBox).not.toBeNull();
+    expect(controlsBox).not.toBeNull();
+    expect(footerBox).not.toBeNull();
+    expect(menuBox!.width).toBeGreaterThanOrEqual(44);
+    expect(menuBox!.height).toBeGreaterThanOrEqual(44);
+    expect(menuBox!.x + menuBox!.width).toBeLessThan(instabilityBox!.x);
+    expect(menuBox!.x + menuBox!.width).toBeLessThan(scoreBox!.x);
+    expect(scoreBox!.x + scoreBox!.width).toBeLessThan(instabilityBox!.x);
+    expect(controlsBox!.y + controlsBox!.height).toBeLessThanOrEqual(footerBox!.y);
+    expect(footerBox!.y + footerBox!.height).toBeLessThanOrEqual(874);
+  });
+
   test('resize keeps HUD geometry variables aligned with the canvas and board', async ({ page }) => {
     await gotoSeeded(page);
     await playMode(page, 'Classic');

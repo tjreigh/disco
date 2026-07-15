@@ -1,8 +1,8 @@
 .shell-region--bottom {
   display: grid;
   place-items: center;
-  min-height: calc(var(--game-controls-height) + env(safe-area-inset-bottom));
-  padding-bottom: env(safe-area-inset-bottom);
+  min-height: calc(var(--game-controls-height) + var(--app-footer-height) + env(safe-area-inset-bottom));
+  padding-bottom: calc(var(--app-footer-height) + env(safe-area-inset-bottom));
 }
 .game-controls {
   pointer-events: auto;
@@ -74,13 +74,15 @@
 }
 @media (hover: hover) and (pointer: fine) and (min-width: 721px) {
   :root { --game-controls-height: 0px; }
-  .shell-region--bottom { min-height: 0; padding-bottom: 0; }
+  .shell-region--bottom {
+    min-height: calc(var(--app-footer-height) + env(safe-area-inset-bottom));
+    padding-bottom: calc(var(--app-footer-height) + env(safe-area-inset-bottom));
+  }
   .game-controls { display: none; }
   .game-controls[data-rewind-mode="true"] {
     position: fixed;
     top: max(16px, env(safe-area-inset-top));
-    /* Stay aligned with the game canvas, leaving the global top-right utility
-       rail free for the Report/Logic control. */
+    /* Stay aligned with the game canvas without competing with the HUD. */
     right: max(112px, calc((100vw - 680px) / 2 + 16px));
     z-index: 20;
     display: flex;

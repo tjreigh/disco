@@ -129,8 +129,8 @@ test.describe('local save game', () => {
     await page.keyboard.press('ArrowDown');
     await waitForPhase(page, 'waiting');
 
-    await page.getByRole('button', { name: 'MENU', exact: true }).click();
-    await page.locator('.game-menu').getByRole('button', { name: 'HOME' }).click();
+    await page.getByRole('button', { name: 'Game menu', exact: true }).click();
+    await page.locator('.game-menu').getByRole('button', { name: 'SAVE & EXIT' }).click();
     await playMode(page, 'Gravity');
     await page.keyboard.press('Enter');
     await waitForPhase(page, 'aiming');

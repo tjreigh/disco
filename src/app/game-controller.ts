@@ -115,7 +115,6 @@ export class Game {
       ?? document.querySelector<HTMLElement>('.shell-region--bottom')
       ?? document.body;
     const overlayMount = mounts?.overlays ?? document.body;
-    const utilityMount = mounts?.utilities ?? document.body;
     const modalBackground = mounts?.modalBackground ?? [];
     this.renderer = new Renderer(canvas);
     this.audio    = new AudioManager();
@@ -124,7 +123,7 @@ export class Game {
     this.state    = this.engine.state;
     this.state.phase = GamePhase.Menu; // suppress gameplay until a mode is selected
     this.displayedLevelProgress = this.snapshotLevelProgress();
-    this.debug    = new DebugPanel(this.state, undefined, utilityMount);
+    this.debug    = new DebugPanel(this.state, undefined, overlayMount);
     this.tutorialOverlay = new TutorialOverlay(overlayMount);
     this.gameControls = new GameControls(intent => this.handleIntent(intent), controlsMount);
     this.gameHud = new GameHud(stageMount);
@@ -152,6 +151,7 @@ export class Game {
     this.homeScreen.onRequestRestart = () => this.restart();
     this.homeScreen.onRequestHome = () => this.returnToMenu();
     this.homeScreen.onRequestToggleSound = () => this.toggleSound();
+    this.homeScreen.onRequestDebug = () => this.openDebugPanel();
     this.homeScreen.onRequestTutorial = mode => this.startTutorial(mode);
     this.gameOverScreen.onRequestRewind = () => this.requestRewind();
     this.gameOverScreen.onRequestNewGame = () => this.restart();
@@ -894,6 +894,11 @@ export class Game {
 
   private toggleSound(): void {
     this.homeScreen.setSoundEnabled(this.audio.toggleEnabled());
+  }
+
+  private openDebugPanel(): void {
+    if (this.homeScreen.isGameMenuOpen()) this.resumeGame();
+    this.debug.open();
   }
 
   private releaseGameplayFocus(): void {
