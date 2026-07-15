@@ -84,6 +84,7 @@ vi.mock('../../ui/home-screen.js', () => ({
     refreshAuth = vi.fn();
     setSoundEnabled = vi.fn();
     setSaveLoading = vi.fn();
+    setSaveExitPending = vi.fn();
     constructor(_modes: unknown, onSelectMode: (mode: unknown) => void) {
       this.onSelectMode = onSelectMode;
       homeScreenInstances.push(this);
@@ -108,6 +109,8 @@ vi.mock('../../platform/synced-save-store.js', () => ({
     });
     subscribe = vi.fn(() => vi.fn());
     setAuthState = vi.fn(async () => undefined);
+    sync = vi.fn(async () => true);
+    refreshSaves = vi.fn(async () => undefined);
     constructor(_modes: unknown) {
       saveStoreInstances.push(this);
     }
@@ -198,6 +201,7 @@ function lastDraw(renderer: any): {
 }
 
 let rafCallback: FrameRequestCallback | null = null;
+const gameInstances: Game[] = [];
 
 beforeEach(() => {
   document.body.replaceChildren();
@@ -226,6 +230,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  for (const game of gameInstances) game.destroy();
+  gameInstances.length = 0;
   document.body.replaceChildren();
   vi.unstubAllGlobals();
 });
@@ -249,6 +255,7 @@ function frame(now = 0): void {
 function createGame(): { game: Game; canvas: HTMLCanvasElement } {
   const canvas = document.createElement('canvas');
   const game = new Game(canvas);
+  gameInstances.push(game);
   return { game, canvas };
 }
 
@@ -294,6 +301,41 @@ describe('constructor / home state', () => {
     expect(vi.mocked(cancelAnimationFrame)).toHaveBeenCalledTimes(1);
     expect(input.destroy).toHaveBeenCalledTimes(1);
   });
+
+  test('refreshes account saves when the home screen regains focus', () => {
+    createGame();
+    const saveStore = lastOf(saveStoreInstances);
+    saveStore.getState.mockReturnValue({
+      account: { id: 'account-1', displayName: null },
+      accountId: 'account-1',
+      scope: 'account',
+      loading: false,
+      apiAvailable: true,
+    });
+
+    window.dispatchEvent(new Event('focus'));
+
+    expect(saveStore.refreshSaves).toHaveBeenCalledOnce();
+  });
+
+  test('refreshes an already-open resume choice after returning to the app', async () => {
+    createGame();
+    const saveStore = lastOf(saveStoreInstances);
+    const savedGameDialog = lastOf(savedGameDialogInstances);
+    const oldSave = new GameEngine({ mode: CLASSIC_MODE, seed: 40 }).exportSave({ savedAt: 40 });
+    const newSave = new GameEngine({ mode: CLASSIC_MODE, seed: 41 }).exportSave({ savedAt: 41 });
+    saveStoreState.byMode.set(CLASSIC_MODE.id, oldSave);
+    lastOf(homeScreenInstances).onSelectMode(CLASSIC_MODE);
+    savedGameDialog.showSave.mockClear();
+    savedGameDialog.isOpen.mockReturnValue(true);
+    saveStore.refreshSaves.mockImplementation(async () => {
+      saveStoreState.byMode.set(CLASSIC_MODE.id, newSave);
+    });
+
+    window.dispatchEvent(new Event('focus'));
+
+    await vi.waitFor(() => expect(savedGameDialog.showSave).toHaveBeenCalledWith(CLASSIC_MODE, newSave));
+  });
 });
 
 // ─── Starting normal play ───────────────────────────────────────────────────
@@ -316,6 +358,74 @@ describe('starting normal play', () => {
     expect(state.phase).toBe(GamePhase.WaitingForDrop);
     expect(isEmptyBoard(board)).toBe(true);
     expect(lastOf(saveStoreInstances).remove).not.toHaveBeenCalled();
+  });
+
+  test('refreshes account saves before presenting the resume choice', async () => {
+    createGame();
+    const homeScreen = lastOf(homeScreenInstances);
+    const saveStore = lastOf(saveStoreInstances);
+    const savedGameDialog = lastOf(savedGameDialogInstances);
+    let finishRefresh!: () => void;
+    saveStore.getState.mockReturnValue({
+      account: { id: 'account-1', displayName: null },
+      accountId: 'account-1',
+      scope: 'account',
+      loading: false,
+      apiAvailable: true,
+    });
+    saveStore.refreshSaves.mockImplementation(() => new Promise<void>(resolve => { finishRefresh = resolve; }));
+
+    homeScreen.onSelectMode(CLASSIC_MODE);
+    expect(savedGameDialog.showSave).not.toHaveBeenCalled();
+
+    const source = new GameEngine({ mode: CLASSIC_MODE, seed: 44 });
+    saveStoreState.byMode.set(CLASSIC_MODE.id, source.exportSave({ savedAt: 44 }));
+    finishRefresh();
+
+    await vi.waitFor(() => expect(savedGameDialog.showSave).toHaveBeenCalledOnce());
+  });
+});
+
+describe('save and exit', () => {
+  test('waits for the current mode sync before returning home', async () => {
+    createGame();
+    const homeScreen = lastOf(homeScreenInstances);
+    const saveStore = lastOf(saveStoreInstances);
+    let finishSync!: (synced: boolean) => void;
+    saveStore.sync.mockImplementation(() => new Promise<boolean>(resolve => { finishSync = resolve; }));
+    homeScreen.onSelectMode(CLASSIC_MODE);
+    homeScreen.open.mockClear();
+
+    homeScreen.onRequestHome?.();
+
+    expect(saveStore.sync).toHaveBeenCalledWith(CLASSIC_MODE.id);
+    expect(homeScreen.setSaveExitPending).toHaveBeenCalledWith(true);
+    expect(homeScreen.open).not.toHaveBeenCalled();
+
+    finishSync(true);
+
+    await vi.waitFor(() => expect(homeScreen.open).toHaveBeenCalledOnce());
+    expect(homeScreen.setSaveExitPending).toHaveBeenLastCalledWith(false);
+  });
+
+  test('returns home after a bounded wait when cloud sync does not settle', async () => {
+    vi.useFakeTimers();
+    try {
+      createGame();
+      const homeScreen = lastOf(homeScreenInstances);
+      const saveStore = lastOf(saveStoreInstances);
+      saveStore.sync.mockImplementation(() => new Promise<boolean>(() => {}));
+      homeScreen.onSelectMode(CLASSIC_MODE);
+      homeScreen.open.mockClear();
+
+      homeScreen.onRequestHome?.();
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(homeScreen.open).toHaveBeenCalledOnce();
+      expect(homeScreen.setSaveExitPending).toHaveBeenLastCalledWith(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

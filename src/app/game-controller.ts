@@ -45,6 +45,7 @@ interface LevelProgressDisplay {
 }
 
 const TURN_PIP_CAPACITY = Math.max(...GAME_MODES.map(mode => mode.initialTurnsPerLevel));
+const SAVE_EXIT_SYNC_WAIT_MS = 5_000;
 
 export class Game {
   private state: GameState;
@@ -108,6 +109,13 @@ export class Game {
   private pauseStartedAt = 0;
   private activeTutorial: TutorialDefinition | null = null;
   private tutorialStepIndex = 0;
+  private saveExitPending = false;
+  private readonly refreshSavesOnFocus = (): void => {
+    this.refreshSavesForMenu();
+  };
+  private readonly refreshSavesOnVisibilityChange = (): void => {
+    if (document.visibilityState === 'visible') this.refreshSavesForMenu();
+  };
 
   constructor(canvas: HTMLCanvasElement, mounts?: UiMounts) {
     const stageMount = mounts?.stage ?? canvas.parentElement ?? document.body;
@@ -149,7 +157,7 @@ export class Game {
     this.homeScreen.onRequestGameMenu = () => this.openGameMenu();
     this.homeScreen.onRequestResume = () => this.resumeGame();
     this.homeScreen.onRequestRestart = () => this.restart();
-    this.homeScreen.onRequestHome = () => this.returnToMenu();
+    this.homeScreen.onRequestHome = () => void this.saveAndReturnToMenu();
     this.homeScreen.onRequestToggleSound = () => this.toggleSound();
     this.homeScreen.onRequestDebug = () => this.openDebugPanel();
     this.homeScreen.onRequestTutorial = mode => this.startTutorial(mode);
@@ -174,6 +182,8 @@ export class Game {
     this.unsubscribeSaveStore = this.saveStore.subscribe(() => this.handleSaveStoreUpdate());
     this.handleSaveStoreUpdate();
     this.homeScreen.open();
+    window.addEventListener('focus', this.refreshSavesOnFocus);
+    document.addEventListener('visibilitychange', this.refreshSavesOnVisibilityChange);
 
     this.input = new InputHandler(
       canvas,
@@ -203,27 +213,44 @@ export class Game {
 
   private selectMode(mode: GameModeConfig): void {
     if (this.saveStore.getState().loading) return;
+    if (this.saveStore.getState().scope === 'account') {
+      void this.refreshAndSelectMode(mode);
+      return;
+    }
+    this.presentMode(mode);
+  }
+
+  private async refreshAndSelectMode(mode: GameModeConfig): Promise<void> {
+    await this.saveStore.refreshSaves();
+    this.presentMode(mode);
+  }
+
+  private presentMode(mode: GameModeConfig): void {
     this.saveDialogMode = mode;
+    if (this.showSavedGameChoice(mode)) return;
+    this.startGame(mode);
+  }
+
+  private showSavedGameChoice(mode: GameModeConfig): boolean {
     const conflict = this.saveStore.getConflict(mode.id);
     if (conflict?.kind === 'invalid-cloud') {
       this.homeScreen.close();
       this.savedGameDialog.showUnavailable(mode, conflict.local);
-      return;
+      return true;
     }
     if (conflict) {
       this.homeScreen.close();
       this.savedGameDialog.showConflict(mode, conflict.local, conflict.cloud);
-      return;
+      return true;
     }
 
     const save = this.saveStore.read(mode.id);
     if (save) {
       this.homeScreen.close();
       this.savedGameDialog.showSave(mode, save);
-      return;
+      return true;
     }
-
-    this.startGame(mode);
+    return false;
   }
 
   private startNewGameFromDialog(): void {
@@ -325,6 +352,47 @@ export class Game {
     this.state.phase = GamePhase.Menu;
     this.rewindPreview = null;
     this.pendingRewind = false;
+    this.homeScreen.open();
+  }
+
+  private async saveAndReturnToMenu(): Promise<void> {
+    if (this.saveExitPending) return;
+    if (this.activeTutorial || this.state.phase === GamePhase.GameOver) {
+      this.returnToMenu();
+      return;
+    }
+
+    this.saveExitPending = true;
+    this.homeScreen.setSaveExitPending(true);
+    let timeoutId: number | undefined;
+    try {
+      await Promise.race([
+        this.saveStore.sync(this.mode.id),
+        new Promise<void>(resolve => {
+          timeoutId = window.setTimeout(resolve, SAVE_EXIT_SYNC_WAIT_MS);
+        }),
+      ]);
+    } finally {
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      this.saveExitPending = false;
+      this.homeScreen.setSaveExitPending(false);
+      this.returnToMenu();
+    }
+  }
+
+  private refreshSavesForMenu(): void {
+    if (this.state.phase !== GamePhase.Menu || this.saveStore.getState().loading) return;
+    void this.refreshMenuSaves();
+  }
+
+  private async refreshMenuSaves(): Promise<void> {
+    await this.saveStore.refreshSaves();
+    const mode = this.saveDialogMode;
+    if (!mode || !this.savedGameDialog.isOpen()) return;
+    if (this.showSavedGameChoice(mode)) return;
+
+    this.savedGameDialog.hide();
+    this.saveDialogMode = null;
     this.homeScreen.open();
   }
 
@@ -953,6 +1021,8 @@ export class Game {
 
   destroy(): void {
     cancelAnimationFrame(this.rafId);
+    window.removeEventListener('focus', this.refreshSavesOnFocus);
+    document.removeEventListener('visibilitychange', this.refreshSavesOnVisibilityChange);
     this.unsubscribeStatsStore?.();
     this.unsubscribeSaveStore?.();
     this.savedGameDialog.hide();

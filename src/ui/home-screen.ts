@@ -16,6 +16,7 @@ export class HomeScreen {
   private readonly gameMenu: HTMLElement;
   private readonly restartDialog: HTMLElement;
   private readonly soundButton: HTMLButtonElement;
+  private readonly saveExitButton: HTMLButtonElement;
   private readonly gameMenuModal: ModalController;
   private readonly restartDialogModal: ModalController;
   private readonly homePriorInert = new Map<HTMLElement, boolean>();
@@ -176,11 +177,11 @@ export class HomeScreen {
     resumeButton.classList.add('game-menu-button--primary');
     const restartButton = this.createGameMenuButton('RESTART', () => this.restartDialogModal.open());
     this.soundButton = this.createGameMenuButton('SOUND ON', () => this.onRequestToggleSound?.());
-    const homeButton = this.createGameMenuButton('SAVE & EXIT', () => this.onRequestHome?.());
+    this.saveExitButton = this.createGameMenuButton('SAVE & EXIT', () => this.onRequestHome?.());
     const debugButton = this.createGameMenuButton('REPORT / DEBUG', () => this.onRequestDebug?.());
     debugButton.classList.add('game-menu-button--secondary', 'game-menu-button--debug');
 
-    panel.append(menuTitle, closeMenuButton, menuNote, resumeButton, restartButton, this.soundButton, homeButton, debugButton);
+    panel.append(menuTitle, closeMenuButton, menuNote, resumeButton, restartButton, this.soundButton, this.saveExitButton, debugButton);
     this.gameMenu.append(panel);
 
     this.restartDialog = document.createElement('div');
@@ -279,6 +280,14 @@ export class HomeScreen {
 
   setSoundEnabled(enabled: boolean): void {
     this.soundButton.textContent = enabled ? 'SOUND ON' : 'SOUND OFF';
+  }
+
+  setSaveExitPending(pending: boolean): void {
+    this.gameMenu.setAttribute('aria-busy', String(pending));
+    this.saveExitButton.textContent = pending ? 'SAVING…' : 'SAVE & EXIT';
+    for (const button of this.gameMenu.querySelectorAll<HTMLButtonElement>('button')) {
+      button.disabled = pending;
+    }
   }
 
   refreshStats(): void {

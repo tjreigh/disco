@@ -468,6 +468,49 @@ describe('SyncedSaveStore', () => {
     await vi.waitFor(() => expect(store.read('classic')?.state.score).toBe(200));
   });
 
+  test('waits for the queued upload when explicitly syncing a mode', async () => {
+    let finishUpload!: (value: ApiSaveSlot) => void;
+    const upload = new Promise<ApiSaveSlot>(resolve => { finishUpload = resolve; });
+    let request!: PutSaveRequest;
+    const client = api({
+      put: async (modeId, nextRequest) => {
+        request = nextRequest;
+        return await upload;
+      },
+    });
+    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage: new MemoryStorage() });
+    await store.ready;
+    store.write('classic', validSave(CLASSIC_MODE, { score: 300 }));
+    await vi.waitFor(() => expect(client.putSave).toHaveBeenCalledOnce());
+
+    let finished = false;
+    const sync = store.sync('classic').then(result => {
+      finished = true;
+      return result;
+    });
+    await Promise.resolve();
+    expect(finished).toBe(false);
+
+    finishUpload(slot('classic', 1, request.save, request.runId));
+    await expect(sync).resolves.toBe(true);
+  });
+
+  test('refreshes an account scope with a newer cloud revision', async () => {
+    const older = validSave(CLASSIC_MODE, { score: 100 });
+    const newer = validSave(CLASSIC_MODE, { score: 400 });
+    const saves = [slot('classic', 1, older)];
+    const client = api({ saves });
+    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage: new MemoryStorage() });
+    await store.ready;
+    expect(store.read('classic')?.state.score).toBe(100);
+
+    saves[0] = slot('classic', 2, newer, saves[0]!.runId);
+    await store.refreshSaves();
+
+    expect(client.getSaves).toHaveBeenCalledTimes(2);
+    expect(store.read('classic')?.state.score).toBe(400);
+  });
+
   test('synchronizes a deletion as a tombstone without affecting other modes', async () => {
     const classic = validSave(CLASSIC_MODE, { score: 100 });
     const gravity = validSave(GRAVITY_MODE, { score: 200 });

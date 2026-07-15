@@ -219,6 +219,26 @@ export class SyncedSaveStore {
     if (!conflict) this.queueFlush(modeId);
   }
 
+  /**
+   * Waits for this mode's currently queued cloud work. Guest saves are already
+   * complete once written locally. A false result leaves the local dirty record
+   * intact so a later refresh can retry it.
+   */
+  async sync(modeId: string): Promise<boolean> {
+    if (!this.modesById.has(modeId)) return false;
+    if (this.state.scope !== 'account' || !this.state.accountId) return true;
+
+    await this.flushMode(modeId);
+    return !this.records.get(modeId)?.dirty && !this.conflicts.has(modeId);
+  }
+
+  /** Pulls the latest cloud slots for the active account. */
+  async refreshSaves(): Promise<void> {
+    const account = this.state.account;
+    if (this.state.scope !== 'account' || !account || this.state.loading) return;
+    await this.activateAccount(account);
+  }
+
   /** Applies a user choice after getConflict(). Invalid cloud data cannot be resumed. */
   resolveConflict(modeId: string, resolution: SaveConflictResolution): void {
     const conflict = this.conflicts.get(modeId);

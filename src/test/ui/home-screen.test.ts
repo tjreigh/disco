@@ -265,6 +265,24 @@ describe('HomeScreen', () => {
     expect(menu.querySelector('.home-back-button__label')?.textContent).toBe('MENU');
   });
 
+  test('shows a busy state and prevents competing menu actions while saving and exiting', () => {
+    const home = createHome();
+    home.close();
+    home.openGameMenu();
+
+    home.setSaveExitPending(true);
+
+    const menu = document.querySelector<HTMLElement>('.game-menu')!;
+    expect(menu.getAttribute('aria-busy')).toBe('true');
+    expect(menu.textContent).toContain('SAVING…');
+    expect(Array.from(menu.querySelectorAll<HTMLButtonElement>('button')).every(button => button.disabled)).toBe(true);
+
+    home.setSaveExitPending(false);
+    expect(menu.getAttribute('aria-busy')).toBe('false');
+    expect(menu.textContent).toContain('SAVE & EXIT');
+    expect(Array.from(menu.querySelectorAll<HTMLButtonElement>('button')).every(button => !button.disabled)).toBe(true);
+  });
+
   test('isolates the active home and game-menu layers from background UI', () => {
     const background = document.createElement('main');
     const mount = document.createElement('div');
