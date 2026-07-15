@@ -361,8 +361,9 @@ export class SyncedSaveStore {
 
       // A clean account record is only a cache of the cloud slot. A guest run
       // created after logout must still be imported or offered as a conflict
-      // when the player signs back in.
-      if (guest?.save && (!local || !local.dirty)) {
+      // when the player signs back in. A dirty account tombstone must not hide
+      // that playable guest run either.
+      if (guest?.save && (!local || !local.dirty || local.save === null)) {
         if (!remote || remote.save === null) {
           const imported: SyncedSaveRecord = {
             storageVersion: SAVE_SYNC_STORAGE_VERSION,
@@ -395,7 +396,9 @@ export class SyncedSaveStore {
 
       if (local.dirty) {
         if (local.remoteRevision === remote.revision) flushes.push(this.flushMode(mode.id));
-        else this.setDivergedConflict(mode.id, local, remote, 'account');
+        else if (local.save === null && remote.save === null) {
+          this.setRecord(mode.id, this.recordFromCloud(remote));
+        } else this.setDivergedConflict(mode.id, local, remote, 'account');
       } else if (remote.revision > local.remoteRevision) {
         this.setRecord(mode.id, this.recordFromCloud(remote));
       }
@@ -464,14 +467,27 @@ export class SyncedSaveStore {
         if (this.state.scope !== 'account' || this.state.accountId !== accountId) return;
         if (error instanceof ApiSaveConflictError) {
           const mode = this.modesById.get(modeId)!;
+          const local = this.records.get(modeId) ?? snapshot;
           if (error.current === null) {
-            this.setDivergedConflict(modeId, this.records.get(modeId) ?? snapshot, {
-              modeId, revision: 0, runId: null, save: null, updatedAt: '',
-            }, 'account');
+            if (local.save === null) {
+              this.setRecord(modeId, {
+                storageVersion: SAVE_SYNC_STORAGE_VERSION,
+                runId: null,
+                remoteRevision: 0,
+                dirty: false,
+                save: null,
+              });
+            } else {
+              this.setDivergedConflict(modeId, local, {
+                modeId, revision: 0, runId: null, save: null, updatedAt: '',
+              }, 'account');
+            }
           } else {
             const remote = this.validateCloudSlot(error.current, mode);
-            if (remote) this.setDivergedConflict(modeId, this.records.get(modeId) ?? snapshot, remote, 'account');
-            else this.setInvalidCloudConflict(modeId, this.records.get(modeId) ?? snapshot, 'account', error.current);
+            if (remote && local.save === null && remote.save === null) {
+              this.setRecord(modeId, this.recordFromCloud(remote));
+            } else if (remote) this.setDivergedConflict(modeId, local, remote, 'account');
+            else this.setInvalidCloudConflict(modeId, local, 'account', error.current);
           }
         } else if (error instanceof ApiUnauthorizedError) {
           this.activateGuest(true);

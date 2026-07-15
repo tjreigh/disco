@@ -214,6 +214,56 @@ describe('SyncedSaveStore', () => {
     expect(store.read('classic')?.state.score).toBe(700);
   });
 
+  test('does not hide a playable guest save behind a dirty account tombstone', async () => {
+    const guest = validSave(CLASSIC_MODE, { score: 700 });
+    const storage = new MemoryStorage({
+      [LAST_SAVE_ACCOUNT_KEY]: 'account-1',
+      [`${SAVE_SYNC_KEY_PREFIX}.account.account-1.classic`]: record(null, {
+        revision: 2,
+        dirty: true,
+      }),
+      [`${SAVE_SYNC_KEY_PREFIX}.guest.classic`]: record(guest),
+    });
+    const client = api({ saves: [slot('classic', 3, null)] });
+    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage });
+
+    await store.ready;
+
+    expect(store.getConflict('classic')).toBeNull();
+    expect(client.putSave).toHaveBeenCalledWith('classic', expect.objectContaining({
+      expectedRevision: 3,
+      save: expect.objectContaining({ state: expect.objectContaining({ score: 700 }) }),
+    }));
+    expect(store.read('classic')?.state.score).toBe(700);
+    expect(storage.values.has(`${SAVE_SYNC_KEY_PREFIX}.guest.classic`)).toBe(false);
+  });
+
+  test('offers playable guest and cloud saves when a dirty account tombstone is stale', async () => {
+    const guest = validSave(CLASSIC_MODE, { score: 700 });
+    const cloud = validSave(CLASSIC_MODE, { score: 900 });
+    const storage = new MemoryStorage({
+      [LAST_SAVE_ACCOUNT_KEY]: 'account-1',
+      [`${SAVE_SYNC_KEY_PREFIX}.account.account-1.classic`]: record(null, {
+        revision: 2,
+        dirty: true,
+      }),
+      [`${SAVE_SYNC_KEY_PREFIX}.guest.classic`]: record(guest),
+    });
+    const client = api({ saves: [slot('classic', 3, cloud)] });
+    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage });
+
+    await store.ready;
+
+    expect(store.getConflict('classic')).toMatchObject({
+      kind: 'diverged',
+      localScope: 'guest',
+      local: { state: { score: 700 } },
+      cloud: { state: { score: 900 } },
+      cloudRevision: 3,
+    });
+    expect(client.putSave).not.toHaveBeenCalled();
+  });
+
   test('ignores a stale save listing after logout', async () => {
     let finishListing!: (slots: ApiSaveSlot[]) => void;
     const listing = new Promise<ApiSaveSlot[]>(resolve => { finishListing = resolve; });
@@ -312,6 +362,24 @@ describe('SyncedSaveStore', () => {
     })));
   });
 
+  test('does not present two tombstones as two saved games', async () => {
+    const storage = new MemoryStorage({
+      [LAST_SAVE_ACCOUNT_KEY]: 'account-1',
+      [`${SAVE_SYNC_KEY_PREFIX}.account.account-1.classic`]: record(null, {
+        revision: 2,
+        dirty: true,
+      }),
+    });
+    const client = api({ saves: [slot('classic', 3, null)] });
+    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage });
+
+    await store.ready;
+
+    expect(store.getConflict('classic')).toBeNull();
+    expect(store.read('classic')).toBeNull();
+    expect(client.putSave).not.toHaveBeenCalled();
+  });
+
   test('turns a 409 during background upload into a deferred conflict', async () => {
     const cloud = validSave(CLASSIC_MODE, { score: 900 });
     const client = api({
@@ -327,6 +395,23 @@ describe('SyncedSaveStore', () => {
       cloudRevision: 2,
     }));
     expect(store.read('classic')?.state.score).toBe(100);
+  });
+
+  test('does not turn a background tombstone race into an empty conflict', async () => {
+    const storage = new MemoryStorage();
+    const client = api({
+      saves: [slot('classic', 2, validSave(CLASSIC_MODE))],
+      put: async () => { throw new ApiSaveConflictError(slot('classic', 3, null)); },
+    });
+    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage });
+    await store.ready;
+
+    store.remove('classic');
+    await vi.waitFor(() => expect(JSON.parse(
+      storage.values.get(`${SAVE_SYNC_KEY_PREFIX}.account.account-1.classic`)!,
+    )).toMatchObject({ remoteRevision: 3, dirty: false, save: null }));
+
+    expect(store.getConflict('classic')).toBeNull();
   });
 
   test('keeps a deferred conflict while gameplay continues and updates its local choice', async () => {
