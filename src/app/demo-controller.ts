@@ -150,8 +150,6 @@ export class DemoController {
     this.engine.loadScriptedState(scenario);
     this.scenarioMoves = scenario.moves;
     this.visualBoard = deepCloneBoard(this.engine.state.board);
-    // Demo has no cursor or ghost-disc UI; Animating renders only the board.
-    this.engine.state.phase = GamePhase.Animating;
     this.animationQueue = null;
     this.scorePopups = [];
     this.moveIndex = 0;
@@ -198,7 +196,6 @@ export class DemoController {
 
   private beginPlayback(result: TurnResult): void {
     this.visualBoard = result.boardBefore;
-    this.engine.state.phase = GamePhase.Animating;
     this.animationQueue = new AnimationQueue(
       result.steps,
       (step, now) => {
@@ -213,8 +210,12 @@ export class DemoController {
   }
 
   private draw(): void {
+    // Hide the interactive cursor and ghost disc without mutating the engine's
+    // authoritative phase. The engine must remain WaitingForDrop between
+    // animations so the next scripted move is legal.
+    const renderState = { ...this.engine.state, phase: GamePhase.Animating };
     this.renderer.draw(
-      this.engine.state,
+      renderState,
       this.visualBoard,
       this.animationQueue?.getActiveAnimations() ?? [],
       this.stats,
