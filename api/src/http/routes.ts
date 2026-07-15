@@ -24,6 +24,14 @@ const callbackQuerySchema = z.object({
 const leaderboardQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(25),
 });
+const authLoginRateLimit = {
+  max: 30,
+  timeWindow: '1 minute',
+} as const;
+const authCallbackRateLimit = {
+  max: 60,
+  timeWindow: '1 minute',
+} as const;
 
 function redirectToSite(config: AppConfig, path = '/'): string {
   return new URL(path, config.publicSiteOrigin).toString();
@@ -32,7 +40,9 @@ function redirectToSite(config: AppConfig, path = '/'): string {
 export async function registerRoutes(app: FastifyInstance, config: AppConfig, repos: Repositories): Promise<void> {
   app.get('/health', async () => ({ ok: true }));
 
-  app.get('/auth/login/:provider', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/auth/login/:provider', {
+    config: { rateLimit: authLoginRateLimit },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const { provider: providerId } = providerParamsSchema.parse(request.params);
     const provider = config.oidcProviders.get(providerId);
     if (!provider) return reply.code(404).send({ error: 'unknown_provider' });
@@ -52,7 +62,9 @@ export async function registerRoutes(app: FastifyInstance, config: AppConfig, re
     return reply.redirect(url);
   });
 
-  app.get('/auth/callback/:provider', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/auth/callback/:provider', {
+    config: { rateLimit: authCallbackRateLimit },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const { provider: providerId } = providerParamsSchema.parse(request.params);
     const query = callbackQuerySchema.parse(request.query);
     const stateCookie = readOidcStateCookie(request, config);

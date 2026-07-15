@@ -90,6 +90,61 @@ describe('API routes', () => {
     expect(saves.json()).toEqual({ error: 'unauthorized' });
   });
 
+  it('rate limits OIDC login and callback traffic by forwarded client IP', async () => {
+    db = createTestDb();
+    app = await buildApp(createTestConfig(), db);
+    const fromProxy = (url: string, clientIp: string) => app!.inject({
+      method: 'GET',
+      url,
+      remoteAddress: '127.0.0.1',
+      headers: { 'x-forwarded-for': clientIp },
+    });
+
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const response = await fromProxy('/auth/login/unknown', '203.0.113.10');
+      expect(response.statusCode).toBe(404);
+    }
+    const limitedLogin = await fromProxy('/auth/login/unknown', '203.0.113.10');
+    const otherClientLogin = await fromProxy('/auth/login/unknown', '203.0.113.11');
+
+    expect(limitedLogin.statusCode).toBe(429);
+    expect(limitedLogin.json()).toEqual({ error: 'rate_limited' });
+    expect(Number(limitedLogin.headers['retry-after'])).toBeGreaterThan(0);
+    expect(otherClientLogin.statusCode).toBe(404);
+
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const response = await fromProxy('/auth/callback/test?error=access_denied', '203.0.113.20');
+      expect(response.statusCode).toBe(302);
+    }
+    const limitedCallback = await fromProxy('/auth/callback/test?error=access_denied', '203.0.113.20');
+
+    expect(limitedCallback.statusCode).toBe(429);
+    expect(limitedCallback.json()).toEqual({ error: 'rate_limited' });
+  });
+
+  it('does not trust forwarded client IPs from a non-loopback peer', async () => {
+    db = createTestDb();
+    app = await buildApp(createTestConfig(), db);
+
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/auth/login/unknown',
+        remoteAddress: '198.51.100.10',
+        headers: { 'x-forwarded-for': `203.0.113.${attempt}` },
+      });
+      expect(response.statusCode).toBe(404);
+    }
+    const limited = await app.inject({
+      method: 'GET',
+      url: '/auth/login/unknown',
+      remoteAddress: '198.51.100.10',
+      headers: { 'x-forwarded-for': '203.0.113.250' },
+    });
+
+    expect(limited.statusCode).toBe(429);
+  });
+
   it('stores stats, returns leaderboards, and revokes the session on logout', async () => {
     const { cookie, account } = await createAuthedApp();
 
