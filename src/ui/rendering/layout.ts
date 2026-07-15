@@ -18,6 +18,8 @@ let _gridCols = DEFAULT_BOARD_COLS;
 let _gridRows = DEFAULT_BOARD_ROWS;
 let _layoutWidth = 0;
 let _layoutHeight = 0;
+let _hudTopHeight = HUD_TOP_HEIGHT;
+let _hudBottomHeight = HUD_BOTTOM_HEIGHT;
 
 export interface LayoutBounds {
   width: number;
@@ -27,6 +29,12 @@ export interface LayoutBounds {
 export function setGridSize(cols: number, rows: number): void {
   _gridCols = Math.max(1, Math.floor(cols));
   _gridRows = Math.max(1, Math.floor(rows));
+}
+
+/** Removes the full game's HUD bands for chrome-free render targets such as embeds. */
+export function setHudBands(top: number = HUD_TOP_HEIGHT, bottom: number = HUD_BOTTOM_HEIGHT): void {
+  _hudTopHeight = Math.max(0, top);
+  _hudBottomHeight = Math.max(0, bottom);
 }
 
 export function gridCols(): number {
@@ -43,7 +51,7 @@ export function updateCellSize(bounds?: LayoutBounds): void {
   _layoutWidth = Math.max(0, bounds?.width ?? window.innerWidth);
   _layoutHeight = Math.max(0, bounds?.height ?? window.innerHeight);
   const availW = _layoutWidth;
-  const availH = _layoutHeight - HUD_TOP_HEIGHT - HUD_BOTTOM_HEIGHT - GRID_PAD_V * 2;
+  const availH = _layoutHeight - _hudTopHeight - _hudBottomHeight - GRID_PAD_V * 2;
   const byWidth  = Math.floor(availW / (gridCols() + ENTRY_PAD_CELLS * 2));
   const byHeight = Math.floor(availH / (gridRows() + ENTRY_PAD_CELLS * 2));
   _cellSize = Math.max(MIN_CELL_SIZE, Math.min(MAX_CELL_SIZE, byWidth, byHeight));
@@ -61,13 +69,13 @@ export function gridW(): number { return _cellSize * gridCols(); }
 export function gridH(): number { return _cellSize * gridRows(); }
 
 export function gridOriginX(): number { return gridPadding() + _cellSize * ENTRY_PAD_CELLS; }
-export function gridOriginY(): number { return HUD_TOP_HEIGHT + GRID_PAD_V + _cellSize * ENTRY_PAD_CELLS; }
+export function gridOriginY(): number { return _hudTopHeight + GRID_PAD_V + _cellSize * ENTRY_PAD_CELLS; }
 
 export function canvasLogicalWidth(): number  {
   return gridW() + (gridPadding() + _cellSize * ENTRY_PAD_CELLS) * 2;
 }
 export function canvasLogicalHeight(): number {
-  return HUD_TOP_HEIGHT + gridH() + (_cellSize * ENTRY_PAD_CELLS + GRID_PAD_V) * 2 + HUD_BOTTOM_HEIGHT;
+  return _hudTopHeight + gridH() + (_cellSize * ENTRY_PAD_CELLS + GRID_PAD_V) * 2 + _hudBottomHeight;
 }
 
 // Returns the canvas pixel coordinate of the center of a grid cell.
