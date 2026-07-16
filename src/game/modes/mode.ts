@@ -10,11 +10,15 @@ export type ScoringConfig =
     readonly pointsPerStackUnit: number;
   };
 
-/** Enables deterministic one-turn rewind for a mode. */
+/** Enables deterministic rewind through a bounded history of stable turns. */
 export interface RewindModeConfig {
-  readonly historyDepth: 1;
+  readonly historyDepth: number;
   /** Instability value at which presentation should communicate critical damage. */
   readonly criticalInstability: number;
+  /** Every complete step adds one turn pip to the cost of each move. */
+  readonly pressureStepInstability: number;
+  /** Upper bound on turn pips consumed by one move. */
+  readonly maxTurnCost: number;
 }
 
 export interface GameModeConfig {
@@ -102,6 +106,14 @@ export interface DiscGenerationConfig {
 // initialTurnsPerLevel, floored at minTurnsPerLevel.
 export function turnsForLevel(mode: GameModeConfig, level: number): number {
   return Math.max(mode.minTurnsPerLevel, mode.initialTurnsPerLevel - mode.turnsPerLevelStep * (level - 1));
+}
+
+/** Turn pips consumed by one accepted move at the supplied Instability. */
+export function turnCostForInstability(mode: GameModeConfig, instability: number): number {
+  if (!mode.rewind) return 1;
+  const normalized = Math.max(0, Math.floor(instability));
+  const step = Math.max(1, mode.rewind.pressureStepInstability);
+  return Math.min(mode.rewind.maxTurnCost, 1 + Math.floor(normalized / step));
 }
 
 /** Chance that a dealt disc is unnumbered at a given one-based level. */

@@ -14,7 +14,7 @@ function stableSave(engine: GameEngine) {
   return engine.exportSave({ savedAt: 0 });
 }
 
-describe('Paradox one-turn rewind foundation', () => {
+describe('Paradox rewind history', () => {
   test('restores an exact pre-turn state in place and consumes the checkpoint', () => {
     const engine = new GameEngine({ mode: PARADOX_MODE, seed: SEED });
     const stateReference = engine.state;
@@ -97,7 +97,7 @@ describe('Paradox one-turn rewind foundation', () => {
     expect(engine.previewRewind()).toEqual(preview);
   });
 
-  test('a newer accepted turn replaces the older one-turn checkpoint', () => {
+  test('defaults to the newest checkpoint when no depth is supplied', () => {
     const engine = new GameEngine({ mode: PARADOX_MODE, seed: SEED });
     engine.drop(0);
     const afterFirstTurn = stableSave(engine);
@@ -110,6 +110,94 @@ describe('Paradox one-turn rewind foundation', () => {
     expect(restored.generation).toEqual(afterFirstTurn.generation);
     expect(restored.paradox).toEqual({ instability: 1 });
     expect(engine.state.dropCount).toBe(1);
+  });
+
+  test('previews and restores any turn in the five-turn rolling window', () => {
+    const engine = new GameEngine({ mode: PARADOX_MODE, seed: SEED });
+    const initial = stableSave(engine);
+    engine.drop(0);
+    const afterOne = stableSave(engine);
+    engine.drop(1);
+    engine.drop(2);
+
+    expect(engine.previewRewind(1)).toMatchObject({
+      dropCount: 2, turnsRewound: 1, historyAvailable: 3,
+      instabilityBefore: 0, instabilityAfter: 1,
+      turnCostBefore: 1, turnCostAfter: 1,
+    });
+    expect(engine.previewRewind(3)).toMatchObject({
+      dropCount: 0, turnsRewound: 3, historyAvailable: 3,
+      instabilityBefore: 0, instabilityAfter: 3,
+      turnCostBefore: 1, turnCostAfter: 2,
+    });
+    expect(engine.previewRewind(4)).toBeNull();
+
+    const rewind = engine.commitRewind(2);
+    expect(rewind).toMatchObject({ turnsRewound: 2, instabilityAfter: 2 });
+    const restored = stableSave(engine);
+    expect(restored.state).toEqual(afterOne.state);
+    expect(restored.generation).toEqual(afterOne.generation);
+    expect(restored.state).not.toEqual(initial.state);
+    expect(restored.paradox).toEqual({ instability: 2 });
+    expect(engine.canRewind()).toBe(false);
+  });
+
+  test('caps retained history at the configured depth', () => {
+    const engine = new GameEngine({ mode: PARADOX_MODE, seed: SEED });
+    for (let turn = 0; turn < 6; turn++) {
+      expect(engine.drop(turn).accepted).toBe(true);
+    }
+
+    expect(engine.previewRewind(5)).toMatchObject({
+      dropCount: 1, turnsRewound: 5, historyAvailable: 5,
+    });
+    expect(engine.canRewind(6)).toBe(false);
+  });
+
+  test('farther rewinds add one instability and one fracture target per erased turn', () => {
+    const board = makeEmptyBoard();
+    for (const [row, col] of [[6, 0], [5, 2], [6, 2], [4, 4], [6, 6]] as const) {
+      placeDisc(board, row, col, makeDisc(7, DiscKind.Numbered));
+    }
+    const engine = new GameEngine({ mode: PARADOX_MODE, seed: SEED, board });
+    engine.drop(1);
+    engine.drop(3);
+    engine.drop(5);
+
+    expect(engine.previewRewind(1)).toMatchObject({
+      instabilityAfter: 1,
+      fractures: [expect.objectContaining({ resultingKind: DiscKind.SingleCracked })],
+    });
+    const deep = engine.previewRewind(3)!;
+    expect(deep.instabilityAfter).toBe(3);
+    expect(deep.fractures).toHaveLength(3);
+    expect(deep.fractures.every(target => target.resultingKind === DiscKind.DoubleCracked)).toBe(true);
+  });
+
+  test.each([
+    { instability: 0, cost: 1 },
+    { instability: 3, cost: 2 },
+    { instability: 6, cost: 3 },
+    { instability: 12, cost: 3 },
+  ])('instability $instability consumes $cost turn pips per move', ({ instability, cost }) => {
+    const engine = new GameEngine({ mode: PARADOX_MODE, seed: SEED });
+    engine.state.paradox!.instability = instability;
+    const before = engine.state.turnsRemaining;
+
+    expect(engine.drop(0).accepted).toBe(true);
+
+    expect(engine.state.turnsRemaining).toBe(before - cost);
+  });
+
+  test('accelerated pressure triggers the existing level push when it exhausts the clock', () => {
+    const engine = new GameEngine({ mode: PARADOX_MODE, seed: SEED });
+    engine.state.paradox!.instability = 3;
+    engine.state.turnsRemaining = 2;
+
+    const turn = engine.drop(0);
+
+    expect(turn.steps.some(step => step.kind === StepKind.Push)).toBe(true);
+    expect(engine.state.level).toBe(2);
   });
 
   test('animation phases temporarily suppress an otherwise valid checkpoint', () => {
@@ -180,7 +268,7 @@ describe('Paradox one-turn rewind foundation', () => {
     engine.loadSave(save, PARADOX_MODE);
     expect(engine.canRewind()).toBe(true);
     expect(engine.previewRewind()).toEqual(expect.objectContaining({
-      anchor: save.paradox!.rewind!.anchor,
+      anchor: save.paradox!.rewinds!.at(-1)!.anchor,
     }));
 
     engine.drop(0);
@@ -253,18 +341,20 @@ describe('Paradox one-turn rewind foundation', () => {
     expect(engine.state.board[6]![0]).not.toHaveProperty('temporalFracture');
   });
 
-  test('save loading restores the exact rewind checkpoint and controller session metadata', () => {
+  test('save loading restores exact rewind history and controller session metadata', () => {
     const source = new GameEngine({ mode: PARADOX_MODE, seed: SEED });
     source.drop(4);
-    const save = source.exportSave({ longestStreak: 5, rewindLongestStreak: 2, savedAt: 10 });
+    source.drop(5);
+    source.drop(6);
+    const save = source.exportSave({ longestStreak: 5, rewindLongestStreaks: [1, 2, 3], savedAt: 10 });
     const restored = new GameEngine({ mode: PARADOX_MODE, seed: 1 });
 
     const loaded = restored.loadSave(save, PARADOX_MODE);
 
-    expect(loaded.paradox!.rewind!.session.longestStreak).toBe(2);
-    expect(restored.previewRewind()).toEqual(source.previewRewind());
-    restored.commitRewind();
-    source.commitRewind();
+    expect(loaded.paradox!.rewinds!.map(rewind => rewind.session.longestStreak)).toEqual([1, 2, 3]);
+    expect(restored.previewRewind(3)).toEqual(source.previewRewind(3));
+    restored.commitRewind(3);
+    source.commitRewind(3);
     expect(restored.exportSave({ savedAt: 20 })).toEqual(source.exportSave({ savedAt: 20 }));
   });
 });

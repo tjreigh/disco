@@ -1,5 +1,6 @@
 import type { Board } from '../game/model.js';
 import type { GameModeConfig } from '../game/modes/mode.js';
+import { turnCostForInstability } from '../game/modes/mode.js';
 import type { GameState } from '../game/state.js';
 import { GamePhase } from '../game/state.js';
 import type { PhysicsStep } from '../game/events.js';
@@ -85,7 +86,8 @@ export class Game {
   private unsubscribeStatsStore: (() => void) | null = null;
   private unsubscribeSaveStore: (() => void) | null = null;
   private longestStreakThisGame = 0;
-  private rewindLongestStreak: number | null = null;
+  /** Controller-owned streak snapshots aligned oldest-to-newest with engine rewind history. */
+  private rewindLongestStreaks: number[] = [];
   private rewindPreview: RewindPreview | null = null;
   private pendingRewind = false;
   private lastGameOverReason: GameOverReason | undefined;
@@ -166,6 +168,7 @@ export class Game {
     this.gameOverScreen.onRequestHome = () => this.returnToMenu();
     this.rewindDialog.onConfirm = () => this.confirmRewind();
     this.rewindDialog.onCancel = () => this.cancelRewind();
+    this.rewindDialog.onSelectTurns = turns => this.selectRewindDepth(turns);
     this.tutorialOverlay.onRetry = () => this.retryTutorialStep();
     this.tutorialOverlay.onExit = () => this.returnToMenu();
     this.tutorialOverlay.onContinue = () => this.tutorialOverlay.hide();
@@ -290,7 +293,7 @@ export class Game {
     this.scoreIndicators = [];
     this.gravityShiftCue = null;
     this.longestStreakThisGame = 0;
-    this.rewindLongestStreak = null;
+    this.rewindLongestStreaks = [];
     this.rewindPreview = null;
     this.pendingRewind = false;
     this.lastGameOverReason = undefined;
@@ -536,7 +539,14 @@ export class Game {
     );
     const recordForTurn = this.isStackMode() ? result.stackSize : longestStreakThisTurn;
     this.longestStreakThisGame = Math.max(this.longestStreakThisGame, recordForTurn);
-    if (this.mode.rewind) this.rewindLongestStreak = previousLongestStreak;
+    if (this.mode.rewind) {
+      this.rewindLongestStreaks.push(previousLongestStreak);
+      if (this.rewindLongestStreaks.length > this.mode.rewind.historyDepth) {
+        this.rewindLongestStreaks.splice(
+          0, this.rewindLongestStreaks.length - this.mode.rewind.historyDepth,
+        );
+      }
+    }
     this.activeStack = 0;
     this.stackInitialClearSize = 0;
     this.stackChainBatches = [];
@@ -727,8 +737,8 @@ export class Game {
       this.mode.id,
       this.engine.exportSave({
         longestStreak: this.longestStreakThisGame,
-        ...(this.rewindLongestStreak !== null
-          ? { rewindLongestStreak: this.rewindLongestStreak }
+        ...(this.rewindLongestStreaks.length > 0
+          ? { rewindLongestStreaks: this.rewindLongestStreaks }
           : {}),
       }),
     );
@@ -760,6 +770,14 @@ export class Game {
     this.rewindDialog.show(preview);
   }
 
+  private selectRewindDepth(turns: number): void {
+    if (!this.rewindDialog.isOpen()) return;
+    const preview = this.engine.previewRewind(turns);
+    if (!preview) return;
+    this.rewindPreview = preview;
+    this.rewindDialog.update(preview);
+  }
+
   private cancelRewind(): void {
     if (!this.rewindDialog.isOpen()) return;
     this.rewindDialog.hide();
@@ -770,7 +788,11 @@ export class Game {
   }
 
   private confirmRewind(): void {
-    const rewind = this.engine.commitRewind();
+    const turns = this.rewindPreview?.turnsRewound ?? 1;
+    const restoredLongestStreak = this.rewindLongestStreaks[
+      this.rewindLongestStreaks.length - turns
+    ];
+    const rewind = this.engine.commitRewind(turns);
     if (!rewind) {
       this.cancelRewind();
       return;
@@ -780,8 +802,8 @@ export class Game {
     this.rewindPreview = null;
     this.pendingRewind = false;
     this.lastGameOverReason = undefined;
-    this.longestStreakThisGame = this.rewindLongestStreak ?? this.longestStreakThisGame;
-    this.rewindLongestStreak = null;
+    this.longestStreakThisGame = restoredLongestStreak ?? this.longestStreakThisGame;
+    this.rewindLongestStreaks = [];
     this.visualBoard = deepCloneBoard(this.state.board);
     this.displayedScore = this.state.score;
     this.syncLevelProgressDisplay();
@@ -823,7 +845,7 @@ export class Game {
     this.scoreIndicators = [];
     this.gravityShiftCue = null;
     this.longestStreakThisGame = 0;
-    this.rewindLongestStreak = null;
+    this.rewindLongestStreaks = [];
     this.rewindPreview = null;
     this.lastGameOverReason = undefined;
     this.captureGameStartRecords();
@@ -933,7 +955,10 @@ export class Game {
       this.gravityShiftCue = null;
       this.animQueue = null;
       this.longestStreakThisGame = loaded.session.longestStreak;
-      this.rewindLongestStreak = loaded.paradox?.rewind?.session.longestStreak ?? null;
+      this.rewindLongestStreaks = (
+        loaded.paradox?.rewinds
+        ?? (loaded.paradox?.rewind ? [loaded.paradox.rewind] : [])
+      ).map(rewind => rewind.session.longestStreak);
       this.rewindPreview = null;
       this.lastGameOverReason = undefined;
       this.activeStack = 0;
@@ -1084,7 +1109,11 @@ export class Game {
       highScore: Math.max(this.stats.highScore, rewindPreview?.score ?? this.state.score),
       bestRecord: Math.max(
         this.stats.longestStreak,
-        rewindPreview ? (this.rewindLongestStreak ?? this.longestStreakThisGame) : this.longestStreakThisGame,
+        rewindPreview
+          ? (this.rewindLongestStreaks[
+            this.rewindLongestStreaks.length - rewindPreview.turnsRewound
+          ] ?? this.longestStreakThisGame)
+          : this.longestStreakThisGame,
       ),
       currentDisc: rewindPreview
         ? { ...this.state.currentDisc, ...rewindPreview.currentDisc }
@@ -1100,8 +1129,12 @@ export class Game {
       hasGravity: Boolean(this.mode.gravity),
       hasRewind: Boolean(this.mode.rewind),
       isRewindPreview: Boolean(rewindPreview),
-      instability: this.state.paradox?.instability,
+      instability: rewindPreview?.instabilityAfter ?? this.state.paradox?.instability,
       criticalInstability: this.mode.rewind?.criticalInstability,
+      turnCost: turnCostForInstability(
+        this.mode,
+        rewindPreview?.instabilityAfter ?? this.state.paradox?.instability ?? 0,
+      ),
       gravityAngle: this.state.gravity?.angle,
       gravityTurnStartAngle: this.state.gravity?.turnStartAngle,
       gravityMaxTiltDelta: this.state.gravity?.maxTiltDelta,

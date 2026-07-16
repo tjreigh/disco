@@ -125,6 +125,10 @@
   letter-spacing: .06em;
 }
 .game-hud__instability[hidden] { display: none; }
+.game-hud__instability--pressured {
+  border-color: #d8b4fe;
+  box-shadow: 0 0 12px rgba(168, 85, 247, .28);
+}
 .game-hud__instability--critical {
   border-color: #f472b6;
   color: #fbcfe8;

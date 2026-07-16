@@ -269,8 +269,19 @@ describe('SaveGameV1 parsing', () => {
 
     const checkpointSource = new GameEngine({ mode: PARADOX_MODE, seed: 2 });
     checkpointSource.drop(3);
-    const checkpoint = checkpointSource.exportSave({ savedAt: 21, rewindLongestStreak: 3 });
+    checkpointSource.drop(4);
+    const checkpoint = checkpointSource.exportSave({ savedAt: 21, rewindLongestStreaks: [3, 4] });
     expect(parseSaveGame(checkpoint, PARADOX_MODE)).toEqual(checkpoint);
+    expect(checkpoint.paradox!.rewinds).toHaveLength(2);
+
+    const legacy = jsonClone(checkpoint) as SaveGameV1;
+    legacy.paradox!.rewind = legacy.paradox!.rewinds!.at(-1)!;
+    delete legacy.paradox!.rewinds;
+    expect(parseSaveGame(legacy, PARADOX_MODE)).toEqual(legacy);
+
+    const reversed = jsonClone(checkpoint) as SaveGameV1;
+    reversed.paradox!.rewinds!.reverse();
+    expect(parseSaveGame(reversed, PARADOX_MODE)).toBeNull();
 
     const missingParadox = jsonClone(checkpoint) as Record<string, unknown>;
     delete missingParadox.paradox;
@@ -278,7 +289,7 @@ describe('SaveGameV1 parsing', () => {
 
     const missingFatalCheckpoint = jsonClone(checkpoint) as SaveGameV1;
     missingFatalCheckpoint.state.phase = 'game-over';
-    delete missingFatalCheckpoint.paradox!.rewind;
+    delete missingFatalCheckpoint.paradox!.rewinds;
     expect(parseSaveGame(missingFatalCheckpoint, PARADOX_MODE)).toBeNull();
   });
 

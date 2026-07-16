@@ -349,9 +349,19 @@
   line-height: 1.35;
 }
 .rewind-panel__intro { color: #9fb3c8; }
+.rewind-panel__depths {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 6px;
+}
+.rewind-panel__button.rewind-panel__depth {
+  min-width: 34px;
+  min-height: 32px;
+  padding: 5px 9px;
+}
 .rewind-panel__instability {
   grid-column: 1;
-  grid-row: 3;
+  grid-row: 4;
   justify-self: start;
   border: 1px solid rgba(192, 132, 252, .55);
   border-radius: 999px;
@@ -364,7 +374,7 @@
 }
 .rewind-panel__consequence {
   grid-column: 2;
-  grid-row: 3;
+  grid-row: 4;
   color: #f5d0fe;
   font-weight: 800;
 }
@@ -391,6 +401,14 @@
 .rewind-panel__button--primary { border-color: #c084fc; background: #6b21a8; color: #fff; }
 .rewind-panel__button--primary:hover,
 .rewind-panel__button--primary:focus-visible { background: #7e22ce; }
+.rewind-panel__button.rewind-panel__depth--selected,
+.rewind-panel__button.rewind-panel__depth--selected:hover,
+.rewind-panel__button.rewind-panel__depth--selected:focus-visible {
+  border-color: #f5d0fe;
+  background: #9333ea;
+  color: #fff;
+  box-shadow: 0 0 0 2px rgba(240, 171, 252, .38), 0 0 14px rgba(168, 85, 247, .46);
+}
 @media (prefers-reduced-motion: reduce) {
   .game-over-highlight { animation: none; }
 }

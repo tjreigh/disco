@@ -58,7 +58,7 @@ export class GameControls {
     this.confirmButton = this.createButton('confirm', 'CONFIRM', 'Confirm tilt', () => {
       this.onIntent({ kind: 'drop', col: this.lastState.cursorLane });
     });
-    this.rewindButton = this.createButton('rewind', 'REWIND', 'Rewind last turn', () => {
+    this.rewindButton = this.createButton('rewind', 'REWIND', 'Rewind previous turns', () => {
       this.onIntent({ kind: 'rewind' });
     });
     this.rewindButton.setAttribute('aria-keyshortcuts', 'Z');

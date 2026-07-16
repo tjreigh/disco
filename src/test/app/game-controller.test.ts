@@ -672,6 +672,31 @@ describe('Paradox playable rewind flow', () => {
     expect(lastOf(statsStoreInstances).recordCompletedGame).not.toHaveBeenCalled();
   });
 
+  test('selects and confirms a deeper rewind with distance-scaled damage', () => {
+    const { game } = createGame();
+    lastOf(homeScreenInstances).onSelectMode(PARADOX_MODE);
+    const input = lastOf(inputHandlerInstances);
+
+    for (const col of [0, 1, 2]) {
+      input.onIntent({ kind: 'drop', col });
+      drainAnimations();
+    }
+
+    input.onIntent({ kind: 'rewind' });
+    const dialog = document.querySelector<HTMLElement>('.rewind-dialog--open')!;
+    dialog.querySelector<HTMLButtonElement>('[aria-label="Rewind 3 turns"]')!.click();
+    expect(dialog.textContent).toContain('REWIND 3 TURNS?');
+    expect(dialog.textContent).toContain('Instability 0 → 3');
+    dialog.querySelector<HTMLButtonElement>('.rewind-panel__button--primary')!.click();
+
+    const controller = game as unknown as {
+      state: { dropCount: number; paradox?: { instability: number } };
+    };
+    expect(controller.state.dropCount).toBe(0);
+    expect(controller.state.paradox?.instability).toBe(3);
+    expect(lastOf(saveStoreInstances).write.mock.calls.at(-1)![1].paradox).toEqual({ instability: 3 });
+  });
+
   test('keeps a fatal turn provisional, allows rescue, and records only when the player starts over', () => {
     const { game } = createGame();
     lastOf(homeScreenInstances).onSelectMode(PARADOX_MODE);

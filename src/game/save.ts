@@ -45,6 +45,9 @@ export interface SavedRewindCheckpoint {
 
 export interface SavedParadoxState {
   instability: number;
+  /** Current multi-turn format, ordered oldest to newest. */
+  rewinds?: SavedRewindCheckpoint[];
+  /** Legacy one-turn format retained for backward-compatible loading. */
   rewind?: SavedRewindCheckpoint;
 }
 
@@ -245,8 +248,24 @@ function parseRewindCheckpoint(value: unknown, mode: GameModeConfig): SavedRewin
 }
 
 function parseParadoxState(value: unknown, mode: GameModeConfig): SavedParadoxState | null {
-  if (!isObject(value) || !hasOnlyKeys(value, ['instability'], ['rewind'])
+  if (!isObject(value) || !hasOnlyKeys(value, ['instability'], ['rewind', 'rewinds'])
     || !isNonNegativeInteger(value.instability)) return null;
+  if (value.rewind !== undefined && value.rewinds !== undefined) return null;
+  if (value.rewinds !== undefined) {
+    if (!Array.isArray(value.rewinds)
+      || value.rewinds.length < 1
+      || value.rewinds.length > mode.rewind!.historyDepth) return null;
+    const rewinds: SavedRewindCheckpoint[] = [];
+    for (const item of value.rewinds) {
+      const rewind = parseRewindCheckpoint(item, mode);
+      if (!rewind) return null;
+      rewinds.push(rewind);
+    }
+    for (let index = 1; index < rewinds.length; index++) {
+      if (rewinds[index]!.state.dropCount <= rewinds[index - 1]!.state.dropCount) return null;
+    }
+    return { instability: value.instability, rewinds };
+  }
   if (value.rewind === undefined) return { instability: value.instability };
   const rewind = parseRewindCheckpoint(value.rewind, mode);
   return rewind ? { instability: value.instability, rewind } : null;
@@ -311,7 +330,7 @@ export function parseSaveGame(value: unknown, mode: GameModeConfig): SaveGameV1 
 
   const paradox = mode.rewind ? parseParadoxState(value.paradox, mode) : null;
   if (mode.rewind) {
-    if (!paradox || (state.phase === 'game-over' && !paradox.rewind)) return null;
+    if (!paradox || (state.phase === 'game-over' && !paradox.rewind && !paradox.rewinds?.length)) return null;
   } else if (value.paradox !== undefined || state.phase !== 'waiting') {
     return null;
   }

@@ -18,7 +18,7 @@ import {
   computePushStep, PhysicsTrace, pointsForStack,
 } from './physics.js';
 import { CLASSIC_MODE } from './modes/index.js';
-import { turnsForLevel } from './modes/mode.js';
+import { turnCostForInstability, turnsForLevel } from './modes/mode.js';
 import {
   createGameSeed, createSeededRandom, deriveSeed, SnapshotRandomSource,
 } from './random.js';
@@ -60,6 +60,12 @@ export interface RewindPreview {
   rescuesGameOver: boolean;
   instabilityBefore: number;
   instabilityAfter: number;
+  turnCostBefore: number;
+  turnCostAfter: number;
+  /** Number of completed turns erased by this preview. */
+  turnsRewound: number;
+  /** Number of prior turn boundaries currently available. */
+  historyAvailable: number;
   fractures: RewindFractureTarget[];
 }
 
@@ -104,8 +110,8 @@ export interface ScriptedGameStateOptions {
 
 export interface ExportSaveOptions {
   longestStreak?: number;
-  /** Controller-owned streak value from immediately before the rewindable turn. */
-  rewindLongestStreak?: number;
+  /** Controller-owned streak values aligned oldest-to-newest with rewind history. */
+  rewindLongestStreaks?: readonly number[];
   savedAt?: number;
   appBuild?: string;
 }
@@ -148,7 +154,7 @@ export class GameEngine {
   private playableRandom: SnapshotRandomSource | undefined;
   private pushRandom: SnapshotRandomSource | undefined;
   private playableGenerator: PlayableDiscGenerator | undefined;
-  private rewindCheckpoint: TurnCheckpoint | null = null;
+  private rewindHistory: TurnCheckpoint[] = [];
 
   constructor(options: GameEngineOptions = {}) {
     this.mode = options.mode ?? CLASSIC_MODE;
@@ -196,7 +202,7 @@ export class GameEngine {
     }
     const savesFatalRewind = this.state.phase === GamePhase.GameOver
       && this.mode.rewind !== undefined
-      && this.rewindCheckpoint?.anchor != null;
+      && this.rewindHistory.some(checkpoint => checkpoint.anchor != null);
     if (this.state.phase !== GamePhase.WaitingForDrop && !savesFatalRewind) {
       throw new Error('Can only save at a stable waiting-for-drop turn boundary');
     }
@@ -231,11 +237,11 @@ export class GameEngine {
       ...(this.mode.rewind ? {
         paradox: {
           instability: this.state.paradox?.instability ?? 0,
-          ...(this.rewindCheckpoint?.anchor ? {
-            rewind: this.serializeRewindCheckpoint(
-              this.rewindCheckpoint,
-              options.rewindLongestStreak ?? options.longestStreak ?? 0,
-            ),
+          ...(this.rewindHistory.length > 0 ? {
+            rewinds: this.rewindHistory.map((checkpoint, index) => this.serializeRewindCheckpoint(
+              checkpoint,
+              options.rewindLongestStreaks?.[index] ?? options.longestStreak ?? 0,
+            )),
           } : {}),
         },
       } : {}),
@@ -255,7 +261,7 @@ export class GameEngine {
     const save = parseSaveGame(value, mode);
     if (!save) throw new Error('Invalid or incompatible save game');
 
-    this.rewindCheckpoint = null;
+    this.rewindHistory = [];
     this.mode = mode;
     this.customDiscFactory = undefined;
     this.customCrackedDiscFactory = undefined;
@@ -288,57 +294,58 @@ export class GameEngine {
       maxTiltDelta: mode.gravity!.maxTiltDeltaDeg,
     } : undefined;
     this.state.paradox = save.paradox ? { instability: save.paradox.instability } : undefined;
-    if (save.paradox?.rewind) {
-      const rewind = save.paradox.rewind;
-      this.rewindCheckpoint = {
-        generationSeed: rewind.generation.seed,
-        generationSource: 'seeded',
-        board: deserializeBoard(rewind.state.board),
-        cursorCol: rewind.state.cursorCol,
-        score: rewind.state.score,
-        dropCount: rewind.state.dropCount,
-        level: rewind.state.level,
-        turnsPerLevel: rewind.state.turnsPerLevel,
-        turnsRemaining: rewind.state.turnsRemaining,
-        gravity: rewind.state.gravity ? {
-          angle: rewind.state.gravity.angle,
-          turnStartAngle: rewind.state.gravity.angle,
-          maxTiltDelta: mode.gravity!.maxTiltDeltaDeg,
-        } : undefined,
-        paradox: { instability: rewind.instability },
-        queue: this.toQueueSnapshot(rewind.generation.queue),
-        playableGenerator: rewind.generation.playableGenerator,
-        playableRandomState: rewind.generation.random.playableState,
-        pushRandomState: rewind.generation.random.pushState,
-        anchor: { ...rewind.anchor },
-      };
-    }
+    const savedRewinds = save.paradox?.rewinds ?? (save.paradox?.rewind ? [save.paradox.rewind] : []);
+    this.rewindHistory = savedRewinds.map(rewind => ({
+      generationSeed: rewind.generation.seed,
+      generationSource: 'seeded',
+      board: deserializeBoard(rewind.state.board),
+      cursorCol: rewind.state.cursorCol,
+      score: rewind.state.score,
+      dropCount: rewind.state.dropCount,
+      level: rewind.state.level,
+      turnsPerLevel: rewind.state.turnsPerLevel,
+      turnsRemaining: rewind.state.turnsRemaining,
+      gravity: rewind.state.gravity ? {
+        angle: rewind.state.gravity.angle,
+        turnStartAngle: rewind.state.gravity.angle,
+        maxTiltDelta: mode.gravity!.maxTiltDeltaDeg,
+      } : undefined,
+      paradox: { instability: rewind.instability },
+      queue: this.toQueueSnapshot(rewind.generation.queue),
+      playableGenerator: rewind.generation.playableGenerator,
+      playableRandomState: rewind.generation.random.playableState,
+      pushRandomState: rewind.generation.random.pushState,
+      anchor: { ...rewind.anchor },
+    }));
     return save;
   }
 
   /** True only at a stable boundary with a complete deterministic checkpoint. */
-  canRewind(): boolean {
+  canRewind(turns = 1): boolean {
     return this.mode.rewind !== undefined
-      && this.rewindCheckpoint?.anchor != null
+      && Number.isInteger(turns)
+      && turns >= 1
+      && turns <= this.rewindHistory.length
+      && this.rewindHistory[this.rewindHistory.length - turns]?.anchor != null
       && (this.state.phase === GamePhase.WaitingForDrop || this.state.phase === GamePhase.GameOver)
       && this.hasSnapshotGeneration();
   }
 
   /** Returns an independent preview and never consumes or mutates the checkpoint. */
-  previewRewind(): RewindPreview | null {
-    if (!this.canRewind()) return null;
-    return this.makeRewindPreview(this.rewindCheckpoint!);
+  previewRewind(turns = 1): RewindPreview | null {
+    if (!this.canRewind(turns)) return null;
+    return this.makeRewindPreview(this.rewindHistory[this.rewindHistory.length - turns]!, turns);
   }
 
-  /** Restores and consumes the last completed turn checkpoint. */
-  commitRewind(): RewindPreview | null {
-    if (!this.canRewind()) return null;
-    const checkpoint = this.rewindCheckpoint!;
-    const preview = this.makeRewindPreview(checkpoint);
+  /** Restores the selected turn boundary and consumes the abandoned timeline. */
+  commitRewind(turns = 1): RewindPreview | null {
+    if (!this.canRewind(turns)) return null;
+    const checkpoint = this.rewindHistory[this.rewindHistory.length - turns]!;
+    const preview = this.makeRewindPreview(checkpoint, turns);
     this.restoreRewindCheckpoint(checkpoint);
     this.state.paradox = { instability: preview.instabilityAfter };
     this.applyRewindFractures(this.state.board, preview.fractures, preview.instabilityAfter);
-    this.rewindCheckpoint = null;
+    this.rewindHistory = [];
     return preview;
   }
 
@@ -534,9 +541,10 @@ export class GameEngine {
     );
     let pushStackSize = 0;
 
-    // A turn is consumed as soon as its drop resolves, so a push (triggered
-    // below when this exhausts the level's budget) sees the correct count.
-    this.state.turnsRemaining--;
+    // Instability accelerates Paradox's pressure clock. Other modes always
+    // resolve to a cost of one, keeping their existing level cadence intact.
+    const turnCost = turnCostForInstability(this.mode, this.state.paradox?.instability ?? 0);
+    this.state.turnsRemaining -= turnCost;
     const levelComplete = this.state.turnsRemaining <= 0;
 
     let pushOverflow = false;
@@ -706,7 +714,7 @@ export class GameEngine {
   // existing GameState object alive for UI/debug references while replacing the
   // board and incoming queue with scripted values.
   loadScriptedState(options: ScriptedGameStateOptions): void {
-    this.rewindCheckpoint = null;
+    this.rewindHistory = [];
     this.mode = options.mode ?? this.mode;
     this.customDiscFactory = undefined;
     this.customCrackedDiscFactory = options.crackedDiscFactory;
@@ -751,7 +759,7 @@ export class GameEngine {
   // the current board/progress but replace the injected queue with the mode's
   // regular seeded generation.
   resumeSeededGeneration(seed: number = createGameSeed()): void {
-    this.rewindCheckpoint = null;
+    this.rewindHistory = [];
     this.customDiscFactory = undefined;
     this.customCrackedDiscFactory = undefined;
     const normalizedSeed = seed >>> 0;
@@ -844,7 +852,7 @@ export class GameEngine {
 
   private captureRewindCheckpoint(): TurnCheckpoint | null {
     if (!this.mode.rewind || !this.hasSnapshotGeneration()) {
-      this.rewindCheckpoint = null;
+      this.rewindHistory = [];
       return null;
     }
     const checkpoint: TurnCheckpoint = {
@@ -865,15 +873,22 @@ export class GameEngine {
       pushRandomState: this.pushRandom!.snapshot(),
       anchor: null,
     };
-    this.rewindCheckpoint = checkpoint;
+    this.rewindHistory.push(checkpoint);
+    if (this.rewindHistory.length > this.mode.rewind.historyDepth) {
+      this.rewindHistory.splice(0, this.rewindHistory.length - this.mode.rewind.historyDepth);
+    }
     return checkpoint;
   }
 
-  private makeRewindPreview(checkpoint: TurnCheckpoint): RewindPreview {
+  private makeRewindPreview(checkpoint: TurnCheckpoint, turnsRewound: number): RewindPreview {
     const [currentDisc, nextDisc] = checkpoint.queue;
+    // Repairs or other instability changes inside the erased turns must not
+    // survive. Cost starts from the selected boundary, then scales by depth.
     const instabilityBefore = checkpoint.paradox?.instability ?? 0;
-    const instabilityAfter = instabilityBefore + 1;
-    const fractures = this.selectRewindFractures(checkpoint.board, checkpoint.anchor!, instabilityAfter);
+    const instabilityAfter = instabilityBefore + turnsRewound;
+    const fractures = this.selectRewindFractures(
+      checkpoint.board, checkpoint.anchor!, instabilityAfter, turnsRewound,
+    );
     const board = deepCloneBoard(checkpoint.board);
     return {
       board,
@@ -889,6 +904,10 @@ export class GameEngine {
       rescuesGameOver: this.state.phase === GamePhase.GameOver,
       instabilityBefore,
       instabilityAfter,
+      turnCostBefore: turnCostForInstability(this.mode, instabilityBefore),
+      turnCostAfter: turnCostForInstability(this.mode, instabilityAfter),
+      turnsRewound,
+      historyAvailable: this.rewindHistory.length,
       fractures,
     };
   }
@@ -919,9 +938,10 @@ export class GameEngine {
     board: Board,
     anchor: GridPos,
     instability: number,
+    turnsRewound: number,
   ): RewindFractureTarget[] {
     const resultingKind = instability <= 2 ? DiscKind.SingleCracked : DiscKind.DoubleCracked;
-    const targetCount = instability >= 5 ? 2 : 1;
+    const targetCount = Math.max(turnsRewound, instability >= 5 ? 2 : 1);
     const candidates: GridPos[] = [];
     for (let row = 0; row < board.length; row++) {
       for (let col = 0; col < board[row]!.length; col++) {
@@ -982,7 +1002,7 @@ export class GameEngine {
   }
 
   private resetState(board: Board): void {
-    this.rewindCheckpoint = null;
+    this.rewindHistory = [];
     this.state.phase = GamePhase.WaitingForDrop;
     this.state.board = board;
     this.state.currentDisc = this.queue.peek();

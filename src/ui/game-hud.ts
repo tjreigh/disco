@@ -31,6 +31,8 @@ export interface GameHudState {
   isRewindPreview?: boolean;
   instability?: number | undefined;
   criticalInstability?: number | undefined;
+  /** Turn pips consumed by the next accepted move in rewind modes. */
+  turnCost?: number | undefined;
   gravityAngle?: number | undefined;
   /** Angle at the start of the in-progress tilt (GravityState.turnStartAngle) — only meaningful during Aiming. */
   gravityTurnStartAngle?: number | undefined;
@@ -280,8 +282,14 @@ export class GameHud {
     }
     if (state.hasRewind) {
       const instability = state.instability ?? 0;
-      this.instability.textContent = `INSTABILITY ${instability}`;
-      this.instability.setAttribute('aria-label', `Timeline instability ${instability}`);
+      const turnCost = Math.max(1, state.turnCost ?? 1);
+      this.instability.textContent = `INSTABILITY ${instability} · PRESSURE ×${turnCost}`;
+      this.instability.setAttribute(
+        'aria-label',
+        `Timeline instability ${instability}. Each move consumes ${turnCost} turn ${turnCost === 1 ? 'pip' : 'pips'}.`,
+      );
+      this.instability.dataset.turnCost = String(turnCost);
+      this.instability.classList.toggle('game-hud__instability--pressured', turnCost > 1);
       this.instability.classList.toggle(
         'game-hud__instability--critical',
         instability >= (state.criticalInstability ?? Number.POSITIVE_INFINITY),
@@ -290,6 +298,8 @@ export class GameHud {
     } else {
       this.instability.textContent = '';
       this.instability.hidden = true;
+      delete this.instability.dataset.turnCost;
+      this.instability.classList.remove('game-hud__instability--pressured');
       this.instability.classList.remove('game-hud__instability--critical');
     }
     // Same defensive guard as GameControls: an inconsistent caller must not

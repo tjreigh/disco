@@ -63,14 +63,16 @@ describe('GameHud', () => {
       phase: GamePhase.WaitingForDrop, score: 0, highScore: 900, bestRecord: 1,
       currentDisc: disc(3), nextDisc: disc(4),
       level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 30,
-      hasGravity: false, hasRewind: true, criticalInstability: 5,
+      hasGravity: false, hasRewind: true, criticalInstability: 5, turnCost: 2,
     };
     hud.render({ ...base, instability: 4 });
     const indicator = hud.root.querySelector<HTMLElement>('.game-hud__instability')!;
     expect(hud.root.dataset.rewindMode).toBe('true');
     expect(hud.root.querySelector('.game-hud__records')?.textContent)
       .toBe('High 900 · Best chain 1 wave');
-    expect(indicator.textContent).toBe('INSTABILITY 4');
+    expect(indicator.textContent).toBe('INSTABILITY 4 · PRESSURE ×2');
+    expect(indicator.dataset.turnCost).toBe('2');
+    expect(indicator.classList).toContain('game-hud__instability--pressured');
     expect(indicator.classList).not.toContain('game-hud__instability--critical');
     expect(hud.root.querySelector('.game-hud__hint')?.classList).toContain('game-hud__hint--controls');
     expect(Array.from(hud.root.querySelectorAll('.game-hud__hint-action'))

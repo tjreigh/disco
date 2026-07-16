@@ -88,12 +88,17 @@ describe('STACK_MODE', () => {
 });
 
 describe('PARADOX_MODE', () => {
-  test('inherits Classic rules and exposes one-turn rewind as a player-facing mode', () => {
+  test('inherits Classic rules and exposes five-turn rewind as a player-facing mode', () => {
     expect(PARADOX_MODE.board).toEqual(CLASSIC_MODE.board);
     expect(PARADOX_MODE.scoring).toEqual(CLASSIC_MODE.scoring);
     expect(PARADOX_MODE.isClearable).toBe(CLASSIC_MODE.isClearable);
     expect(PARADOX_MODE.revealAdjacent).toBe(CLASSIC_MODE.revealAdjacent);
-    expect(PARADOX_MODE.rewind).toEqual({ historyDepth: 1, criticalInstability: 5 });
+    expect(PARADOX_MODE.rewind).toEqual({
+      historyDepth: 5,
+      criticalInstability: 5,
+      pressureStepInstability: 3,
+      maxTurnCost: 3,
+    });
     expect(PARADOX_MODE.hasTutorial).toBe(false);
     expect(GAME_MODES).toContain(PARADOX_MODE);
   });
