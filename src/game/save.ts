@@ -62,6 +62,8 @@ export interface SavedGenerationState {
   random: {
     playableState: number;
     pushState: number;
+    /** Added with Temporal Echo; absent saves start from the seed-derived stream. */
+    echoState?: number;
   };
 }
 
@@ -294,8 +296,9 @@ function parseGeneration(value: unknown, mode: GameModeConfig): SavedGenerationS
       && item >= mode.discValueMin && item <= mode.discValueMax)
     || !recentKinds.every(item => isDiscKind(item) && PLAYABLE_DISC_KINDS.has(item))) return null;
 
-  if (!isObject(value.random) || !hasOnlyKeys(value.random, ['playableState', 'pushState'])
-    || !isUint32(value.random.playableState) || !isUint32(value.random.pushState)) return null;
+  if (!isObject(value.random) || !hasOnlyKeys(value.random, ['playableState', 'pushState'], ['echoState'])
+    || !isUint32(value.random.playableState) || !isUint32(value.random.pushState)
+    || (value.random.echoState !== undefined && !isUint32(value.random.echoState))) return null;
 
   return {
     source: 'seeded', seed: value.seed, queue,
@@ -303,7 +306,11 @@ function parseGeneration(value: unknown, mode: GameModeConfig): SavedGenerationS
       recentValues: [...recentValues] as number[],
       recentKinds: [...recentKinds] as DiscKind[],
     },
-    random: { playableState: value.random.playableState, pushState: value.random.pushState },
+    random: {
+      playableState: value.random.playableState,
+      pushState: value.random.pushState,
+      ...(value.random.echoState !== undefined ? { echoState: value.random.echoState } : {}),
+    },
   };
 }
 

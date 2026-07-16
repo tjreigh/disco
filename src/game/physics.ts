@@ -199,6 +199,7 @@ export function computeDropSteps(
   mode: GameModeConfig = CLASSIC_MODE,
   trace?: PhysicsTrace,
   settle: SettleFn = applyGravity,
+  startingChainLevel = 0,
 ): PhysicsStep[] {
   const steps: PhysicsStep[] = [];
   const scratch = cloneBoard(board);
@@ -214,7 +215,7 @@ export function computeDropSteps(
     entryPos: { row: -1, col }, landPos: { row, col },
   } satisfies DropStep);
   trace?.frames.push({ label: `Drop #${disc.id} into r${row + 1}c${col + 1}`, board: deepCloneBoard(scratch) });
-  steps.push(...resolveClearSteps(scratch, mode, trace, settle));
+  steps.push(...resolveClearSteps(scratch, mode, trace, settle, 0, startingChainLevel));
 
   // Write the scratch result back into the caller's board array in-place.
   // Replacing the board reference entirely wouldn't work because GameState

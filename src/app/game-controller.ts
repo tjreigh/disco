@@ -603,6 +603,13 @@ export class Game {
   private handleStepStart(step: PhysicsStep, now: DOMHighResTimeStamp): void {
     if (step.kind === StepKind.Drop) {
       this.audio.playDrop();
+      if (step.temporalEcho) {
+        this.scoreIndicators.push(spawnScoreIndicator(
+          'TEMPORAL ECHO',
+          'THE TIMELINE REPEATS',
+          now,
+        ));
+      }
     } else if (step.kind === StepKind.Push) {
       this.audio.playPush();
     } else if (step.kind === StepKind.Clear) {

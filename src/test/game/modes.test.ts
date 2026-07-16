@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import { CLASSIC_MODE, GAME_MODES, GRAVITY_MODE, PARADOX_MODE, STACK_MODE } from '../../game/modes/index.js';
-import { turnsForLevel, unnumberedProbabilityForLevel } from '../../game/modes/mode.js';
+import {
+  temporalEchoProbability, turnsForLevel, unnumberedProbabilityForLevel,
+} from '../../game/modes/mode.js';
 import { makeEmptyBoard, placeDisc } from '../../game/board.js';
 import { makeDisc } from '../../game/disc.js';
 import { DiscKind } from '../../game/model.js';
@@ -98,9 +100,25 @@ describe('PARADOX_MODE', () => {
       criticalInstability: 5,
       pressureStepInstability: 3,
       maxTurnCost: 3,
+      temporalEcho: {
+        tiers: [
+          { minimumInstability: 5, probability: 0.1 },
+          { minimumInstability: 6, probability: 0.2 },
+          { minimumInstability: 9, probability: 0.3 },
+        ],
+      },
     });
     expect(PARADOX_MODE.hasTutorial).toBe(false);
     expect(GAME_MODES).toContain(PARADOX_MODE);
+  });
+
+  test('ramps Temporal Echo odds at instability 5, 6, and 9', () => {
+    expect(temporalEchoProbability(PARADOX_MODE, 4)).toBe(0);
+    expect(temporalEchoProbability(PARADOX_MODE, 5)).toBe(0.1);
+    expect(temporalEchoProbability(PARADOX_MODE, 6)).toBe(0.2);
+    expect(temporalEchoProbability(PARADOX_MODE, 8)).toBe(0.2);
+    expect(temporalEchoProbability(PARADOX_MODE, 9)).toBe(0.3);
+    expect(temporalEchoProbability(CLASSIC_MODE, 99)).toBe(0);
   });
 });
 

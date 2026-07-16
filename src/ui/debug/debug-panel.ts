@@ -144,7 +144,7 @@ function stepText(result: TurnResult): string[] {
   return result.steps.map((step, index) => {
     switch (step.kind) {
       case StepKind.Drop:
-        return `${index + 1}. DROP #${step.disc.id} value=${step.disc.value} → ${position(step.landPos.row, step.landPos.col)}`;
+        return `${index + 1}. ${step.temporalEcho ? 'TEMPORAL ECHO' : 'DROP'} #${step.disc.id} value=${step.disc.value} → ${position(step.landPos.row, step.landPos.col)}`;
       case StepKind.Clear:
         return `${index + 1}. CLEAR chain=${step.chainLevel} [${step.cleared.map(p => position(p.row, p.col)).join(', ')}] +${step.pointsAwarded}`;
       case StepKind.Reveal:

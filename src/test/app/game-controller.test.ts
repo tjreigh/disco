@@ -514,6 +514,30 @@ describe('normal drop flow', () => {
     expect(stateAfterAnimation.phase).toBe(GamePhase.WaitingForDrop);
   });
 
+  test('shows a Temporal Echo callout when the repeated drop begins', () => {
+    const { game } = createGame();
+    const controller = game as unknown as {
+      handleStepStart: (step: unknown, now: number) => void;
+      scoreIndicators: Array<{ title: string; detail: string }>;
+    };
+
+    controller.handleStepStart({
+      kind: StepKind.Drop,
+      disc: makeDisc(4, DiscKind.Numbered),
+      entryPos: { row: -1, col: 2 },
+      landPos: { row: 6, col: 2 },
+      temporalEcho: true,
+    }, 500);
+
+    expect(lastOf(audioInstances).playDrop).toHaveBeenCalledOnce();
+    expect(controller.scoreIndicators).toEqual([
+      expect.objectContaining({
+        title: 'TEMPORAL ECHO',
+        detail: 'THE TIMELINE REPEATS',
+      }),
+    ]);
+  });
+
   test('Stack shows each counted disc its share of the final stack award', () => {
     const { game } = createGame();
     const homeScreen = lastOf(homeScreenInstances);

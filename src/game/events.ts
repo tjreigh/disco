@@ -12,6 +12,8 @@ export enum StepKind {
 export interface DropStep {
   kind: StepKind.Drop;
   disc: Disc;
+  /** This drop was repeated by Paradox instability and does not spend another turn. */
+  temporalEcho?: true;
   /** Off-board animation start position, one cell beyond the entry edge. */
   entryPos: GridPos;
   /** True final resting position on the board, already post-settle. */

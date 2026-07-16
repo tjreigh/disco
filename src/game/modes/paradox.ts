@@ -12,6 +12,13 @@ export const PARADOX_MODE: GameModeConfig = {
     criticalInstability: 5,
     pressureStepInstability: 3,
     maxTurnCost: 3,
+    temporalEcho: {
+      tiers: [
+        { minimumInstability: 5, probability: 0.1 },
+        { minimumInstability: 6, probability: 0.2 },
+        { minimumInstability: 9, probability: 0.3 },
+      ],
+    },
   },
   hasTutorial: false,
 };

@@ -226,6 +226,10 @@ describe('SaveGameV1 parsing', () => {
     const badPushState = validSave();
     badPushState.generation.random.pushState = 1.5;
     expect(parseSaveGame(badPushState, CLASSIC_MODE)).toBeNull();
+
+    const badEchoState = validSave();
+    badEchoState.generation.random.echoState = -1;
+    expect(parseSaveGame(badEchoState, CLASSIC_MODE)).toBeNull();
   });
 
   test('requires gravity data only for Gravity mode and validates stable angles', () => {

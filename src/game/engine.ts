@@ -10,7 +10,7 @@ import {
   entryEdgeForAngle, entryPositionForLane, isLaneFull, settleContinuous, snapAngleToEightDirections,
 } from './gravity.js';
 import {
-  createDiscFactories, DiscFactory, DiscQueue, PlayableDiscGenerator,
+  createDiscFactories, DiscFactory, DiscQueue, makeDisc, PlayableDiscGenerator,
   type DiscQueueSnapshot, type PlayableDiscGeneratorSnapshot, type QueuedDiscSnapshot,
 } from './disc.js';
 import {
@@ -18,7 +18,7 @@ import {
   computePushStep, PhysicsTrace, pointsForStack,
 } from './physics.js';
 import { CLASSIC_MODE } from './modes/index.js';
-import { turnCostForInstability, turnsForLevel } from './modes/mode.js';
+import { temporalEchoProbability, turnCostForInstability, turnsForLevel } from './modes/mode.js';
 import {
   createGameSeed, createSeededRandom, deriveSeed, SnapshotRandomSource,
 } from './random.js';
@@ -119,6 +119,7 @@ export interface ExportSaveOptions {
 interface SeededFactories extends ReturnType<typeof createDiscFactories> {
   playableRandom: SnapshotRandomSource;
   pushRandom: SnapshotRandomSource;
+  echoRandom: SnapshotRandomSource;
 }
 
 interface TurnCheckpoint {
@@ -137,6 +138,7 @@ interface TurnCheckpoint {
   playableGenerator: PlayableDiscGeneratorSnapshot;
   playableRandomState: number;
   pushRandomState: number;
+  echoRandomState: number;
   anchor: GridPos | null;
 }
 
@@ -153,6 +155,7 @@ export class GameEngine {
   private customCrackedDiscFactory: DiscFactory | undefined;
   private playableRandom: SnapshotRandomSource | undefined;
   private pushRandom: SnapshotRandomSource | undefined;
+  private echoRandom: SnapshotRandomSource | undefined;
   private playableGenerator: PlayableDiscGenerator | undefined;
   private rewindHistory: TurnCheckpoint[] = [];
 
@@ -231,6 +234,7 @@ export class GameEngine {
         random: {
           playableState: this.playableRandom.snapshot(),
           pushState: this.pushRandom.snapshot(),
+          echoState: this.echoRandom!.snapshot(),
         },
       },
       session: { longestStreak: options.longestStreak ?? 0 },
@@ -274,6 +278,9 @@ export class GameEngine {
     factories.playableGenerator.restore(save.generation.playableGenerator);
     factories.playableRandom.restore(save.generation.random.playableState);
     factories.pushRandom.restore(save.generation.random.pushState);
+    if (save.generation.random.echoState !== undefined) {
+      factories.echoRandom.restore(save.generation.random.echoState);
+    }
     this.crackedDiscFactory = factories.crackedDiscFactory;
 
     this.state.generationSeed = save.generation.seed;
@@ -315,6 +322,8 @@ export class GameEngine {
       playableGenerator: rewind.generation.playableGenerator,
       playableRandomState: rewind.generation.random.playableState,
       pushRandomState: rewind.generation.random.pushState,
+      echoRandomState: rewind.generation.random.echoState
+        ?? deriveSeed(rewind.generation.seed, 0x4543484f),
       anchor: { ...rewind.anchor },
     }));
     return save;
@@ -526,6 +535,12 @@ export class GameEngine {
   private finishTurn(steps: PhysicsStep[], boardBefore: Board, trace: PhysicsTrace): TurnResult {
     this.state.dropCount++;
 
+    // At high Paradox instability, the completed player drop can repeat into
+    // another legal column. It resolves through the same physics pipeline as
+    // a normal drop, but remains part of this turn: no extra queue advance,
+    // pressure cost, history checkpoint, or opportunity to echo recursively.
+    this.appendTemporalEcho(steps, trace);
+
     // A level-end push can continue a cascade started by this drop. Preserve
     // the next chain level so the push-side resolver does not restart at zero.
     // A push that happens without an entry clear remains an independent clear.
@@ -667,6 +682,41 @@ export class GameEngine {
     };
   }
 
+  private appendTemporalEcho(steps: PhysicsStep[], trace: PhysicsTrace): void {
+    if (this.mode.gravity || !this.echoRandom) return;
+    const probability = temporalEchoProbability(this.mode, this.state.paradox?.instability ?? 0);
+    if (probability <= 0 || this.echoRandom() >= probability) return;
+
+    const originalDrop = steps.find(step => step.kind === StepKind.Drop && !step.temporalEcho);
+    if (!originalDrop || originalDrop.kind !== StepKind.Drop) return;
+    const legalColumns = this.state.board[0]!
+      .map((_cell, col) => col)
+      .filter(col => col !== originalDrop.entryPos.col && !isColumnFull(this.state.board, col));
+    if (legalColumns.length === 0) return;
+
+    const targetIndex = Math.floor(this.echoRandom() * legalColumns.length);
+    const targetCol = legalColumns[targetIndex]!;
+    const nextChainLevel = steps.reduce(
+      (next, step) => step.kind === StepKind.Clear
+        ? Math.max(next, step.chainLevel + 1)
+        : next,
+      0,
+    );
+    const echoSteps = computeDropSteps(
+      this.state.board,
+      makeDisc(originalDrop.disc.value, originalDrop.disc.kind),
+      targetCol,
+      this.mode,
+      trace,
+      undefined,
+      nextChainLevel,
+    );
+    const echoDrop = echoSteps.find(step => step.kind === StepKind.Drop);
+    if (!echoDrop || echoDrop.kind !== StepKind.Drop) return;
+    echoDrop.temporalEcho = true;
+    steps.push(...echoSteps);
+  }
+
   // Switches to a (possibly new) mode: rebuilds the disc queue/factories from
   // the mode's own spawn config — deliberately ignoring any custom factory
   // that may have been injected at construction, since adopting a new mode
@@ -720,6 +770,7 @@ export class GameEngine {
     this.customCrackedDiscFactory = options.crackedDiscFactory;
     this.playableRandom = undefined;
     this.pushRandom = undefined;
+    this.echoRandom = undefined;
     this.playableGenerator = undefined;
     const board = deepCloneBoard(options.board);
     const level = options.level ?? 1;
@@ -776,16 +827,19 @@ export class GameEngine {
   private createSeededFactories(seed: number): SeededFactories {
     const playableRandom = createSeededRandom(deriveSeed(seed, 0x504c4159));
     const pushRandom = createSeededRandom(deriveSeed(seed, 0x50555348));
+    const echoRandom = createSeededRandom(deriveSeed(seed, 0x4543484f));
     return {
       ...createDiscFactories(this.mode, playableRandom, pushRandom),
       playableRandom,
       pushRandom,
+      echoRandom,
     };
   }
 
   private retainSeededGeneration(factories: SeededFactories): void {
     this.playableRandom = factories.playableRandom;
     this.pushRandom = factories.pushRandom;
+    this.echoRandom = factories.echoRandom;
     this.playableGenerator = factories.playableGenerator;
   }
 
@@ -793,6 +847,7 @@ export class GameEngine {
     return this.state.generationSource === 'seeded'
       && this.playableRandom !== undefined
       && this.pushRandom !== undefined
+      && this.echoRandom !== undefined
       && this.playableGenerator !== undefined;
   }
 
@@ -808,6 +863,7 @@ export class GameEngine {
     playableGenerator: PlayableDiscGeneratorSnapshot,
     playableRandomState: number,
     pushRandomState: number,
+    echoRandomState: number,
   ): SavedGenerationState {
     return {
       source: 'seeded',
@@ -817,7 +873,11 @@ export class GameEngine {
         recentValues: [...playableGenerator.recentValues],
         recentKinds: [...playableGenerator.recentKinds],
       },
-      random: { playableState: playableRandomState, pushState: pushRandomState },
+      random: {
+        playableState: playableRandomState,
+        pushState: pushRandomState,
+        echoState: echoRandomState,
+      },
     };
   }
 
@@ -843,6 +903,7 @@ export class GameEngine {
         checkpoint.playableGenerator,
         checkpoint.playableRandomState,
         checkpoint.pushRandomState,
+        checkpoint.echoRandomState,
       ),
       anchor: { ...checkpoint.anchor! },
       instability: checkpoint.paradox?.instability ?? 0,
@@ -871,6 +932,7 @@ export class GameEngine {
       playableGenerator: this.playableGenerator!.snapshot(),
       playableRandomState: this.playableRandom!.snapshot(),
       pushRandomState: this.pushRandom!.snapshot(),
+      echoRandomState: this.echoRandom!.snapshot(),
       anchor: null,
     };
     this.rewindHistory.push(checkpoint);
@@ -917,6 +979,7 @@ export class GameEngine {
     this.playableGenerator!.restore(checkpoint.playableGenerator);
     this.playableRandom!.restore(checkpoint.playableRandomState);
     this.pushRandom!.restore(checkpoint.pushRandomState);
+    this.echoRandom!.restore(checkpoint.echoRandomState);
 
     this.state.generationSeed = checkpoint.generationSeed;
     this.state.generationSource = checkpoint.generationSource;

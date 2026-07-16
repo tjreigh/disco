@@ -19,6 +19,13 @@ export interface RewindModeConfig {
   readonly pressureStepInstability: number;
   /** Upper bound on turn pips consumed by one move. */
   readonly maxTurnCost: number;
+  /** Instability tiers that can repeat a completed drop into another legal lane. */
+  readonly temporalEcho: {
+    readonly tiers: readonly {
+      readonly minimumInstability: number;
+      readonly probability: number;
+    }[];
+  };
 }
 
 export interface GameModeConfig {
@@ -114,6 +121,18 @@ export function turnCostForInstability(mode: GameModeConfig, instability: number
   const normalized = Math.max(0, Math.floor(instability));
   const step = Math.max(1, mode.rewind.pressureStepInstability);
   return Math.min(mode.rewind.maxTurnCost, 1 + Math.floor(normalized / step));
+}
+
+/** Chance that a completed move repeats into another legal lane. */
+export function temporalEchoProbability(mode: GameModeConfig, instability: number): number {
+  if (!mode.rewind) return 0;
+  const normalized = Math.max(0, Math.floor(instability));
+  let probability = 0;
+  for (const tier of mode.rewind.temporalEcho.tiers) {
+    if (normalized < tier.minimumInstability) continue;
+    probability = Math.max(probability, tier.probability);
+  }
+  return Math.max(0, Math.min(1, probability));
 }
 
 /** Chance that a dealt disc is unnumbered at a given one-based level. */
