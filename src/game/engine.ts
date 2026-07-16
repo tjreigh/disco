@@ -1,5 +1,4 @@
 import type { Board, Disc, GridPos } from './model.js';
-import { DiscKind } from './model.js';
 import type { GameModeConfig } from './modes/mode.js';
 import type { GameState, GravityState } from './state.js';
 import { GamePhase } from './state.js';
@@ -12,7 +11,7 @@ import {
   entryEdgeForAngle, entryPositionForLane, isLaneFull, settleContinuous, snapAngleToEightDirections,
 } from './gravity.js';
 import {
-  createDiscFactories, DiscFactory, DiscQueue, makeDisc, PlayableDiscGenerator,
+  createDiscFactories, DiscFactory, DiscQueue, PlayableDiscGenerator,
   type DiscQueueSnapshot, type PlayableDiscGeneratorSnapshot, type QueuedDiscSnapshot,
 } from './disc.js';
 import {
@@ -20,7 +19,11 @@ import {
   computePushStep, PhysicsTrace, pointsForStack,
 } from './physics.js';
 import { CLASSIC_MODE } from './modes/index.js';
-import { temporalEchoProbability, turnCostForInstability, turnsForLevel } from './modes/mode.js';
+import { turnCostForInstability, turnsForLevel } from './modes/mode.js';
+import {
+  ParadoxSystem, type RewindPreview, type TurnCheckpoint,
+} from './paradox/system.js';
+export type { RewindFractureTarget, RewindPreview } from './paradox/system.js';
 import {
   createGameSeed, createSeededRandom, deriveSeed, SnapshotRandomSource,
 } from './random.js';
@@ -45,43 +48,6 @@ export interface TurnResult {
   /** Present when this accepted turn caused the game to end. */
   gameOverReason?: GameOverReason;
   trace: PhysicsTrace;
-}
-
-/** Independent player-facing view of the state a rewind would restore. */
-export interface RewindPreview {
-  board: Board;
-  cursorCol: number;
-  score: number;
-  dropCount: number;
-  level: number;
-  turnsPerLevel: number;
-  turnsRemaining: number;
-  currentDisc: QueuedDiscSnapshot;
-  nextDisc: QueuedDiscSnapshot;
-  anchor: GridPos;
-  rescuesGameOver: boolean;
-  instabilityBefore: number;
-  instabilityAfter: number;
-  turnCostBefore: number;
-  turnCostAfter: number;
-  /** Number of completed turns erased by this preview. */
-  turnsRewound: number;
-  /** Number of prior turn boundaries currently available. */
-  historyAvailable: number;
-  fractures: RewindFractureTarget[];
-}
-
-export interface RewindFractureTarget {
-  position: GridPos;
-  discId?: number;
-  discValue: number;
-  resultingKind: DiscKind.SingleCracked | DiscKind.DoubleCracked;
-  /** Total recoverable instability carried by this fracture after the rewind. */
-  instabilityDebt: number;
-  /** Portion of instabilityDebt introduced by the selected rewind. */
-  instabilityAdded: number;
-  /** True when the erased timeline must return a disc to create this target. */
-  materialized: boolean;
 }
 
 /**
@@ -130,31 +96,6 @@ interface SeededFactories extends ReturnType<typeof createDiscFactories> {
   echoRandom: SnapshotRandomSource;
 }
 
-interface TurnCheckpoint {
-  generationSeed: number;
-  generationSource: 'seeded';
-  board: Board;
-  cursorCol: number;
-  score: number;
-  dropCount: number;
-  level: number;
-  turnsPerLevel: number;
-  turnsRemaining: number;
-  gravity: GravityState | undefined;
-  paradox: { instability: number } | undefined;
-  queue: DiscQueueSnapshot;
-  playableGenerator: PlayableDiscGeneratorSnapshot;
-  playableRandomState: number;
-  pushRandomState: number;
-  echoRandomState: number;
-  anchor: GridPos | null;
-}
-
-interface ErasedTurn {
-  anchor: GridPos;
-  disc: QueuedDiscSnapshot;
-}
-
 /**
  * Synchronous, headless game rules. It has no dependency on the DOM, rendering,
  * audio, input, animation frames, or wall-clock time.
@@ -170,10 +111,11 @@ export class GameEngine {
   private pushRandom: SnapshotRandomSource | undefined;
   private echoRandom: SnapshotRandomSource | undefined;
   private playableGenerator: PlayableDiscGenerator | undefined;
-  private rewindHistory: TurnCheckpoint[] = [];
+  private readonly paradoxSystem: ParadoxSystem;
 
   constructor(options: GameEngineOptions = {}) {
     this.mode = options.mode ?? CLASSIC_MODE;
+    this.paradoxSystem = new ParadoxSystem(this.mode);
     this.customDiscFactory = options.discFactory;
     this.customCrackedDiscFactory = options.crackedDiscFactory;
     const seed = options.seed === undefined ? createGameSeed() : options.seed >>> 0;
@@ -202,7 +144,7 @@ export class GameEngine {
       turnsPerLevel: turnsForLevel(this.mode, 1),
       turnsRemaining: turnsForLevel(this.mode, 1),
       gravity: this.initialGravityState(),
-      paradox: this.initialParadoxState(),
+      paradox: this.paradoxSystem.initialState(),
     };
   }
 
@@ -218,7 +160,7 @@ export class GameEngine {
     }
     const savesFatalRewind = this.state.phase === GamePhase.GameOver
       && this.mode.rewind !== undefined
-      && this.rewindHistory.some(checkpoint => checkpoint.anchor != null);
+      && this.paradoxSystem.checkpoints.some(checkpoint => checkpoint.anchor != null);
     if (this.state.phase !== GamePhase.WaitingForDrop && !savesFatalRewind) {
       throw new Error('Can only save at a stable waiting-for-drop turn boundary');
     }
@@ -254,8 +196,8 @@ export class GameEngine {
       ...(this.mode.rewind ? {
         paradox: {
           instability: this.state.paradox?.instability ?? 0,
-          ...(this.rewindHistory.length > 0 ? {
-            rewinds: this.rewindHistory.map((checkpoint, index) => this.serializeRewindCheckpoint(
+          ...(this.paradoxSystem.checkpoints.length > 0 ? {
+            rewinds: this.paradoxSystem.checkpoints.map((checkpoint, index) => this.serializeRewindCheckpoint(
               checkpoint,
               options.rewindLongestStreaks?.[index] ?? options.longestStreak ?? 0,
             )),
@@ -278,8 +220,8 @@ export class GameEngine {
     const save = parseSaveGame(value, mode);
     if (!save) throw new Error('Invalid or incompatible save game');
 
-    this.rewindHistory = [];
     this.mode = mode;
+    this.paradoxSystem.reconfigure(mode);
     this.customDiscFactory = undefined;
     this.customCrackedDiscFactory = undefined;
     const factories = this.createSeededFactories(save.generation.seed);
@@ -316,7 +258,7 @@ export class GameEngine {
     this.state.paradox = save.paradox ? { instability: save.paradox.instability } : undefined;
     if (this.state.paradox) {
       const col = Math.max(0, Math.min(board[0]!.length - 1, save.state.cursorCol));
-      this.reconcileTemporalDebt(
+      this.paradoxSystem.reconcileTemporalDebt(
         board,
         this.state.paradox.instability,
         { row: landingRow(board, col) ?? 0, col },
@@ -324,10 +266,10 @@ export class GameEngine {
       );
     }
     const savedRewinds = save.paradox?.rewinds ?? (save.paradox?.rewind ? [save.paradox.rewind] : []);
-    this.rewindHistory = savedRewinds.map(rewind => {
+    const rewindHistory = savedRewinds.map<TurnCheckpoint>(rewind => {
       const rewindBoard = deserializeBoard(rewind.state.board);
       const queue = this.toQueueSnapshot(rewind.generation.queue);
-      this.reconcileTemporalDebt(
+      this.paradoxSystem.reconcileTemporalDebt(
         rewindBoard,
         rewind.instability,
         rewind.anchor,
@@ -358,35 +300,37 @@ export class GameEngine {
         anchor: { ...rewind.anchor },
       };
     });
+    this.paradoxSystem.replaceHistory(rewindHistory);
     return save;
   }
 
   /** True only at a stable boundary with a complete deterministic checkpoint. */
   canRewind(turns = 1): boolean {
-    return this.mode.rewind !== undefined
-      && Number.isInteger(turns)
-      && turns >= 1
-      && turns <= this.rewindHistory.length
-      && this.rewindHistory[this.rewindHistory.length - turns]?.anchor != null
-      && (this.state.phase === GamePhase.WaitingForDrop || this.state.phase === GamePhase.GameOver)
-      && this.hasSnapshotGeneration();
+    return this.paradoxSystem.canRewind(turns, this.state.phase, this.hasSnapshotGeneration());
   }
 
   /** Returns an independent preview and never consumes or mutates the checkpoint. */
   previewRewind(turns = 1): RewindPreview | null {
-    if (!this.canRewind(turns)) return null;
-    return this.makeRewindPreview(this.rewindHistory[this.rewindHistory.length - turns]!, turns);
+    return this.paradoxSystem.previewRewind(turns, this.state.phase, this.hasSnapshotGeneration());
   }
 
   /** Restores the selected turn boundary and consumes the abandoned timeline. */
   commitRewind(turns = 1): RewindPreview | null {
-    if (!this.canRewind(turns)) return null;
-    const checkpoint = this.rewindHistory[this.rewindHistory.length - turns]!;
-    const preview = this.makeRewindPreview(checkpoint, turns);
+    const prepared = this.paradoxSystem.prepareRewind(
+      turns,
+      this.state.phase,
+      this.hasSnapshotGeneration(),
+    );
+    if (!prepared) return null;
+    const { checkpoint, preview } = prepared;
     this.restoreRewindCheckpoint(checkpoint);
     this.state.paradox = { instability: preview.instabilityAfter };
-    this.applyRewindFractures(this.state.board, preview.fractures, preview.instabilityAfter);
-    this.rewindHistory = [];
+    this.paradoxSystem.applyRewindFractures(
+      this.state.board,
+      preview.fractures,
+      preview.instabilityAfter,
+    );
+    this.paradoxSystem.clearHistory();
     return preview;
   }
 
@@ -571,7 +515,13 @@ export class GameEngine {
     // another legal column. It resolves through the same physics pipeline as
     // a normal drop, but remains part of this turn: no extra queue advance,
     // pressure cost, history checkpoint, or opportunity to echo recursively.
-    this.appendTemporalEcho(steps, trace);
+    this.paradoxSystem.appendTemporalEcho(
+      this.state.board,
+      steps,
+      trace,
+      this.echoRandom,
+      this.state.paradox?.instability ?? 0,
+    );
 
     // A level-end push can continue a cascade started by this drop. Preserve
     // the next chain level so the push-side resolver does not restart at zero.
@@ -694,15 +644,7 @@ export class GameEngine {
     this.state.currentDisc = this.queue.peek();
     this.state.nextDisc = this.queue.peekNext();
 
-    if (this.state.paradox) {
-      const temporalRepairs = steps.reduce(
-        (total, step) => total + (step.kind === StepKind.Reveal
-          ? (step.instabilityRecovered ?? step.temporalRepairs?.length ?? 0)
-          : 0),
-        0,
-      );
-      this.state.paradox.instability = Math.max(0, this.state.paradox.instability - temporalRepairs);
-    }
+    this.paradoxSystem.recoverInstability(this.state.paradox, steps);
 
     return {
       accepted: true,
@@ -716,41 +658,6 @@ export class GameEngine {
     };
   }
 
-  private appendTemporalEcho(steps: PhysicsStep[], trace: PhysicsTrace): void {
-    if (this.mode.gravity || !this.echoRandom) return;
-    const probability = temporalEchoProbability(this.mode, this.state.paradox?.instability ?? 0);
-    if (probability <= 0 || this.echoRandom() >= probability) return;
-
-    const originalDrop = steps.find(step => step.kind === StepKind.Drop && !step.temporalEcho);
-    if (!originalDrop || originalDrop.kind !== StepKind.Drop) return;
-    const legalColumns = this.state.board[0]!
-      .map((_cell, col) => col)
-      .filter(col => col !== originalDrop.entryPos.col && !isColumnFull(this.state.board, col));
-    if (legalColumns.length === 0) return;
-
-    const targetIndex = Math.floor(this.echoRandom() * legalColumns.length);
-    const targetCol = legalColumns[targetIndex]!;
-    const nextChainLevel = steps.reduce(
-      (next, step) => step.kind === StepKind.Clear
-        ? Math.max(next, step.chainLevel + 1)
-        : next,
-      0,
-    );
-    const echoSteps = computeDropSteps(
-      this.state.board,
-      makeDisc(originalDrop.disc.value, originalDrop.disc.kind),
-      targetCol,
-      this.mode,
-      trace,
-      undefined,
-      nextChainLevel,
-    );
-    const echoDrop = echoSteps.find(step => step.kind === StepKind.Drop);
-    if (!echoDrop || echoDrop.kind !== StepKind.Drop) return;
-    echoDrop.temporalEcho = true;
-    steps.push(...echoSteps);
-  }
-
   // Switches to a (possibly new) mode: rebuilds the disc queue/factories from
   // the mode's own spawn config — deliberately ignoring any custom factory
   // that may have been injected at construction, since adopting a new mode
@@ -759,6 +666,7 @@ export class GameEngine {
   // a reference to it that must stay valid across mode switches.
   reconfigure(mode: GameModeConfig, seedOverride?: number): void {
     this.mode = mode;
+    this.paradoxSystem.reconfigure(mode);
     this.customDiscFactory = undefined;
     this.customCrackedDiscFactory = undefined;
     const seed = seedOverride === undefined ? createGameSeed() : seedOverride >>> 0;
@@ -798,8 +706,8 @@ export class GameEngine {
   // existing GameState object alive for UI/debug references while replacing the
   // board and incoming queue with scripted values.
   loadScriptedState(options: ScriptedGameStateOptions): void {
-    this.rewindHistory = [];
     this.mode = options.mode ?? this.mode;
+    this.paradoxSystem.reconfigure(this.mode);
     this.customDiscFactory = undefined;
     this.customCrackedDiscFactory = options.crackedDiscFactory;
     this.playableRandom = undefined;
@@ -833,7 +741,7 @@ export class GameEngine {
     // scenario can switch modes (e.g. a tutorial), and the previous mode's
     // gravity state (or lack of one) must not leak into this one.
     this.state.gravity = this.initialGravityState();
-    this.state.paradox = this.initialParadoxState();
+    this.state.paradox = this.paradoxSystem.initialState();
     if (this.state.gravity && options.gravityAngleDeg !== undefined) {
       this.state.gravity.angle = options.gravityAngleDeg;
       this.state.gravity.turnStartAngle = options.gravityAngleDeg;
@@ -844,7 +752,7 @@ export class GameEngine {
   // the current board/progress but replace the injected queue with the mode's
   // regular seeded generation.
   resumeSeededGeneration(seed: number = createGameSeed()): void {
-    this.rewindHistory = [];
+    this.paradoxSystem.clearHistory();
     this.customDiscFactory = undefined;
     this.customCrackedDiscFactory = undefined;
     const normalizedSeed = seed >>> 0;
@@ -946,8 +854,9 @@ export class GameEngine {
   }
 
   private captureRewindCheckpoint(): TurnCheckpoint | null {
-    if (!this.mode.rewind || !this.hasSnapshotGeneration()) {
-      this.rewindHistory = [];
+    const hasSnapshotGeneration = this.hasSnapshotGeneration();
+    if (!this.paradoxSystem.enabled || !hasSnapshotGeneration) {
+      this.paradoxSystem.clearHistory();
       return null;
     }
     const checkpoint: TurnCheckpoint = {
@@ -969,52 +878,7 @@ export class GameEngine {
       echoRandomState: this.echoRandom!.snapshot(),
       anchor: null,
     };
-    this.rewindHistory.push(checkpoint);
-    if (this.rewindHistory.length > this.mode.rewind.historyDepth) {
-      this.rewindHistory.splice(0, this.rewindHistory.length - this.mode.rewind.historyDepth);
-    }
-    return checkpoint;
-  }
-
-  private makeRewindPreview(checkpoint: TurnCheckpoint, turnsRewound: number): RewindPreview {
-    const [currentDisc, nextDisc] = checkpoint.queue;
-    // Repairs or other instability changes inside the erased turns must not
-    // survive. Cost starts from the selected boundary, then scales by depth.
-    const instabilityBefore = checkpoint.paradox?.instability ?? 0;
-    const instabilityAfter = instabilityBefore + turnsRewound;
-    const erasedTurns = this.rewindHistory
-      .slice(this.rewindHistory.length - turnsRewound)
-      .map(erased => ({ anchor: { ...erased.anchor! }, disc: { ...erased.queue[0] } }));
-    const fractures = this.selectRewindFractures(checkpoint.board, erasedTurns, instabilityAfter);
-    const board = deepCloneBoard(checkpoint.board);
-    fractures.forEach((target, index) => {
-      if (!target.materialized) return;
-      board[target.position.row]![target.position.col] = {
-        id: -(index + 1),
-        value: target.discValue,
-        kind: DiscKind.Numbered,
-      };
-    });
-    return {
-      board,
-      cursorCol: checkpoint.cursorCol,
-      score: checkpoint.score,
-      dropCount: checkpoint.dropCount,
-      level: checkpoint.level,
-      turnsPerLevel: checkpoint.turnsPerLevel,
-      turnsRemaining: checkpoint.turnsRemaining,
-      currentDisc: { ...currentDisc },
-      nextDisc: { ...nextDisc },
-      anchor: { ...checkpoint.anchor! },
-      rescuesGameOver: this.state.phase === GamePhase.GameOver,
-      instabilityBefore,
-      instabilityAfter,
-      turnCostBefore: turnCostForInstability(this.mode, instabilityBefore),
-      turnCostAfter: turnCostForInstability(this.mode, instabilityAfter),
-      turnsRewound,
-      historyAvailable: this.rewindHistory.length,
-      fractures,
-    };
+    return this.paradoxSystem.captureCheckpoint(checkpoint, hasSnapshotGeneration);
   }
 
   private restoreRewindCheckpoint(checkpoint: TurnCheckpoint): void {
@@ -1040,176 +904,6 @@ export class GameEngine {
     this.state.paradox = checkpoint.paradox ? { ...checkpoint.paradox } : undefined;
   }
 
-  private selectRewindFractures(
-    board: Board,
-    erasedTurns: readonly ErasedTurn[],
-    instability: number,
-  ): RewindFractureTarget[] {
-    const desiredKind = instability <= 2 ? DiscKind.SingleCracked : DiscKind.DoubleCracked;
-    const scratch = deepCloneBoard(board);
-    const targets = new Map<string, RewindFractureTarget>();
-    const positionKey = (position: GridPos) => `${position.row}:${position.col}`;
-    const nearest = (positions: GridPos[], anchor: GridPos): GridPos | undefined => positions.sort((a, b) => {
-      const distanceA = Math.abs(a.row - anchor.row) + Math.abs(a.col - anchor.col);
-      const distanceB = Math.abs(b.row - anchor.row) + Math.abs(b.col - anchor.col);
-      return distanceA - distanceB || b.row - a.row || a.col - b.col;
-    })[0];
-    const resultingKind = (current: DiscKind): DiscKind.SingleCracked | DiscKind.DoubleCracked => (
-      current === DiscKind.DoubleCracked || desiredKind === DiscKind.DoubleCracked
-        ? DiscKind.DoubleCracked
-        : DiscKind.SingleCracked
-    );
-
-    const addTarget = (
-      position: GridPos,
-      discValue: number,
-      materialized: boolean,
-      discId?: number,
-    ): void => {
-      const key = positionKey(position);
-      const disc = scratch[position.row]![position.col];
-      const existingDebt = disc?.temporalFracture?.instabilityDebt ?? 0;
-      const kind = resultingKind(disc?.kind ?? desiredKind);
-      const existingTarget = targets.get(key);
-      if (existingTarget) {
-        existingTarget.instabilityAdded++;
-        existingTarget.instabilityDebt++;
-      } else {
-        targets.set(key, {
-          position: { ...position },
-          ...(discId !== undefined ? { discId } : {}),
-          discValue,
-          resultingKind: kind,
-          instabilityDebt: existingDebt + 1,
-          instabilityAdded: 1,
-          materialized,
-        });
-      }
-      const nextDebt = existingDebt + 1;
-      if (disc) {
-        disc.kind = kind;
-        disc.temporalFracture = { createdAtInstability: instability, instabilityDebt: nextDebt };
-      } else {
-        scratch[position.row]![position.col] = {
-          id: -(targets.size + 1),
-          value: discValue,
-          kind,
-          temporalFracture: { createdAtInstability: instability, instabilityDebt: nextDebt },
-        };
-      }
-    };
-
-    for (const erased of erasedTurns) {
-      const numbered: GridPos[] = [];
-      for (let row = 0; row < scratch.length; row++) {
-        for (let col = 0; col < scratch[row]!.length; col++) {
-          const disc = scratch[row]![col];
-          if (disc?.kind === DiscKind.Numbered && !disc.temporalFracture) numbered.push({ row, col });
-        }
-      }
-      const numberedTarget = nearest(numbered, erased.anchor);
-      if (numberedTarget) {
-        const disc = scratch[numberedTarget.row]![numberedTarget.col]!;
-        addTarget(numberedTarget, disc.value, false, disc.id);
-        continue;
-      }
-
-      const emptyCount = scratch.reduce(
-        (total, row) => total + row.filter(cell => cell === null).length,
-        0,
-      );
-      if (emptyCount > 1) {
-        const landings: GridPos[] = [];
-        for (let col = 0; col < scratch[0]!.length; col++) {
-          const row = landingRow(scratch, col);
-          if (row !== null) landings.push({ row, col });
-        }
-        const remnantPosition = nearest(landings, erased.anchor);
-        if (remnantPosition) {
-          addTarget(remnantPosition, erased.disc.value, true);
-          continue;
-        }
-      }
-
-      const unclaimedCracked: GridPos[] = [];
-      const temporal: GridPos[] = [];
-      for (let row = 0; row < scratch.length; row++) {
-        for (let col = 0; col < scratch[row]!.length; col++) {
-          const disc = scratch[row]![col];
-          if (!disc) continue;
-          if (disc.temporalFracture) temporal.push({ row, col });
-          else if (disc.kind !== DiscKind.Numbered) unclaimedCracked.push({ row, col });
-        }
-      }
-      const fallback = nearest(unclaimedCracked, erased.anchor) ?? nearest(temporal, erased.anchor);
-      if (!fallback) throw new Error('Unable to anchor Paradox instability on the restored board');
-      const disc = scratch[fallback.row]![fallback.col]!;
-      addTarget(fallback, disc.value, false, disc.id);
-    }
-
-    return [...targets.values()];
-  }
-
-  private applyRewindFractures(
-    board: Board,
-    fractures: readonly RewindFractureTarget[],
-    instability: number,
-  ): void {
-    for (const target of fractures) {
-      let disc = board[target.position.row]?.[target.position.col];
-      if (!disc) {
-        disc = makeDisc(target.discValue, target.resultingKind);
-        placeDisc(board, target.position.row, target.position.col, disc);
-      }
-      disc.kind = target.resultingKind;
-      disc.temporalFracture = {
-        createdAtInstability: instability,
-        instabilityDebt: target.instabilityDebt,
-      };
-    }
-  }
-
-  /** Migrates old or incomplete saves so every instability point has a repair path. */
-  private reconcileTemporalDebt(
-    board: Board,
-    instability: number,
-    anchor: GridPos,
-    fallbackDiscValue: number,
-  ): void {
-    const fractures: GridPos[] = [];
-    for (let row = 0; row < board.length; row++) {
-      for (let col = 0; col < board[row]!.length; col++) {
-        if (board[row]![col]?.temporalFracture) fractures.push({ row, col });
-      }
-    }
-    fractures.sort((a, b) => {
-      const distanceA = Math.abs(a.row - anchor.row) + Math.abs(a.col - anchor.col);
-      const distanceB = Math.abs(b.row - anchor.row) + Math.abs(b.col - anchor.col);
-      return distanceA - distanceB || b.row - a.row || a.col - b.col;
-    });
-
-    let remaining = instability;
-    for (const position of fractures) {
-      const disc = board[position.row]![position.col]!;
-      const debt = disc.temporalFracture!.instabilityDebt;
-      const assigned = Math.min(debt, remaining);
-      if (assigned === 0) {
-        delete disc.temporalFracture;
-      } else {
-        disc.temporalFracture!.instabilityDebt = assigned;
-        remaining -= assigned;
-      }
-    }
-    if (remaining === 0) return;
-
-    const missingDebt: ErasedTurn[] = Array.from({ length: remaining }, () => ({
-      anchor: { ...anchor },
-      disc: { value: fallbackDiscValue, kind: DiscKind.Numbered },
-    }));
-    const targets = this.selectRewindFractures(board, missingDebt, instability);
-    this.applyRewindFractures(board, targets, instability);
-  }
-
   // Column count for top/bottom entry, row count for left/right entry. Classic
   // (no gravity config) is always column-based.
   private currentLaneCount(): number {
@@ -1229,12 +923,8 @@ export class GameEngine {
     };
   }
 
-  private initialParadoxState(): { instability: number } | undefined {
-    return this.mode.rewind ? { instability: 0 } : undefined;
-  }
-
   private resetState(board: Board): void {
-    this.rewindHistory = [];
+    this.paradoxSystem.clearHistory();
     this.state.phase = GamePhase.WaitingForDrop;
     this.state.board = board;
     this.state.currentDisc = this.queue.peek();
@@ -1246,6 +936,6 @@ export class GameEngine {
     this.state.turnsPerLevel = turnsForLevel(this.mode, 1);
     this.state.turnsRemaining = this.state.turnsPerLevel;
     this.state.gravity = this.initialGravityState();
-    this.state.paradox = this.initialParadoxState();
+    this.state.paradox = this.paradoxSystem.initialState();
   }
 }
