@@ -15,7 +15,7 @@ function stableSave(engine: GameEngine) {
 }
 
 describe('Paradox rewind history', () => {
-  test('restores an exact pre-turn state in place and consumes the checkpoint', () => {
+  test('restores pre-turn progress in place and materializes missing fracture debt', () => {
     const engine = new GameEngine({ mode: PARADOX_MODE, seed: SEED });
     const stateReference = engine.state;
     const before = stableSave(engine);
@@ -27,12 +27,25 @@ describe('Paradox rewind history', () => {
     const rewind = engine.commitRewind();
 
     expect(rewind).not.toBeNull();
+    expect(rewind!.fractures).toEqual([
+      expect.objectContaining({
+        materialized: true,
+        instabilityDebt: 1,
+        instabilityAdded: 1,
+      }),
+    ]);
     expect(engine.state).toBe(stateReference);
     const afterRewind = stableSave(engine);
-    expect(afterRewind).toMatchObject({
-      state: before.state,
-      generation: before.generation,
-      paradox: { instability: 1 },
+    expect(afterRewind.state).toMatchObject({
+      ...before.state,
+      board: expect.any(Array),
+    });
+    expect(afterRewind.generation).toEqual(before.generation);
+    expect(afterRewind.paradox).toEqual({ instability: 1 });
+    const remnant = engine.state.board.flat().find(disc => disc?.temporalFracture);
+    expect(remnant).toMatchObject({
+      kind: DiscKind.SingleCracked,
+      temporalFracture: { createdAtInstability: 1, instabilityDebt: 1 },
     });
     expect(engine.canRewind()).toBe(false);
     expect(engine.previewRewind()).toBeNull();
@@ -64,7 +77,7 @@ describe('Paradox rewind history', () => {
     expect(engine.canRewind()).toBe(true);
   });
 
-  test('rewinds generator history and both random streams', () => {
+  test('rewinds generator history and all random streams', () => {
     const pushEveryTurn: GameModeConfig = {
       ...PARADOX_MODE,
       id: 'paradox-push-every-turn-test',
@@ -82,7 +95,6 @@ describe('Paradox rewind history', () => {
 
     const rewoundSave = stableSave(rewound);
     const controlSave = stableSave(control);
-    expect(rewoundSave.state).toEqual(controlSave.state);
     expect(rewoundSave.generation).toEqual(controlSave.generation);
   });
 
@@ -106,7 +118,7 @@ describe('Paradox rewind history', () => {
     expect(engine.commitRewind()).not.toBeNull();
 
     const restored = stableSave(engine);
-    expect(restored.state).toEqual(afterFirstTurn.state);
+    expect(restored.state).toMatchObject({ ...afterFirstTurn.state, board: expect.any(Array) });
     expect(restored.generation).toEqual(afterFirstTurn.generation);
     expect(restored.paradox).toEqual({ instability: 1 });
     expect(engine.state.dropCount).toBe(1);
@@ -135,7 +147,7 @@ describe('Paradox rewind history', () => {
     const rewind = engine.commitRewind(2);
     expect(rewind).toMatchObject({ turnsRewound: 2, instabilityAfter: 2 });
     const restored = stableSave(engine);
-    expect(restored.state).toEqual(afterOne.state);
+    expect(restored.state).toMatchObject({ ...afterOne.state, board: expect.any(Array) });
     expect(restored.generation).toEqual(afterOne.generation);
     expect(restored.state).not.toEqual(initial.state);
     expect(restored.paradox).toEqual({ instability: 2 });
@@ -172,6 +184,34 @@ describe('Paradox rewind history', () => {
     expect(deep.instabilityAfter).toBe(3);
     expect(deep.fractures).toHaveLength(3);
     expect(deep.fractures.every(target => target.resultingKind === DiscKind.DoubleCracked)).toBe(true);
+  });
+
+  test('materializes erased discs when the restored board lacks enough fracture targets', () => {
+    const board = makeEmptyBoard();
+    placeDisc(board, 6, 0, makeDisc(7, DiscKind.Numbered));
+    const engine = new GameEngine({ mode: PARADOX_MODE, seed: SEED, board });
+    engine.drop(2);
+    engine.drop(4);
+
+    const preview = engine.previewRewind(2)!;
+
+    expect(preview.fractures).toHaveLength(2);
+    expect(preview.fractures.filter(target => target.materialized)).toHaveLength(1);
+    expect(preview.fractures.reduce(
+      (total, target) => total + target.instabilityAdded,
+      0,
+    )).toBe(2);
+    const remnantTarget = preview.fractures.find(target => target.materialized)!;
+    expect(preview.board[remnantTarget.position.row]![remnantTarget.position.col])
+      .toMatchObject({ value: remnantTarget.discValue, kind: DiscKind.Numbered });
+
+    engine.commitRewind(2);
+    const temporalDebt = engine.state.board.flat().reduce(
+      (total, disc) => total + (disc?.temporalFracture?.instabilityDebt ?? 0),
+      0,
+    );
+    expect(temporalDebt).toBe(2);
+    expect(engine.state.paradox!.instability).toBe(2);
   });
 
   test.each([
@@ -294,7 +334,7 @@ describe('Paradox rewind history', () => {
     for (const scenario of [
       { before: 0, kind: DiscKind.SingleCracked, count: 1 },
       { before: 2, kind: DiscKind.DoubleCracked, count: 1 },
-      { before: 4, kind: DiscKind.DoubleCracked, count: 2 },
+      { before: 4, kind: DiscKind.DoubleCracked, count: 1 },
     ] as const) {
       const engine = new GameEngine({ mode: PARADOX_MODE, seed: SEED, board: makeBoard() });
       engine.state.paradox!.instability = scenario.before;
@@ -304,6 +344,7 @@ describe('Paradox rewind history', () => {
       expect(preview.instabilityAfter).toBe(scenario.before + 1);
       expect(preview.fractures).toHaveLength(scenario.count);
       expect(preview.fractures.every(target => target.resultingKind === scenario.kind)).toBe(true);
+      expect(preview.fractures.reduce((total, target) => total + target.instabilityAdded, 0)).toBe(1);
       expect(preview.fractures[0]!.position).toEqual({ row: 5, col: 5 });
       expect(preview.fractures[0]).toMatchObject({ discValue: 7 });
       expect(preview.board[5]![5]).toMatchObject({ kind: DiscKind.Numbered, value: 7 });
@@ -312,7 +353,10 @@ describe('Paradox rewind history', () => {
       for (const target of preview.fractures) {
         expect(engine.state.board[target.position.row]![target.position.col]).toMatchObject({
           kind: scenario.kind,
-          temporalFracture: { createdAtInstability: scenario.before + 1 },
+          temporalFracture: {
+            createdAtInstability: scenario.before + 1,
+            instabilityDebt: 1,
+          },
         });
       }
     }
@@ -321,7 +365,7 @@ describe('Paradox rewind history', () => {
   test('fully repairing a temporal fracture lowers instability by one', () => {
     const board = makeEmptyBoard();
     const temporal = makeDisc(7, DiscKind.SingleCracked);
-    temporal.temporalFracture = { createdAtInstability: 3 };
+    temporal.temporalFracture = { createdAtInstability: 3, instabilityDebt: 1 };
     placeDisc(board, 6, 0, temporal);
     placeDisc(board, 6, 1, makeDisc(3, DiscKind.Numbered));
     const engine = new GameEngine({
@@ -334,11 +378,94 @@ describe('Paradox rewind history', () => {
     const turn = engine.drop(2);
 
     expect(turn.steps).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: StepKind.Reveal, temporalRepairs: [{ row: 6, col: 0 }] }),
+      expect.objectContaining({
+        kind: StepKind.Reveal,
+        temporalRepairs: [{ row: 6, col: 0 }],
+        instabilityRecovered: 1,
+      }),
     ]));
     expect(engine.state.paradox!.instability).toBe(2);
     expect(engine.state.board[6]![0]).toMatchObject({ kind: DiscKind.Numbered });
     expect(engine.state.board[6]![0]).not.toHaveProperty('temporalFracture');
+  });
+
+  test('repairing a stacked temporal fracture recovers all debt it carries', () => {
+    const board = makeEmptyBoard();
+    const temporal = makeDisc(7, DiscKind.SingleCracked);
+    temporal.temporalFracture = { createdAtInstability: 3, instabilityDebt: 3 };
+    placeDisc(board, 6, 0, temporal);
+    placeDisc(board, 6, 1, makeDisc(3, DiscKind.Numbered));
+    const engine = new GameEngine({
+      mode: PARADOX_MODE,
+      board,
+      discFactory: () => makeDisc(3, DiscKind.Numbered),
+    });
+    engine.state.paradox!.instability = 3;
+
+    const turn = engine.drop(2);
+
+    expect(turn.steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: StepKind.Reveal, instabilityRecovered: 3 }),
+    ]));
+    expect(engine.state.paradox!.instability).toBe(0);
+  });
+
+  test('an ordinary clear does not recover instability without repairing a temporal fracture', () => {
+    const engine = new GameEngine({
+      mode: PARADOX_MODE,
+      discFactory: () => makeDisc(1, DiscKind.Numbered),
+    });
+    engine.state.paradox!.instability = 3;
+
+    const turn = engine.drop(2);
+
+    expect(turn.steps.some(step => step.kind === StepKind.Clear)).toBe(true);
+    expect(engine.state.paradox!.instability).toBe(3);
+  });
+
+  test('loading an old save materializes repair debt for orphaned instability', () => {
+    const source = new GameEngine({ mode: PARADOX_MODE, seed: SEED });
+    const legacy = source.exportSave({ savedAt: 0 });
+    legacy.paradox!.instability = 2;
+    const restored = new GameEngine({ mode: PARADOX_MODE, seed: 1 });
+
+    restored.loadSave(legacy, PARADOX_MODE);
+
+    const temporalDiscs = restored.state.board.flat().filter(disc => disc?.temporalFracture);
+    expect(temporalDiscs).toHaveLength(2);
+    expect(temporalDiscs.reduce(
+      (total, disc) => total + (disc?.temporalFracture?.instabilityDebt ?? 0),
+      0,
+    )).toBe(2);
+    expect(restored.state.paradox!.instability).toBe(2);
+  });
+
+  test('loading a saturated board stacks orphaned debt instead of leaving instability stuck', () => {
+    const source = new GameEngine({ mode: PARADOX_MODE, seed: SEED });
+    const legacy = source.exportSave({ savedAt: 0 });
+    legacy.paradox!.instability = 50;
+    legacy.state.board = legacy.state.board.map((row, rowIndex) => row.map((_cell, colIndex) => (
+      rowIndex === 0 && colIndex === 0
+        ? null
+        : {
+            value: 7,
+            kind: DiscKind.DoubleCracked,
+            temporalFracture: { createdAtInstability: 48, instabilityDebt: 1 },
+          }
+    )));
+    const restored = new GameEngine({ mode: PARADOX_MODE, seed: 1 });
+
+    restored.loadSave(legacy, PARADOX_MODE);
+
+    const temporalDiscs = restored.state.board.flat().filter(disc => disc?.temporalFracture);
+    expect(restored.state.board.flat().filter(disc => disc === null)).toHaveLength(1);
+    expect(temporalDiscs.reduce(
+      (total, disc) => total + (disc?.temporalFracture?.instabilityDebt ?? 0),
+      0,
+    )).toBe(50);
+    expect(Math.max(...temporalDiscs.map(
+      disc => disc?.temporalFracture?.instabilityDebt ?? 0,
+    ))).toBe(3);
   });
 
   test('save loading restores exact rewind history and controller session metadata', () => {

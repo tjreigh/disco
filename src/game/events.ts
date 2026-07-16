@@ -47,6 +47,8 @@ export interface RevealStep {
   discs: Disc[];
   /** Temporal fractures whose final cover was removed by this reveal batch. */
   temporalRepairs?: GridPos[];
+  /** Total instability debt carried by temporalRepairs. */
+  instabilityRecovered?: number;
 }
 
 export interface PushStep {

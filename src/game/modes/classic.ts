@@ -22,6 +22,7 @@ function classicRevealAdjacent(board: Board, cleared: GridPos[]): RevealStep {
   const cols = board[0]!.length;
   const positions: GridPos[] = [];
   const temporalRepairs: GridPos[] = [];
+  let instabilityRecovered = 0;
   const updated = new Set<string>();
 
   for (const { row, col } of cleared) {
@@ -42,6 +43,7 @@ function classicRevealAdjacent(board: Board, cleared: GridPos[]): RevealStep {
         disc.kind = DiscKind.Numbered;
         if (disc.temporalFracture) {
           temporalRepairs.push({ row: r, col: c });
+          instabilityRecovered += disc.temporalFracture.instabilityDebt;
           delete disc.temporalFracture;
         }
         positions.push({ row: r, col: c });
@@ -56,7 +58,7 @@ function classicRevealAdjacent(board: Board, cleared: GridPos[]): RevealStep {
     kind: StepKind.Reveal,
     positions,
     discs,
-    ...(temporalRepairs.length > 0 ? { temporalRepairs } : {}),
+    ...(temporalRepairs.length > 0 ? { temporalRepairs, instabilityRecovered } : {}),
   };
 }
 

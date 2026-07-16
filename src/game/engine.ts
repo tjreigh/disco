@@ -5,7 +5,9 @@ import type { GameState, GravityState } from './state.js';
 import { GamePhase } from './state.js';
 import type { PhysicsStep } from './events.js';
 import { StepKind } from './events.js';
-import { deepCloneBoard, isBoardFull, isColumnFull, makeEmptyBoard, placeDisc } from './board.js';
+import {
+  deepCloneBoard, isBoardFull, isColumnFull, landingRow, makeEmptyBoard, placeDisc,
+} from './board.js';
 import {
   entryEdgeForAngle, entryPositionForLane, isLaneFull, settleContinuous, snapAngleToEightDirections,
 } from './gravity.js';
@@ -71,9 +73,15 @@ export interface RewindPreview {
 
 export interface RewindFractureTarget {
   position: GridPos;
-  discId: number;
+  discId?: number;
   discValue: number;
   resultingKind: DiscKind.SingleCracked | DiscKind.DoubleCracked;
+  /** Total recoverable instability carried by this fracture after the rewind. */
+  instabilityDebt: number;
+  /** Portion of instabilityDebt introduced by the selected rewind. */
+  instabilityAdded: number;
+  /** True when the erased timeline must return a disc to create this target. */
+  materialized: boolean;
 }
 
 /**
@@ -140,6 +148,11 @@ interface TurnCheckpoint {
   pushRandomState: number;
   echoRandomState: number;
   anchor: GridPos | null;
+}
+
+interface ErasedTurn {
+  anchor: GridPos;
+  disc: QueuedDiscSnapshot;
 }
 
 /**
@@ -301,31 +314,50 @@ export class GameEngine {
       maxTiltDelta: mode.gravity!.maxTiltDeltaDeg,
     } : undefined;
     this.state.paradox = save.paradox ? { instability: save.paradox.instability } : undefined;
+    if (this.state.paradox) {
+      const col = Math.max(0, Math.min(board[0]!.length - 1, save.state.cursorCol));
+      this.reconcileTemporalDebt(
+        board,
+        this.state.paradox.instability,
+        { row: landingRow(board, col) ?? 0, col },
+        this.queue.peek().value,
+      );
+    }
     const savedRewinds = save.paradox?.rewinds ?? (save.paradox?.rewind ? [save.paradox.rewind] : []);
-    this.rewindHistory = savedRewinds.map(rewind => ({
-      generationSeed: rewind.generation.seed,
-      generationSource: 'seeded',
-      board: deserializeBoard(rewind.state.board),
-      cursorCol: rewind.state.cursorCol,
-      score: rewind.state.score,
-      dropCount: rewind.state.dropCount,
-      level: rewind.state.level,
-      turnsPerLevel: rewind.state.turnsPerLevel,
-      turnsRemaining: rewind.state.turnsRemaining,
-      gravity: rewind.state.gravity ? {
-        angle: rewind.state.gravity.angle,
-        turnStartAngle: rewind.state.gravity.angle,
-        maxTiltDelta: mode.gravity!.maxTiltDeltaDeg,
-      } : undefined,
-      paradox: { instability: rewind.instability },
-      queue: this.toQueueSnapshot(rewind.generation.queue),
-      playableGenerator: rewind.generation.playableGenerator,
-      playableRandomState: rewind.generation.random.playableState,
-      pushRandomState: rewind.generation.random.pushState,
-      echoRandomState: rewind.generation.random.echoState
-        ?? deriveSeed(rewind.generation.seed, 0x4543484f),
-      anchor: { ...rewind.anchor },
-    }));
+    this.rewindHistory = savedRewinds.map(rewind => {
+      const rewindBoard = deserializeBoard(rewind.state.board);
+      const queue = this.toQueueSnapshot(rewind.generation.queue);
+      this.reconcileTemporalDebt(
+        rewindBoard,
+        rewind.instability,
+        rewind.anchor,
+        queue[0].value,
+      );
+      return {
+        generationSeed: rewind.generation.seed,
+        generationSource: 'seeded',
+        board: rewindBoard,
+        cursorCol: rewind.state.cursorCol,
+        score: rewind.state.score,
+        dropCount: rewind.state.dropCount,
+        level: rewind.state.level,
+        turnsPerLevel: rewind.state.turnsPerLevel,
+        turnsRemaining: rewind.state.turnsRemaining,
+        gravity: rewind.state.gravity ? {
+          angle: rewind.state.gravity.angle,
+          turnStartAngle: rewind.state.gravity.angle,
+          maxTiltDelta: mode.gravity!.maxTiltDeltaDeg,
+        } : undefined,
+        paradox: { instability: rewind.instability },
+        queue,
+        playableGenerator: rewind.generation.playableGenerator,
+        playableRandomState: rewind.generation.random.playableState,
+        pushRandomState: rewind.generation.random.pushState,
+        echoRandomState: rewind.generation.random.echoState
+          ?? deriveSeed(rewind.generation.seed, 0x4543484f),
+        anchor: { ...rewind.anchor },
+      };
+    });
     return save;
   }
 
@@ -664,7 +696,9 @@ export class GameEngine {
 
     if (this.state.paradox) {
       const temporalRepairs = steps.reduce(
-        (total, step) => total + (step.kind === StepKind.Reveal ? (step.temporalRepairs?.length ?? 0) : 0),
+        (total, step) => total + (step.kind === StepKind.Reveal
+          ? (step.instabilityRecovered ?? step.temporalRepairs?.length ?? 0)
+          : 0),
         0,
       );
       this.state.paradox.instability = Math.max(0, this.state.paradox.instability - temporalRepairs);
@@ -948,10 +982,19 @@ export class GameEngine {
     // survive. Cost starts from the selected boundary, then scales by depth.
     const instabilityBefore = checkpoint.paradox?.instability ?? 0;
     const instabilityAfter = instabilityBefore + turnsRewound;
-    const fractures = this.selectRewindFractures(
-      checkpoint.board, checkpoint.anchor!, instabilityAfter, turnsRewound,
-    );
+    const erasedTurns = this.rewindHistory
+      .slice(this.rewindHistory.length - turnsRewound)
+      .map(erased => ({ anchor: { ...erased.anchor! }, disc: { ...erased.queue[0] } }));
+    const fractures = this.selectRewindFractures(checkpoint.board, erasedTurns, instabilityAfter);
     const board = deepCloneBoard(checkpoint.board);
+    fractures.forEach((target, index) => {
+      if (!target.materialized) return;
+      board[target.position.row]![target.position.col] = {
+        id: -(index + 1),
+        value: target.discValue,
+        kind: DiscKind.Numbered,
+      };
+    });
     return {
       board,
       cursorCol: checkpoint.cursorCol,
@@ -999,33 +1042,112 @@ export class GameEngine {
 
   private selectRewindFractures(
     board: Board,
-    anchor: GridPos,
+    erasedTurns: readonly ErasedTurn[],
     instability: number,
-    turnsRewound: number,
   ): RewindFractureTarget[] {
-    const resultingKind = instability <= 2 ? DiscKind.SingleCracked : DiscKind.DoubleCracked;
-    const targetCount = Math.max(turnsRewound, instability >= 5 ? 2 : 1);
-    const candidates: GridPos[] = [];
-    for (let row = 0; row < board.length; row++) {
-      for (let col = 0; col < board[row]!.length; col++) {
-        const disc = board[row]![col];
-        if (disc?.kind === DiscKind.Numbered && !disc.temporalFracture) candidates.push({ row, col });
-      }
-    }
-    candidates.sort((a, b) => {
+    const desiredKind = instability <= 2 ? DiscKind.SingleCracked : DiscKind.DoubleCracked;
+    const scratch = deepCloneBoard(board);
+    const targets = new Map<string, RewindFractureTarget>();
+    const positionKey = (position: GridPos) => `${position.row}:${position.col}`;
+    const nearest = (positions: GridPos[], anchor: GridPos): GridPos | undefined => positions.sort((a, b) => {
       const distanceA = Math.abs(a.row - anchor.row) + Math.abs(a.col - anchor.col);
       const distanceB = Math.abs(b.row - anchor.row) + Math.abs(b.col - anchor.col);
       return distanceA - distanceB || b.row - a.row || a.col - b.col;
-    });
-    return candidates.slice(0, targetCount).map(position => {
-      const disc = board[position.row]![position.col]!;
-      return {
-        position: { ...position },
-        discId: disc.id,
-        discValue: disc.value,
-        resultingKind,
-      };
-    });
+    })[0];
+    const resultingKind = (current: DiscKind): DiscKind.SingleCracked | DiscKind.DoubleCracked => (
+      current === DiscKind.DoubleCracked || desiredKind === DiscKind.DoubleCracked
+        ? DiscKind.DoubleCracked
+        : DiscKind.SingleCracked
+    );
+
+    const addTarget = (
+      position: GridPos,
+      discValue: number,
+      materialized: boolean,
+      discId?: number,
+    ): void => {
+      const key = positionKey(position);
+      const disc = scratch[position.row]![position.col];
+      const existingDebt = disc?.temporalFracture?.instabilityDebt ?? 0;
+      const kind = resultingKind(disc?.kind ?? desiredKind);
+      const existingTarget = targets.get(key);
+      if (existingTarget) {
+        existingTarget.instabilityAdded++;
+        existingTarget.instabilityDebt++;
+      } else {
+        targets.set(key, {
+          position: { ...position },
+          ...(discId !== undefined ? { discId } : {}),
+          discValue,
+          resultingKind: kind,
+          instabilityDebt: existingDebt + 1,
+          instabilityAdded: 1,
+          materialized,
+        });
+      }
+      const nextDebt = existingDebt + 1;
+      if (disc) {
+        disc.kind = kind;
+        disc.temporalFracture = { createdAtInstability: instability, instabilityDebt: nextDebt };
+      } else {
+        scratch[position.row]![position.col] = {
+          id: -(targets.size + 1),
+          value: discValue,
+          kind,
+          temporalFracture: { createdAtInstability: instability, instabilityDebt: nextDebt },
+        };
+      }
+    };
+
+    for (const erased of erasedTurns) {
+      const numbered: GridPos[] = [];
+      for (let row = 0; row < scratch.length; row++) {
+        for (let col = 0; col < scratch[row]!.length; col++) {
+          const disc = scratch[row]![col];
+          if (disc?.kind === DiscKind.Numbered && !disc.temporalFracture) numbered.push({ row, col });
+        }
+      }
+      const numberedTarget = nearest(numbered, erased.anchor);
+      if (numberedTarget) {
+        const disc = scratch[numberedTarget.row]![numberedTarget.col]!;
+        addTarget(numberedTarget, disc.value, false, disc.id);
+        continue;
+      }
+
+      const emptyCount = scratch.reduce(
+        (total, row) => total + row.filter(cell => cell === null).length,
+        0,
+      );
+      if (emptyCount > 1) {
+        const landings: GridPos[] = [];
+        for (let col = 0; col < scratch[0]!.length; col++) {
+          const row = landingRow(scratch, col);
+          if (row !== null) landings.push({ row, col });
+        }
+        const remnantPosition = nearest(landings, erased.anchor);
+        if (remnantPosition) {
+          addTarget(remnantPosition, erased.disc.value, true);
+          continue;
+        }
+      }
+
+      const unclaimedCracked: GridPos[] = [];
+      const temporal: GridPos[] = [];
+      for (let row = 0; row < scratch.length; row++) {
+        for (let col = 0; col < scratch[row]!.length; col++) {
+          const disc = scratch[row]![col];
+          if (!disc) continue;
+          if (disc.temporalFracture) temporal.push({ row, col });
+          else if (disc.kind !== DiscKind.Numbered) unclaimedCracked.push({ row, col });
+        }
+      }
+      const fallback = nearest(unclaimedCracked, erased.anchor) ?? nearest(temporal, erased.anchor);
+      if (!fallback) throw new Error('Unable to anchor Paradox instability on the restored board');
+      const disc = scratch[fallback.row]![fallback.col]!;
+      addTarget(fallback, disc.value, false, disc.id);
+    }
+
+    return [...targets.values()];
   }
 
   private applyRewindFractures(
@@ -1033,12 +1155,59 @@ export class GameEngine {
     fractures: readonly RewindFractureTarget[],
     instability: number,
   ): void {
-    for (const { position, resultingKind } of fractures) {
-      const disc = board[position.row]?.[position.col];
-      if (!disc) continue;
-      disc.kind = resultingKind;
-      disc.temporalFracture = { createdAtInstability: instability };
+    for (const target of fractures) {
+      let disc = board[target.position.row]?.[target.position.col];
+      if (!disc) {
+        disc = makeDisc(target.discValue, target.resultingKind);
+        placeDisc(board, target.position.row, target.position.col, disc);
+      }
+      disc.kind = target.resultingKind;
+      disc.temporalFracture = {
+        createdAtInstability: instability,
+        instabilityDebt: target.instabilityDebt,
+      };
     }
+  }
+
+  /** Migrates old or incomplete saves so every instability point has a repair path. */
+  private reconcileTemporalDebt(
+    board: Board,
+    instability: number,
+    anchor: GridPos,
+    fallbackDiscValue: number,
+  ): void {
+    const fractures: GridPos[] = [];
+    for (let row = 0; row < board.length; row++) {
+      for (let col = 0; col < board[row]!.length; col++) {
+        if (board[row]![col]?.temporalFracture) fractures.push({ row, col });
+      }
+    }
+    fractures.sort((a, b) => {
+      const distanceA = Math.abs(a.row - anchor.row) + Math.abs(a.col - anchor.col);
+      const distanceB = Math.abs(b.row - anchor.row) + Math.abs(b.col - anchor.col);
+      return distanceA - distanceB || b.row - a.row || a.col - b.col;
+    });
+
+    let remaining = instability;
+    for (const position of fractures) {
+      const disc = board[position.row]![position.col]!;
+      const debt = disc.temporalFracture!.instabilityDebt;
+      const assigned = Math.min(debt, remaining);
+      if (assigned === 0) {
+        delete disc.temporalFracture;
+      } else {
+        disc.temporalFracture!.instabilityDebt = assigned;
+        remaining -= assigned;
+      }
+    }
+    if (remaining === 0) return;
+
+    const missingDebt: ErasedTurn[] = Array.from({ length: remaining }, () => ({
+      anchor: { ...anchor },
+      disc: { value: fallbackDiscValue, kind: DiscKind.Numbered },
+    }));
+    const targets = this.selectRewindFractures(board, missingDebt, instability);
+    this.applyRewindFractures(board, targets, instability);
   }
 
   // Column count for top/bottom entry, row count for left/right entry. Classic

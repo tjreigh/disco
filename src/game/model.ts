@@ -11,6 +11,8 @@ export interface Disc {
   /** Present while a Paradox rewind fracture is still covered. */
   temporalFracture?: {
     createdAtInstability: number;
+    /** Instability restored when the fracture's final crack layer is removed. */
+    instabilityDebt: number;
   };
 }
 

@@ -11,6 +11,15 @@ const ECHO_EVERY_TURN: GameModeConfig = {
   id: 'paradox-temporal-echo-test',
   rewind: {
     ...PARADOX_MODE.rewind!,
+    temporalEcho: { tiers: [{ minimumInstability: 0, probability: 1 }] },
+  },
+};
+
+const ECHO_FROM_FIVE: GameModeConfig = {
+  ...ECHO_EVERY_TURN,
+  id: 'paradox-temporal-echo-threshold-test',
+  rewind: {
+    ...ECHO_EVERY_TURN.rewind!,
     temporalEcho: { tiers: [{ minimumInstability: 5, probability: 1 }] },
   },
 };
@@ -44,7 +53,7 @@ describe('Paradox Temporal Echo', () => {
   });
 
   test('does not echo below the first configured instability tier', () => {
-    const engine = new GameEngine({ mode: ECHO_EVERY_TURN, seed: 0x2468_1357 });
+    const engine = new GameEngine({ mode: ECHO_FROM_FIVE, seed: 0x2468_1357 });
     engine.state.paradox!.instability = 4;
 
     const result = engine.drop(3);
@@ -54,7 +63,6 @@ describe('Paradox Temporal Echo', () => {
 
   test('persists the independent echo random stream across a save', () => {
     const uninterrupted = new GameEngine({ mode: ECHO_EVERY_TURN, seed: 0x1020_3040 });
-    uninterrupted.state.paradox!.instability = 5;
     uninterrupted.drop(2);
     const save = uninterrupted.exportSave({ savedAt: 0 });
 
@@ -76,13 +84,12 @@ describe('Paradox Temporal Echo', () => {
 
   test('restores the echo random stream when a turn is rewound', () => {
     const rewound = new GameEngine({ mode: ECHO_EVERY_TURN, seed: 0x5566_7788 });
-    rewound.state.paradox!.instability = 5;
     rewound.drop(2);
     rewound.commitRewind();
     const replay = rewound.drop(3);
 
     const control = new GameEngine({ mode: ECHO_EVERY_TURN, seed: 0x5566_7788 });
-    control.state.paradox!.instability = 6;
+    control.state.paradox!.instability = 1;
     const expected = control.drop(3);
     const echoCol = (result: typeof replay) => {
       const echo = result.steps.find(

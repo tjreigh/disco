@@ -106,13 +106,26 @@ export class RewindDialog {
     if (count === 0) {
       this.consequence.textContent = 'No disc will fracture on the restored board — this time.';
     } else {
-      const layers = preview.fractures[0]!.resultingKind === DiscKind.DoubleCracked ? 'two layers' : 'one layer';
+      const layerCounts = new Set(preview.fractures.map(target => target.resultingKind));
+      const layers = layerCounts.size > 1
+        ? 'one or two layers'
+        : preview.fractures[0]!.resultingKind === DiscKind.DoubleCracked ? 'two layers' : 'one layer';
       const values = new Intl.ListFormat('en', { type: 'conjunction' }).format(
         preview.fractures.map(target => String(target.discValue)),
       );
-      this.consequence.textContent = count === 1
+      const materialized = preview.fractures.filter(target => target.materialized).length;
+      const instabilityAdded = preview.fractures.reduce(
+        (total, target) => total + target.instabilityAdded,
+        0,
+      );
+      const remnantCopy = materialized === 0
+        ? ''
+        : `${materialized} erased ${materialized === 1 ? 'disc returns' : 'discs return'} as ${materialized === 1 ? 'a temporal remnant' : 'temporal remnants'}. `;
+      const fractureCopy = count === 1
         ? `Highlighted disc: ${values} → ${layers} of temporal damage.`
         : `Highlighted discs: ${values} → ${layers} of temporal damage each.`;
+      const repairCopy = ` Repair ${count === 1 ? 'it' : 'them'} to recover ${instabilityAdded} instability.`;
+      this.consequence.textContent = remnantCopy + fractureCopy + repairCopy;
     }
     this.rescue.textContent = preview.rescuesGameOver
       ? 'This rewind rescues the run from game over.'

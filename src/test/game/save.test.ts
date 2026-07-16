@@ -82,14 +82,24 @@ describe('save disc and board serialization', () => {
 
   test('temporal fracture metadata round-trips independently', () => {
     const original = makeDisc(5, DiscKind.DoubleCracked);
-    original.temporalFracture = { createdAtInstability: 4 };
+    original.temporalFracture = { createdAtInstability: 4, instabilityDebt: 2 };
     const saved = serializeDisc(original);
     const restored = deserializeDisc(saved);
 
-    expect(saved.temporalFracture).toEqual({ createdAtInstability: 4 });
-    expect(restored.temporalFracture).toEqual({ createdAtInstability: 4 });
+    expect(saved.temporalFracture).toEqual({ createdAtInstability: 4, instabilityDebt: 2 });
+    expect(restored.temporalFracture).toEqual({ createdAtInstability: 4, instabilityDebt: 2 });
     restored.temporalFracture!.createdAtInstability = 9;
-    expect(saved.temporalFracture).toEqual({ createdAtInstability: 4 });
+    expect(saved.temporalFracture).toEqual({ createdAtInstability: 4, instabilityDebt: 2 });
+
+    const restoredLegacy = deserializeDisc({
+      value: 5,
+      kind: DiscKind.SingleCracked,
+      temporalFracture: { createdAtInstability: 3 },
+    });
+    expect(restoredLegacy.temporalFracture).toEqual({
+      createdAtInstability: 3,
+      instabilityDebt: 1,
+    });
   });
 
   test('boards round-trip independently with fresh disc IDs', () => {
@@ -302,8 +312,23 @@ describe('SaveGameV1 parsing', () => {
     save.state.board[6]![0] = {
       value: 7,
       kind: DiscKind.SingleCracked,
-      temporalFracture: { createdAtInstability: 1 },
+      temporalFracture: { createdAtInstability: 1, instabilityDebt: 1 },
     };
     expect(parseSaveGame(save, CLASSIC_MODE)).toBeNull();
+  });
+
+  test('accepts legacy fracture debt and rejects invalid explicit debt', () => {
+    const legacy = validSave(PARADOX_MODE);
+    legacy.paradox = { instability: 1 };
+    legacy.state.board[6]![0] = {
+      value: 7,
+      kind: DiscKind.SingleCracked,
+      temporalFracture: { createdAtInstability: 1 },
+    };
+    expect(parseSaveGame(legacy, PARADOX_MODE)).toEqual(legacy);
+
+    const invalid = jsonClone(legacy) as SaveGameV1;
+    invalid.state.board[6]![0]!.temporalFracture!.instabilityDebt = 0;
+    expect(parseSaveGame(invalid, PARADOX_MODE)).toBeNull();
   });
 });

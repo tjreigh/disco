@@ -25,8 +25,16 @@ describe('RewindDialog', () => {
       turnCostBefore: 2, turnCostAfter: 2,
       turnsRewound: 2, historyAvailable: 4,
       fractures: [
-        { position: { row: 6, col: 1 }, discId: 11, discValue: 6, resultingKind: DiscKind.DoubleCracked },
-        { position: { row: 5, col: 2 }, discId: 12, discValue: 4, resultingKind: DiscKind.DoubleCracked },
+        {
+          position: { row: 6, col: 1 }, discId: 11, discValue: 6,
+          resultingKind: DiscKind.DoubleCracked, instabilityDebt: 1,
+          instabilityAdded: 1, materialized: false,
+        },
+        {
+          position: { row: 5, col: 2 }, discValue: 4,
+          resultingKind: DiscKind.DoubleCracked, instabilityDebt: 1,
+          instabilityAdded: 1, materialized: true,
+        },
       ],
     });
 
@@ -35,7 +43,9 @@ describe('RewindDialog', () => {
     expect(root.textContent).toContain('Instability 4 → 5');
     expect(root.textContent).toContain('Pressure ×2');
     expect(root.textContent).toContain('REWIND 2 TURNS?');
+    expect(root.textContent).toContain('1 erased disc returns as a temporal remnant');
     expect(root.textContent).toContain('Highlighted discs: 6 and 4 → two layers of temporal damage each');
+    expect(root.textContent).toContain('Repair them to recover 2 instability');
     expect(root.textContent).toContain('rescues the run from game over');
     expect(root.getAttribute('aria-describedby')).toBe('rewind-dialog-consequence');
     const buttons = Array.from(root.querySelectorAll<HTMLButtonElement>('button'));

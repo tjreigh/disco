@@ -13,6 +13,8 @@ export interface SavedDisc {
   kind: DiscKind;
   temporalFracture?: {
     createdAtInstability: number;
+    /** Optional so saves created before fracture debt remain loadable. */
+    instabilityDebt?: number;
   };
 }
 
@@ -125,12 +127,19 @@ function parseDisc(value: unknown, mode: GameModeConfig, playableOnly = false): 
     if (!mode.rewind || playableOnly
       || (value.kind !== DiscKind.SingleCracked && value.kind !== DiscKind.DoubleCracked)
       || !isObject(value.temporalFracture)
-      || !hasOnlyKeys(value.temporalFracture, ['createdAtInstability'])
-      || !isPositiveInteger(value.temporalFracture.createdAtInstability)) return null;
+      || !hasOnlyKeys(value.temporalFracture, ['createdAtInstability'], ['instabilityDebt'])
+      || !isPositiveInteger(value.temporalFracture.createdAtInstability)
+      || (value.temporalFracture.instabilityDebt !== undefined
+        && !isPositiveInteger(value.temporalFracture.instabilityDebt))) return null;
     return {
       value: value.value,
       kind: value.kind,
-      temporalFracture: { createdAtInstability: value.temporalFracture.createdAtInstability },
+      temporalFracture: {
+        createdAtInstability: value.temporalFracture.createdAtInstability,
+        ...(value.temporalFracture.instabilityDebt !== undefined
+          ? { instabilityDebt: value.temporalFracture.instabilityDebt }
+          : {}),
+      },
     };
   }
   return { value: value.value, kind: value.kind };
@@ -169,7 +178,12 @@ export function serializeDisc(disc: Disc): SavedDisc {
 /** Creates a runtime disc with a fresh animation ID. */
 export function deserializeDisc(disc: SavedDisc): Disc {
   const restored = makeDisc(disc.value, disc.kind);
-  if (disc.temporalFracture) restored.temporalFracture = { ...disc.temporalFracture };
+  if (disc.temporalFracture) {
+    restored.temporalFracture = {
+      createdAtInstability: disc.temporalFracture.createdAtInstability,
+      instabilityDebt: disc.temporalFracture.instabilityDebt ?? 1,
+    };
+  }
   return restored;
 }
 
