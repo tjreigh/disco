@@ -121,4 +121,118 @@ describe('visual board playback', () => {
       StepKind.Reveal,
     ].sort());
   });
+
+  // Push steps enter new discs from step.edge (the edge gravity currently pulls
+  // toward) and shift the rest of the board toward the opposite edge, which
+  // drops whatever was sitting at that opposite edge. Each case below hand-
+  // constructs the step and checks the shift direction, the insertion edge,
+  // and the drop edge directly, rather than only observing Push indirectly
+  // through an engine replay.
+  test('applies a bottom-edge Push: rows shift up, new discs enter at the last row', () => {
+    const a = makeDisc(1, DiscKind.Numbered);
+    const b = makeDisc(2, DiscKind.Numbered);
+    const c = makeDisc(3, DiscKind.Numbered);
+    const d = makeDisc(4, DiscKind.Numbered);
+    const e = makeDisc(5, DiscKind.Numbered);
+    const f = makeDisc(6, DiscKind.Numbered);
+    const n0 = makeDisc(7, DiscKind.Numbered);
+    const n1 = makeDisc(8, DiscKind.Numbered);
+    const board = [
+      [a, b],
+      [c, d],
+      [e, f],
+    ];
+
+    applyStepToVisualBoard(board, {
+      kind: StepKind.Push,
+      edge: 'bottom',
+      newDiscs: [n0, n1],
+    });
+
+    expect(board).toEqual([
+      [c, d],
+      [e, f],
+      [n0, n1],
+    ]);
+  });
+
+  test('applies a top-edge Push: rows shift down, new discs enter at row 0', () => {
+    const a = makeDisc(1, DiscKind.Numbered);
+    const b = makeDisc(2, DiscKind.Numbered);
+    const c = makeDisc(3, DiscKind.Numbered);
+    const d = makeDisc(4, DiscKind.Numbered);
+    const e = makeDisc(5, DiscKind.Numbered);
+    const f = makeDisc(6, DiscKind.Numbered);
+    const n0 = makeDisc(7, DiscKind.Numbered);
+    const n1 = makeDisc(8, DiscKind.Numbered);
+    const board = [
+      [a, b],
+      [c, d],
+      [e, f],
+    ];
+
+    applyStepToVisualBoard(board, {
+      kind: StepKind.Push,
+      edge: 'top',
+      newDiscs: [n0, n1],
+    });
+
+    expect(board).toEqual([
+      [n0, n1],
+      [a, b],
+      [c, d],
+    ]);
+  });
+
+  test('applies a right-edge Push: columns shift left per row, new discs enter at the last column', () => {
+    const a = makeDisc(1, DiscKind.Numbered);
+    const b = makeDisc(2, DiscKind.Numbered);
+    const c = makeDisc(3, DiscKind.Numbered);
+    const d = makeDisc(4, DiscKind.Numbered);
+    const e = makeDisc(5, DiscKind.Numbered);
+    const f = makeDisc(6, DiscKind.Numbered);
+    const n0 = makeDisc(7, DiscKind.Numbered);
+    const n1 = makeDisc(8, DiscKind.Numbered);
+    const board = [
+      [a, b, c],
+      [d, e, f],
+    ];
+
+    applyStepToVisualBoard(board, {
+      kind: StepKind.Push,
+      edge: 'right',
+      newDiscs: [n0, n1],
+    });
+
+    expect(board).toEqual([
+      [b, c, n0],
+      [e, f, n1],
+    ]);
+  });
+
+  test('applies a left-edge Push: columns shift right per row, new discs enter at column 0', () => {
+    const a = makeDisc(1, DiscKind.Numbered);
+    const b = makeDisc(2, DiscKind.Numbered);
+    const c = makeDisc(3, DiscKind.Numbered);
+    const d = makeDisc(4, DiscKind.Numbered);
+    const e = makeDisc(5, DiscKind.Numbered);
+    const f = makeDisc(6, DiscKind.Numbered);
+    const n0 = makeDisc(7, DiscKind.Numbered);
+    const n1 = makeDisc(8, DiscKind.Numbered);
+    const board = [
+      [a, b, c],
+      [d, e, f],
+    ];
+
+    applyStepToVisualBoard(board, {
+      kind: StepKind.Push,
+      edge: 'left',
+      newDiscs: [n0, n1],
+    });
+
+    expect(board).toEqual([
+      [n0, a, b],
+      [n1, d, e],
+    ]);
+  });
 });

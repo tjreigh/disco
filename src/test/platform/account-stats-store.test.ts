@@ -297,4 +297,65 @@ describe('AccountStatsStore', () => {
     store.saveStats('classic', stats({ highScore: 10, gamesPlayed: 1, totalScore: 10, averageScore: 10 }));
     await vi.waitFor(() => expect(store.getState().apiAvailable).toBe(false));
   });
+
+  test('a network failure during recordCompletedGame sync also flips the account offline', async () => {
+    const api = createApi({});
+    api.submitScore.mockRejectedValueOnce(new TypeError('fetch failed'));
+
+    const store = new AccountStatsStore(TEST_MODES, {
+      api,
+      loadCookieStats: () => stats(),
+      saveCookieStats: vi.fn(),
+      storage: makeMemoryStorage(),
+    });
+
+    await store.ready;
+    store.recordCompletedGame(
+      'classic',
+      stats({ highScore: 10, gamesPlayed: 1, totalScore: 10, averageScore: 10 }),
+      10,
+      0,
+    );
+    await vi.waitFor(() => expect(store.getState().apiAvailable).toBe(false));
+  });
+
+  test('treats a storage read failure while checking import status as not-yet-imported', async () => {
+    const localByMode = new Map<string, GameStats>([
+      ['classic', stats({ highScore: 500, longestStreak: 3, gamesPlayed: 2, totalScore: 700, averageScore: 350 })],
+    ]);
+    const api = createApi({
+      remoteStats: {
+        classic: stats({ highScore: 200, longestStreak: 1, gamesPlayed: 1, totalScore: 200, averageScore: 200 }),
+      },
+    });
+    const storage = {
+      getItem(): string | null {
+        throw new Error('storage blocked');
+      },
+      setItem: vi.fn(),
+    };
+
+    const store = new AccountStatsStore(TEST_MODES, {
+      api,
+      storage,
+      loadCookieStats: modeId => cloneStats(localByMode.get(modeId) ?? stats()),
+      saveCookieStats: (modeId, value) => {
+        localByMode.set(modeId, cloneStats(value));
+      },
+    });
+
+    await store.ready;
+
+    expect(store.getState()).toMatchObject({ loading: false, apiAvailable: true });
+    // A blocked read is treated as "not yet imported", so local records are
+    // merged into the remote totals rather than skipped.
+    expect(store.loadStats('classic')).toEqual({
+      highScore: 500,
+      longestStreak: 3,
+      gamesPlayed: 3,
+      totalScore: 900,
+      averageScore: 300,
+    });
+    expect(api.putStats).toHaveBeenCalledTimes(1);
+  });
 });

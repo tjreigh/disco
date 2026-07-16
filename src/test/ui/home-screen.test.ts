@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { CLASSIC_MODE, GRAVITY_MODE, STACK_MODE } from '../../game/modes/index.js';
+import { CLASSIC_MODE, GRAVITY_MODE, PARADOX_MODE, STACK_MODE } from '../../game/modes/index.js';
 import type { GameModeConfig } from '../../game/modes/mode.js';
 import type { GameStats } from '../../game/stats.js';
 import { HomeScreen } from '../../ui/home-screen.js';
@@ -29,6 +29,7 @@ function auth(overrides: Partial<AccountStatsState> = {}): AccountStatsState {
 }
 
 function createHome(options: {
+  modes?: readonly GameModeConfig[];
   authState?: AccountStatsState;
   loadStats?: (modeId: string) => GameStats;
   onSelectMode?: (mode: GameModeConfig) => void;
@@ -38,7 +39,7 @@ function createHome(options: {
   modalBackground?: readonly HTMLElement[];
 } = {}): HomeScreen {
   return new HomeScreen(
-    [CLASSIC_MODE, GRAVITY_MODE, STACK_MODE],
+    options.modes ?? [CLASSIC_MODE, GRAVITY_MODE, STACK_MODE],
     options.onSelectMode ?? vi.fn(),
     options.loadStats ?? (() => stats()),
     () => options.authState ?? auth(),
@@ -359,5 +360,55 @@ describe('HomeScreen', () => {
     const enabledPlay = document.querySelector<HTMLButtonElement>('.home-mode-action--play')!;
     expect(enabledPlay.disabled).toBe(false);
     expect(enabledPlay.textContent).toBe('PLAY');
+  });
+
+  test('renders an empty-state message instead of a card when no modes are configured', () => {
+    const home = createHome({ modes: [] });
+    home.open();
+
+    expect(document.querySelectorAll('.home-mode-card')).toHaveLength(0);
+    const empty = document.querySelector('.home-mode-empty');
+    expect(empty?.textContent).toBe('No modes are available yet.');
+    expect(document.querySelector('.home-mode-detail')?.contains(empty)).toBe(true);
+  });
+
+  test('omits the tutorial button for a mode with hasTutorial: false', () => {
+    const home = createHome({ modes: [CLASSIC_MODE, PARADOX_MODE] });
+    home.open();
+
+    expect(PARADOX_MODE.hasTutorial).toBe(false);
+    document.querySelector<HTMLButtonElement>('[data-mode-id="paradox"]')!.click();
+
+    const detailButtons = Array.from(document.querySelector('.home-mode-detail')!.querySelectorAll<HTMLButtonElement>('button'));
+    expect(detailButtons).toHaveLength(1);
+    expect(detailButtons.some(button => button.textContent === 'TUTORIAL')).toBe(false);
+    expect(detailButtons.some(button => button.textContent === 'PLAY')).toBe(true);
+  });
+
+  test('supports keyboard navigation with ArrowLeft, Home, and End', () => {
+    const home = createHome();
+    home.open();
+
+    const classicCard = document.querySelector<HTMLButtonElement>('[data-mode-id="classic"]')!;
+    classicCard.focus();
+    classicCard.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+
+    // Wrapping left from the first card lands on the last one (Stack).
+    let stackCard = document.querySelector<HTMLButtonElement>('[data-mode-id="stack"]')!;
+    expect(stackCard.getAttribute('aria-checked')).toBe('true');
+    expect(document.activeElement).toBe(stackCard);
+    expect(classicCard.isConnected).toBe(false);
+
+    stackCard.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+    const homeSelectedCard = document.querySelector<HTMLButtonElement>('[data-mode-id="classic"]')!;
+    expect(homeSelectedCard.getAttribute('aria-checked')).toBe('true');
+    expect(document.activeElement).toBe(homeSelectedCard);
+    expect(stackCard.isConnected).toBe(false);
+
+    homeSelectedCard.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    stackCard = document.querySelector<HTMLButtonElement>('[data-mode-id="stack"]')!;
+    expect(stackCard.getAttribute('aria-checked')).toBe('true');
+    expect(document.activeElement).toBe(stackCard);
+    expect(homeSelectedCard.isConnected).toBe(false);
   });
 });

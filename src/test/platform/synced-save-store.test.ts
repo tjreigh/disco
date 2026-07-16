@@ -562,4 +562,69 @@ describe('SyncedSaveStore', () => {
     });
     expect(client.putSave).not.toHaveBeenCalled();
   });
+
+  test('rejects a cloud slot with a missing runId but a present save', async () => {
+    const cloud = validSave(CLASSIC_MODE, { score: 250 });
+    const client = api({ saves: [slot('classic', 5, cloud, null)] });
+    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage: new MemoryStorage() });
+    await store.ready;
+
+    expect(store.read('classic')).toBeNull();
+    expect(store.getConflict('classic')).toMatchObject({
+      kind: 'invalid-cloud',
+      cloud: null,
+      cloudRevision: 5,
+    });
+    expect(client.putSave).not.toHaveBeenCalled();
+  });
+
+  test('rejects a cloud slot with a present runId but a missing save', async () => {
+    const client = api({
+      saves: [slot('classic', 5, null, '00000000-0000-4000-8000-000000000005')],
+    });
+    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage: new MemoryStorage() });
+    await store.ready;
+
+    expect(store.read('classic')).toBeNull();
+    expect(store.getConflict('classic')).toMatchObject({
+      kind: 'invalid-cloud',
+      cloud: null,
+      cloudRevision: 5,
+    });
+    expect(client.putSave).not.toHaveBeenCalled();
+  });
+
+  test('turns a non-conflict, non-auth failure during background upload into an offline state', async () => {
+    const client = api({
+      saves: [],
+      put: async () => { throw new TypeError('network failure'); },
+    });
+    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage: new MemoryStorage() });
+    await store.ready;
+
+    store.write('classic', validSave(CLASSIC_MODE, { score: 100 }));
+    await vi.waitFor(() => expect(store.getState().apiAvailable).toBe(false));
+
+    // The failed upload leaves the dirty local record intact for a later retry.
+    expect(store.read('classic')?.state.score).toBe(100);
+    expect(store.getState()).toMatchObject({ scope: 'account', accountId: 'account-1' });
+  });
+
+  test('produces a usable empty guest state on a first-ever offline load with no cached account', async () => {
+    const storage = new MemoryStorage();
+    const offlineApi = api();
+    offlineApi.me.mockRejectedValueOnce(new TypeError('offline'));
+    const store = new SyncedSaveStore(GAME_MODES, { api: offlineApi, storage });
+
+    await store.ready;
+
+    expect(store.getState()).toMatchObject({
+      scope: 'guest',
+      accountId: null,
+      loading: false,
+      apiAvailable: false,
+    });
+    expect(store.read('classic')).toBeNull();
+    expect(storage.values.has(LAST_SAVE_ACCOUNT_KEY)).toBe(false);
+  });
 });

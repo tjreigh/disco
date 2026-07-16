@@ -1,7 +1,21 @@
-import { describe, expect, test } from 'vitest';
-import { parseStatsCookies } from '../../platform/cookie-stats-store.js';
+// @vitest-environment happy-dom
+
+import {
+  afterEach, beforeEach, describe, expect, test,
+} from 'vitest';
+import { loadStats, parseStatsCookies, saveStats } from '../../platform/cookie-stats-store.js';
 import type { GameStats } from '../../game/stats.js';
 import { recordCompletedGame, updateRecords } from '../../game/stats.js';
+
+function clearCookies(): void {
+  for (const part of document.cookie.split(';')) {
+    const name = part.slice(0, part.indexOf('=')).trim();
+    if (!name) continue;
+    // An already-past Expires date guarantees the cookie reads as expired
+    // immediately; Max-Age=0 raced the clock in happy-dom and was flaky.
+    document.cookie = `${name}=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/`;
+  }
+}
 
 function emptyStats(): GameStats {
   return {
@@ -14,6 +28,9 @@ function emptyStats(): GameStats {
 }
 
 describe('persistent game stats', () => {
+  beforeEach(clearCookies);
+  afterEach(clearCookies);
+
   test('reads mode-scoped Disco cookies and ignores unrelated or invalid values', () => {
     expect(parseStatsCookies(
       'theme=dark; disco_classic_high_score=1200; disco_classic_longest_streak=6; ' +
@@ -81,6 +98,64 @@ describe('persistent game stats', () => {
       gamesPlayed: 3,
       totalScore: 32,
       averageScore: 11,
+    });
+  });
+
+  describe('saveStats/loadStats round trip', () => {
+    test('persists stats for a mode through real document.cookie', () => {
+      const stats: GameStats = {
+        highScore: 750, longestStreak: 9, averageScore: 250, gamesPlayed: 3, totalScore: 750,
+      };
+
+      saveStats('classic', stats);
+
+      expect(loadStats('classic')).toEqual(stats);
+    });
+
+    test('keeps distinct modes from cross-contaminating each other', () => {
+      const classicStats: GameStats = {
+        highScore: 750, longestStreak: 9, averageScore: 250, gamesPlayed: 3, totalScore: 750,
+      };
+      const gravityStats: GameStats = {
+        highScore: 120, longestStreak: 2, averageScore: 40, gamesPlayed: 3, totalScore: 120,
+      };
+
+      saveStats('classic', classicStats);
+      saveStats('gravity', gravityStats);
+
+      expect(loadStats('classic')).toEqual(classicStats);
+      expect(loadStats('gravity')).toEqual(gravityStats);
+    });
+
+    test('classic mode falls back to the legacy total_score cookie when no scoped cookie exists', () => {
+      document.cookie = 'disco_total_score=900; Path=/';
+
+      expect(loadStats('classic').totalScore).toBe(900);
+    });
+  });
+
+  describe('cookie access failures', () => {
+    test('loadStats returns emptyStats and saveStats does not throw when document.cookie throws', () => {
+      Object.defineProperty(document, 'cookie', {
+        configurable: true,
+        get() {
+          throw new Error('cookies disabled');
+        },
+        set() {
+          throw new Error('cookies disabled');
+        },
+      });
+
+      try {
+        expect(loadStats('classic')).toEqual(emptyStats());
+        expect(() => saveStats('classic', {
+          highScore: 1, longestStreak: 1, averageScore: 1, gamesPlayed: 1, totalScore: 1,
+        })).not.toThrow();
+      } finally {
+        // Remove the instance-level override so cookie access falls back to
+        // the environment's normal prototype-level implementation.
+        delete (document as unknown as Record<string, unknown>).cookie;
+      }
     });
   });
 });
