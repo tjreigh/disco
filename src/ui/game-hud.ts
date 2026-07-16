@@ -83,6 +83,8 @@ export class GameHud {
   private readonly hint: HTMLElement;
   private readonly gravity: HTMLElement;
   private readonly instability: HTMLElement;
+  private readonly instabilityValue: HTMLElement;
+  private readonly pressure: HTMLElement;
   private readonly gravitySr: HTMLElement;
   private readonly gravityArc: SVGPathElement;
   private readonly gravityArrow: SVGLineElement;
@@ -182,6 +184,11 @@ export class GameHud {
     this.gravity.append(dial, this.gravitySr);
     this.instability = document.createElement('span');
     this.instability.className = 'game-hud__instability';
+    this.instabilityValue = document.createElement('span');
+    this.instabilityValue.className = 'game-hud__instability-value';
+    this.pressure = document.createElement('span');
+    this.pressure.className = 'game-hud__pressure';
+    this.instability.append(this.instabilityValue, this.pressure);
     this.hint = document.createElement('p');
     this.hint.className = 'game-hud__hint';
 
@@ -283,7 +290,8 @@ export class GameHud {
     if (state.hasRewind) {
       const instability = state.instability ?? 0;
       const turnCost = Math.max(1, state.turnCost ?? 1);
-      this.instability.textContent = `INSTABILITY ${instability} · PRESSURE ×${turnCost}`;
+      this.instabilityValue.textContent = `INSTABILITY ${instability}`;
+      this.pressure.textContent = `PRESSURE ×${turnCost}`;
       this.instability.setAttribute(
         'aria-label',
         `Timeline instability ${instability}. Each move consumes ${turnCost} turn ${turnCost === 1 ? 'pip' : 'pips'}.`,
@@ -296,7 +304,8 @@ export class GameHud {
       );
       this.instability.hidden = false;
     } else {
-      this.instability.textContent = '';
+      this.instabilityValue.textContent = '';
+      this.pressure.textContent = '';
       this.instability.hidden = true;
       delete this.instability.dataset.turnCost;
       this.instability.classList.remove('game-hud__instability--pressured');

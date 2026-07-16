@@ -70,7 +70,10 @@ describe('GameHud', () => {
     expect(hud.root.dataset.rewindMode).toBe('true');
     expect(hud.root.querySelector('.game-hud__records')?.textContent)
       .toBe('High 900 · Best chain 1 wave');
-    expect(indicator.textContent).toBe('INSTABILITY 4 · PRESSURE ×2');
+    expect(indicator.querySelector('.game-hud__instability-value')?.textContent)
+      .toBe('INSTABILITY 4');
+    expect(indicator.querySelector('.game-hud__pressure')?.textContent)
+      .toBe('PRESSURE ×2');
     expect(indicator.dataset.turnCost).toBe('2');
     expect(indicator.classList).toContain('game-hud__instability--pressured');
     expect(indicator.classList).not.toContain('game-hud__instability--critical');
