@@ -1,4 +1,4 @@
-import type { Board, Disc, GridPos } from './model.js';
+import type { Board, Disc, EntryEdge, GridPos } from './model.js';
 import { DiscKind } from './model.js';
 import type { GameModeConfig } from './modes/mode.js';
 import type { PhysicsStep, DropStep, FallStep, ClearStep, PushStep } from './events.js';
@@ -7,11 +7,9 @@ import {
   cloneBoard, countHorizontalRun, countVerticalRun, deepCloneBoard,
   landingRow, placeDisc, removeDisc, applyGravity,
 } from './board.js';
-import type { EntryEdge } from './gravity.js';
 import {
-  entryEdgeForAngle, isLaneFull, entryPositionForLane, offBoardEntryPosition,
-  oppositeEdge, settleContinuous,
-} from './gravity.js';
+  entryEdgeForAngle, oppositeEdge,
+} from './gravity/settling.js';
 import { makeCrackedDisc } from './disc.js';
 import type { DiscFactory } from './disc.js';
 import { CLASSIC_MODE } from './modes/index.js';
@@ -76,7 +74,7 @@ function inspectClears(
   return { clears: result, checks };
 }
 
-function commitBoard(target: Board, source: Board): void {
+export function commitBoard(target: Board, source: Board): void {
   for (let r = 0; r < target.length; r++) {
     for (let c = 0; c < target[r]!.length; c++) {
       target[r]![c] = source[r]![c]!;
@@ -119,7 +117,7 @@ export function pointsForStack(stackSize: number, pointsPerStackUnit: number): n
 // either both fire or neither does. Bonus steps — the board-clear bonus here
 // and the engine's level bonus — never emit a frame, since a bonus doesn't
 // change the board and so has nothing new to render.
-function resolveClearSteps(
+export function resolveClearSteps(
   scratch: Board, mode: GameModeConfig, trace?: PhysicsTrace,
   settle: SettleFn = applyGravity, angleDeg = 0, startingChainLevel = 0,
 ): PhysicsStep[] {
@@ -222,81 +220,6 @@ export function computeDropSteps(
   // still holds the old reference.
   commitBoard(board, scratch);
 
-  return steps;
-}
-
-// Gravity-mode equivalent of computeDropSteps: the disc enters through
-// whichever edge/lane corresponds to entryEdge, then the *whole* board
-// (including the new disc) settles once under finalAngleDeg — gravity mode
-// can rearrange already-placed discs, not just the new one. The new disc's
-// own move is folded into the Drop step's landPos (so it animates as one
-// smooth motion straight to its true resting cell, same as Classic); every
-// other disc's move is reported as a separate Fall step, reusing the
-// existing (already direction-agnostic) Fall animation untouched.
-export function computeGravityDropSteps(
-  board: Board,
-  disc: Disc,
-  lane: number,
-  entryEdge: EntryEdge,
-  finalAngleDeg: number,
-  mode: GameModeConfig = CLASSIC_MODE,
-  trace?: PhysicsTrace,
-): PhysicsStep[] {
-  const steps: PhysicsStep[] = [];
-  const scratch = cloneBoard(board);
-  const rows = scratch.length;
-  const cols = scratch[0]!.length;
-
-  if (isLaneFull(scratch, lane, entryEdge)) return steps; // lane full — game over handled by caller
-
-  const onEntryPos = entryPositionForLane(entryEdge, lane, rows, cols);
-  placeDisc(scratch, onEntryPos.row, onEntryPos.col, disc);
-
-  const settle: SettleFn = b => settleContinuous(b, finalAngleDeg);
-  const settleResult = settle(scratch);
-  const newDiscMove = settleResult.moves.find(m => m.disc.id === disc.id);
-  const landPos = newDiscMove ? newDiscMove.to : onEntryPos;
-  const otherMoves = settleResult.moves.filter(m => m.disc.id !== disc.id);
-
-  steps.push({
-    kind: StepKind.Drop, disc: { ...disc },
-    entryPos: offBoardEntryPosition(entryEdge, lane, rows, cols), landPos,
-  } satisfies DropStep);
-  trace?.frames.push({ label: `Drop #${disc.id} into r${landPos.row + 1}c${landPos.col + 1}`, board: deepCloneBoard(scratch) });
-
-  if (otherMoves.length > 0) {
-    steps.push({ kind: StepKind.Fall, moves: otherMoves } satisfies FallStep);
-    trace?.frames.push({ label: `Gravity: ${otherMoves.length} move${otherMoves.length === 1 ? '' : 's'}`, board: deepCloneBoard(scratch) });
-  }
-
-  steps.push(...resolveClearSteps(scratch, mode, trace, settle, finalAngleDeg));
-
-  commitBoard(board, scratch);
-  return steps;
-}
-
-// Gravity-mode tilt-only turn: no new disc, but the whole board resettles
-// under the (possibly changed) gravity angle, then normal clear/chain
-// resolution runs. Mirrors computeGravityDropSteps minus the disc entry.
-export function computeGravityTiltSteps(
-  board: Board,
-  finalAngleDeg: number,
-  mode: GameModeConfig = CLASSIC_MODE,
-  trace?: PhysicsTrace,
-): PhysicsStep[] {
-  const steps: PhysicsStep[] = [];
-  const scratch = cloneBoard(board);
-  const settle: SettleFn = b => settleContinuous(b, finalAngleDeg);
-
-  const fall = settle(scratch);
-  if (fall.moves.length > 0) {
-    steps.push(fall);
-    trace?.frames.push({ label: `Tilt: ${fall.moves.length} move${fall.moves.length === 1 ? '' : 's'}`, board: deepCloneBoard(scratch) });
-  }
-
-  steps.push(...resolveClearSteps(scratch, mode, trace, settle, finalAngleDeg));
-
-  commitBoard(board, scratch);
   return steps;
 }
 

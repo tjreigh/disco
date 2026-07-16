@@ -6,7 +6,7 @@ import {
 } from '../../app/tutorial.js';
 import { GameEngine } from '../../game/engine.js';
 import { CLASSIC_MODE, GRAVITY_MODE, STACK_MODE } from '../../game/modes/index.js';
-import { settleContinuous } from '../../game/gravity.js';
+import { settleContinuous } from '../../game/gravity/settling.js';
 import { deepCloneBoard } from '../../game/board.js';
 
 describe('CLASSIC_TUTORIAL', () => {

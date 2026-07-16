@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { gravityRunLengths } from '../../game/gravity.js';
+import { gravityRunLengths } from '../../game/gravity/settling.js';
 import { makeEmptyBoard, placeDisc, countHorizontalRun, countVerticalRun } from '../../game/board.js';
 import { makeDisc } from '../../game/disc.js';
 import type { Board } from '../../game/model.js';

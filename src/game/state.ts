@@ -16,7 +16,7 @@ export interface GravityState {
    * GamePhase.Aiming (see tiltGravity), but GameEngine.commitTilt snaps and
    * persists it to the nearest of 8 directions (0/45/90/.../315) — so
    * outside of Aiming this always holds one of those 8 exact values. See
-   * snapAngleToEightDirections in gravity.ts for why: settling only
+   * snapAngleToEightDirections in gravity/settling.ts for why: settling only
    * produces a shape the clear-checker fully recognizes as a line at those
    * 8 angles, so leaving it unsnapped made piles that visibly looked like a
    * line not clear.

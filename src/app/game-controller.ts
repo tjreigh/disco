@@ -7,7 +7,7 @@ import type { PhysicsStep } from '../game/events.js';
 import { StepKind } from '../game/events.js';
 import type { GravityShiftCue, ScoreIndicator, ScorePopup } from '../ui/rendering/animation-types.js';
 import { deepCloneBoard, makeEmptyBoard } from '../game/board.js';
-import { entryEdgeForAngle, snapAngleToEightDirections } from '../game/gravity.js';
+import { entryEdgeForAngle, snapAngleToEightDirections } from '../game/gravity/settling.js';
 import { GameEngine } from '../game/engine.js';
 import type { GameOverReason, RewindPreview, TurnResult } from '../game/engine.js';
 import { CLASSIC_MODE, GAME_MODES } from '../game/modes/index.js';

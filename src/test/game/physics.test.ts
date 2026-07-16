@@ -1,7 +1,8 @@
 import { describe, test, expect } from 'vitest';
 import {
-  computeClearSteps, computeDropSteps, computeGravityTiltSteps, computePushStep, pointsForChain,
+  computeClearSteps, computeDropSteps, computePushStep, pointsForChain,
 } from '../../game/physics.js';
+import { computeGravityTiltSteps } from '../../game/gravity/physics.js';
 import { makeEmptyBoard, placeDisc } from '../../game/board.js';
 import { makeDisc } from '../../game/disc.js';
 import type { Board } from '../../game/model.js';

@@ -75,7 +75,7 @@ export interface GameModeConfig {
     readonly maxTiltDeltaDeg: number;
   };
   // angleDeg is the current gravity angle a Gravity-family mode's run check
-  // should measure runs along (see gravityRunLengths in gravity.ts, which
+  // should measure runs along (see gravityRunLengths in gravity/settling.ts, which
   // snaps it to the nearest of 8 directions — a genuinely continuous run
   // check isn't well-defined on a discrete grid) — always the same angle the
   // caller just settled the board under, so a run means the same thing here

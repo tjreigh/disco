@@ -2,7 +2,7 @@ import { describe, test, expect } from 'vitest';
 import {
   computeGravityVector, entryEdgeForAngle, isLaneFull,
   entryPositionForLane, offBoardEntryPosition, settleContinuous, gravityRunLengths,
-} from '../../game/gravity.js';
+} from '../../game/gravity/settling.js';
 import {
   makeEmptyBoard, placeDisc, applyDirectionalGravity, deepCloneBoard,
   countHorizontalRun, countVerticalRun,

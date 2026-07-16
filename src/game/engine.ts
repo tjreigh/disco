@@ -1,22 +1,19 @@
 import type { Board, Disc, GridPos } from './model.js';
 import type { GameModeConfig } from './modes/mode.js';
-import type { GameState, GravityState } from './state.js';
+import type { GameState } from './state.js';
 import { GamePhase } from './state.js';
 import type { PhysicsStep } from './events.js';
 import { StepKind } from './events.js';
 import {
-  deepCloneBoard, isBoardFull, isColumnFull, landingRow, makeEmptyBoard, placeDisc,
+  deepCloneBoard, isBoardFull, isColumnFull, landingRow, makeEmptyBoard,
 } from './board.js';
-import {
-  entryEdgeForAngle, entryPositionForLane, isLaneFull, settleContinuous, snapAngleToEightDirections,
-} from './gravity.js';
+import { GravitySystem } from './gravity/system.js';
 import {
   createDiscFactories, DiscFactory, DiscQueue, PlayableDiscGenerator,
   type DiscQueueSnapshot, type PlayableDiscGeneratorSnapshot, type QueuedDiscSnapshot,
 } from './disc.js';
 import {
-  computeClearSteps, computeDropSteps, computeGravityDropSteps, computeGravityTiltSteps,
-  computePushStep, PhysicsTrace, pointsForStack,
+  computeClearSteps, computeDropSteps, computePushStep, PhysicsTrace, pointsForStack,
 } from './physics.js';
 import { CLASSIC_MODE } from './modes/index.js';
 import { turnCostForInstability, turnsForLevel } from './modes/mode.js';
@@ -112,10 +109,12 @@ export class GameEngine {
   private echoRandom: SnapshotRandomSource | undefined;
   private playableGenerator: PlayableDiscGenerator | undefined;
   private readonly paradoxSystem: ParadoxSystem;
+  private readonly gravitySystem: GravitySystem;
 
   constructor(options: GameEngineOptions = {}) {
     this.mode = options.mode ?? CLASSIC_MODE;
     this.paradoxSystem = new ParadoxSystem(this.mode);
+    this.gravitySystem = new GravitySystem(this.mode);
     this.customDiscFactory = options.discFactory;
     this.customCrackedDiscFactory = options.crackedDiscFactory;
     const seed = options.seed === undefined ? createGameSeed() : options.seed >>> 0;
@@ -143,7 +142,7 @@ export class GameEngine {
       level: 1,
       turnsPerLevel: turnsForLevel(this.mode, 1),
       turnsRemaining: turnsForLevel(this.mode, 1),
-      gravity: this.initialGravityState(),
+      gravity: this.gravitySystem.initialState(),
       paradox: this.paradoxSystem.initialState(),
     };
   }
@@ -222,6 +221,7 @@ export class GameEngine {
 
     this.mode = mode;
     this.paradoxSystem.reconfigure(mode);
+    this.gravitySystem.reconfigure(mode);
     this.customDiscFactory = undefined;
     this.customCrackedDiscFactory = undefined;
     const factories = this.createSeededFactories(save.generation.seed);
@@ -250,11 +250,7 @@ export class GameEngine {
     this.state.level = save.state.level;
     this.state.turnsPerLevel = save.state.turnsPerLevel;
     this.state.turnsRemaining = save.state.turnsRemaining;
-    this.state.gravity = save.state.gravity ? {
-      angle: save.state.gravity.angle,
-      turnStartAngle: save.state.gravity.angle,
-      maxTiltDelta: mode.gravity!.maxTiltDeltaDeg,
-    } : undefined;
+    this.state.gravity = this.gravitySystem.restoredState(save.state.gravity?.angle);
     this.state.paradox = save.paradox ? { instability: save.paradox.instability } : undefined;
     if (this.state.paradox) {
       const col = Math.max(0, Math.min(board[0]!.length - 1, save.state.cursorCol));
@@ -285,11 +281,7 @@ export class GameEngine {
         level: rewind.state.level,
         turnsPerLevel: rewind.state.turnsPerLevel,
         turnsRemaining: rewind.state.turnsRemaining,
-        gravity: rewind.state.gravity ? {
-          angle: rewind.state.gravity.angle,
-          turnStartAngle: rewind.state.gravity.angle,
-          maxTiltDelta: mode.gravity!.maxTiltDeltaDeg,
-        } : undefined,
+        gravity: this.gravitySystem.restoredState(rewind.state.gravity?.angle),
         paradox: { instability: rewind.instability },
         queue,
         playableGenerator: rewind.generation.playableGenerator,
@@ -342,7 +334,8 @@ export class GameEngine {
   moveCursor(col: number): void {
     if (this.state.phase !== GamePhase.WaitingForDrop) return;
     if (!Number.isInteger(col)) return;
-    this.state.cursorCol = Math.max(0, Math.min(this.currentLaneCount() - 1, col));
+    const laneCount = this.gravitySystem.laneCount(this.state.board, this.state.gravity);
+    this.state.cursorCol = Math.max(0, Math.min(laneCount - 1, col));
   }
 
   // Drops a disc into a lane. Classic resolves immediately. Gravity turns are
@@ -359,7 +352,7 @@ export class GameEngine {
     if (this.state.phase === GamePhase.GameOver) return reject('game-over', true);
     if (this.state.phase !== GamePhase.WaitingForDrop) return reject('wrong-phase');
 
-    if (this.mode.gravity) return reject('tilt-required');
+    if (this.gravitySystem.enabled) return reject('tilt-required');
 
     if (!Number.isInteger(lane) || lane < 0 || lane >= this.state.board[0]!.length) return reject('invalid-column');
     if (isColumnFull(this.state.board, lane)) return reject('full-column');
@@ -379,31 +372,13 @@ export class GameEngine {
    * chosen placement instead of merely changing where it starts.
    */
   stageGravityDrop(lane: number): RejectedTurnReason | undefined {
-    if (!this.mode.gravity || !this.state.gravity) return 'wrong-phase';
-    if (this.state.phase === GamePhase.GameOver) return 'game-over';
-    if (this.state.phase !== GamePhase.WaitingForDrop) return 'wrong-phase';
-
-    const entryEdge = entryEdgeForAngle(this.state.gravity.angle);
-    if (!Number.isInteger(lane) || lane < 0 || lane >= this.currentLaneCount()) return 'invalid-column';
-    if (isLaneFull(this.state.board, lane, entryEdge)) return 'full-column';
-
-    this.state.cursorCol = lane;
-    this.state.gravity.turnStartAngle = this.state.gravity.angle;
-    this.state.gravity.pendingLane = lane;
-    this.state.phase = GamePhase.Aiming;
-    return undefined;
+    return this.gravitySystem.stageDrop(this.state, lane);
   }
 
   // Adjusts the staged Gravity turn's angle. A staged lane is required: tilt
   // is no longer a standalone cleanup turn that can be used without a drop.
   tiltGravity(delta: number): void {
-    if (!this.state.gravity) return;
-    if (this.state.phase !== GamePhase.Aiming || this.state.gravity.pendingLane === undefined) return;
-
-    const gravity = this.state.gravity;
-    const min = gravity.turnStartAngle - gravity.maxTiltDelta;
-    const max = gravity.turnStartAngle + gravity.maxTiltDelta;
-    gravity.angle = Math.max(min, Math.min(max, gravity.angle + delta));
+    this.gravitySystem.tilt(this.state, delta);
   }
 
   // Pure preview of how state.board would look if the in-progress tilt were
@@ -414,17 +389,7 @@ export class GameEngine {
   // actually produce, which is exactly the "looks like it should clear but
   // doesn't" confusion snapping the real angle is meant to eliminate.
   previewSettledBoard(): Board {
-    const scratch = deepCloneBoard(this.state.board);
-    const gravity = this.state.gravity;
-    if (gravity?.pendingLane !== undefined) {
-      const entryEdge = entryEdgeForAngle(gravity.turnStartAngle);
-      const rows = scratch.length;
-      const cols = scratch[0]!.length;
-      const entryPos = entryPositionForLane(entryEdge, gravity.pendingLane, rows, cols);
-      placeDisc(scratch, entryPos.row, entryPos.col, this.queue.peek());
-    }
-    if (gravity) settleContinuous(scratch, snapAngleToEightDirections(gravity.angle));
-    return scratch;
+    return this.gravitySystem.previewSettledBoard(this.state, this.queue.peek());
   }
 
   // Pure preview of where a drop into this lane would actually land under
@@ -432,32 +397,13 @@ export class GameEngine {
   // entry edge. Returns null if the lane is full or the mode has no gravity
   // config. Does not mutate anything.
   previewDropLanding(lane: number): GridPos | null {
-    if (!this.mode.gravity || !this.state.gravity) return null;
-    const gravity = this.state.gravity;
-    const staged = gravity.pendingLane !== undefined;
-    const selectedLane = gravity.pendingLane ?? lane;
-    const entryEdge = entryEdgeForAngle(staged ? gravity.turnStartAngle : gravity.angle);
-    if (isLaneFull(this.state.board, selectedLane, entryEdge)) return null;
-
-    const rows = this.state.board.length;
-    const cols = this.state.board[0]!.length;
-    const scratch = deepCloneBoard(this.state.board);
-    const onEntryPos = entryPositionForLane(entryEdge, selectedLane, rows, cols);
-    const disc = this.queue.peek();
-    placeDisc(scratch, onEntryPos.row, onEntryPos.col, disc);
-
-    const result = settleContinuous(scratch, gravity.angle);
-    const move = result.moves.find(m => m.disc.id === disc.id);
-    return move ? move.to : onEntryPos;
+    return this.gravitySystem.previewDropLanding(this.state, lane, this.queue.peek());
   }
 
   // Backs out of an in-progress tilt for free — state.board was never
   // touched during Aiming, so this only needs to restore the angle and phase.
   cancelTilt(): void {
-    if (this.state.phase !== GamePhase.Aiming || !this.state.gravity) return;
-    this.state.gravity.angle = this.state.gravity.turnStartAngle;
-    delete this.state.gravity.pendingLane;
-    this.state.phase = GamePhase.WaitingForDrop;
+    this.gravitySystem.cancelTilt(this.state);
   }
 
   // Commits the staged Gravity drop. A turn must resolve at a different
@@ -470,38 +416,11 @@ export class GameEngine {
       return { accepted: false, reason, boardBefore, steps: [], scoreAwarded: 0, stackSize: 0, gameOver, trace };
     };
 
-    if (this.state.phase === GamePhase.GameOver) return reject('game-over', true);
-    if (this.state.phase !== GamePhase.Aiming || !this.state.gravity || this.state.gravity.pendingLane === undefined) return reject('wrong-phase');
-
-    // Snap to one of 8 directions and PERSIST that snapped value (not the
-    // raw dragged angle) into state.gravity.angle — every other gravity
-    // angle read (drop's entry edge/settle, the next tilt's turnStartAngle,
-    // previewDropLanding) reads this same field, so persisting the snapped
-    // value here is what keeps the whole mode consistently on the 8-shape
-    // lattice from this point on, not just this one commit.
-    const snappedAngle = snapAngleToEightDirections(this.state.gravity.angle);
-    if (snappedAngle === snapAngleToEightDirections(this.state.gravity.turnStartAngle)) return reject('tilt-required');
-    const entryEdge = entryEdgeForAngle(this.state.gravity.turnStartAngle);
-    const lane = this.state.gravity.pendingLane!;
-    this.state.gravity.angle = snappedAngle;
-    delete this.state.gravity.pendingLane;
-    // Recenter the lane cursor when a tilt flips the entry axis (columns ↔
-    // rows): the same numeric index is otherwise silently reinterpreted on the
-    // new axis with no clamping, so the post-drop highlight/ghost land on an
-    // unrelated lane once play resumes. currentLaneCount() reads the
-    // just-committed angle, so its range already matches the new axis. A
-    // same-axis tilt (e.g. 0° → 180°, both top/bottom entry) leaves the cursor
-    // where the player put it.
-    const newEdge = entryEdgeForAngle(snappedAngle);
-    const axisFlipped = (entryEdge === 'left' || entryEdge === 'right')
-      !== (newEdge === 'left' || newEdge === 'right');
-    if (axisFlipped) {
-      this.state.cursorCol = Math.floor(this.currentLaneCount() / 2);
+    const prepared = this.gravitySystem.prepareTiltCommit(this.state, this.queue.peek(), trace);
+    if (!prepared.accepted) {
+      return reject(prepared.reason, prepared.reason === 'game-over');
     }
-    const steps = computeGravityDropSteps(
-      this.state.board, this.queue.peek(), lane, entryEdge, snappedAngle, this.mode, trace,
-    );
-    return this.finishTurn(steps, boardBefore, trace);
+    return this.finishTurn(prepared.steps, boardBefore, trace);
   }
 
   // Shared turn-resolution tail for drop() and commitTilt(): both have
@@ -552,8 +471,8 @@ export class GameEngine {
       // same angle keeps a push-triggered chain consistent with how the push
       // itself just visually happened, instead of always falling back to
       // straight-down/grid-aligned checks unrelated to the current tilt.
-      const pushAngle = this.state.gravity?.angle ?? 0;
-      const push = computePushStep(this.state.board, this.crackedDiscFactory, pushAngle);
+      const resolution = this.gravitySystem.resolutionContext(this.state.gravity);
+      const push = computePushStep(this.state.board, this.crackedDiscFactory, resolution.angleDeg);
       steps.push(push.step);
       trace.frames.push({ label: 'Push new cracked row', board: deepCloneBoard(this.state.board) });
       pushOverflow = push.gameOver;
@@ -565,14 +484,14 @@ export class GameEngine {
         // The new row/column increases every lane's count along the push axis.
         // Resolve any matches now so they are visibly caused by the push
         // instead of disappearing on a later, unrelated drop.
-        const pushClearSteps = this.state.gravity
-          ? computeClearSteps(
-            this.state.board, this.mode, trace, b => settleContinuous(b, pushAngle), pushAngle,
-            nextChainLevel,
-          )
-          : computeClearSteps(
-            this.state.board, this.mode, trace, undefined, 0, nextChainLevel,
-          );
+        const pushClearSteps = computeClearSteps(
+          this.state.board,
+          this.mode,
+          trace,
+          resolution.settle,
+          resolution.angleDeg,
+          nextChainLevel,
+        );
         steps.push(...pushClearSteps);
         pushStackSize = pushClearSteps.reduce(
           (total, step) => total + (step.kind === StepKind.Clear ? step.cleared.length : 0),
@@ -667,6 +586,7 @@ export class GameEngine {
   reconfigure(mode: GameModeConfig, seedOverride?: number): void {
     this.mode = mode;
     this.paradoxSystem.reconfigure(mode);
+    this.gravitySystem.reconfigure(mode);
     this.customDiscFactory = undefined;
     this.customCrackedDiscFactory = undefined;
     const seed = seedOverride === undefined ? createGameSeed() : seedOverride >>> 0;
@@ -708,6 +628,7 @@ export class GameEngine {
   loadScriptedState(options: ScriptedGameStateOptions): void {
     this.mode = options.mode ?? this.mode;
     this.paradoxSystem.reconfigure(this.mode);
+    this.gravitySystem.reconfigure(this.mode);
     this.customDiscFactory = undefined;
     this.customCrackedDiscFactory = options.crackedDiscFactory;
     this.playableRandom = undefined;
@@ -740,7 +661,7 @@ export class GameEngine {
     // Re-derive gravity state for whichever mode is now active — a scripted
     // scenario can switch modes (e.g. a tutorial), and the previous mode's
     // gravity state (or lack of one) must not leak into this one.
-    this.state.gravity = this.initialGravityState();
+    this.state.gravity = this.gravitySystem.initialState();
     this.state.paradox = this.paradoxSystem.initialState();
     if (this.state.gravity && options.gravityAngleDeg !== undefined) {
       this.state.gravity.angle = options.gravityAngleDeg;
@@ -904,25 +825,6 @@ export class GameEngine {
     this.state.paradox = checkpoint.paradox ? { ...checkpoint.paradox } : undefined;
   }
 
-  // Column count for top/bottom entry, row count for left/right entry. Classic
-  // (no gravity config) is always column-based.
-  private currentLaneCount(): number {
-    if (this.state.gravity) {
-      const entryEdge = entryEdgeForAngle(this.state.gravity.angle);
-      if (entryEdge === 'left' || entryEdge === 'right') return this.state.board.length;
-    }
-    return this.state.board[0]!.length;
-  }
-
-  private initialGravityState(): GravityState | undefined {
-    if (!this.mode.gravity) return undefined;
-    return {
-      angle: this.mode.gravity.initialAngleDeg,
-      turnStartAngle: this.mode.gravity.initialAngleDeg,
-      maxTiltDelta: this.mode.gravity.maxTiltDeltaDeg,
-    };
-  }
-
   private resetState(board: Board): void {
     this.paradoxSystem.clearHistory();
     this.state.phase = GamePhase.WaitingForDrop;
@@ -935,7 +837,7 @@ export class GameEngine {
     this.state.level = 1;
     this.state.turnsPerLevel = turnsForLevel(this.mode, 1);
     this.state.turnsRemaining = this.state.turnsPerLevel;
-    this.state.gravity = this.initialGravityState();
+    this.state.gravity = this.gravitySystem.initialState();
     this.state.paradox = this.paradoxSystem.initialState();
   }
 }

@@ -5,7 +5,7 @@ import { GamePhase } from '../../game/state.js';
 import {
   computeGravityVector, entryEdgeForAngle,
   offBoardEntryPosition, snapAngleToEightDirections,
-} from '../../game/gravity.js';
+} from '../../game/gravity/settling.js';
 import type { GravityShiftCue, RichDiscAnimation, ScoreIndicator, ScorePopup } from './animation-types.js';
 import {
   DISC_COLORS,

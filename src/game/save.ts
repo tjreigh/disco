@@ -1,5 +1,5 @@
 import { makeDisc } from './disc.js';
-import { entryEdgeForAngle, snapAngleToEightDirections } from './gravity.js';
+import { entryEdgeForAngle, snapAngleToEightDirections } from './gravity/settling.js';
 import type { Board, Disc } from './model.js';
 import { DiscKind } from './model.js';
 import type { GameModeConfig } from './modes/mode.js';

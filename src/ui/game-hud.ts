@@ -1,7 +1,7 @@
 import type { Disc } from '../game/model.js';
 import { DiscKind } from '../game/model.js';
 import { GamePhase } from '../game/state.js';
-import { computeGravityVector } from '../game/gravity.js';
+import { computeGravityVector } from '../game/gravity/settling.js';
 import { COLOR_GRAVITY_ACCENT, COLOR_TEXT_DIM } from './rendering/theme.js';
 import { isTouchDevice } from './dom-utils.js';
 
@@ -58,7 +58,7 @@ interface ControlHint {
   action: string;
 }
 
-// gravity.ts's angle convention (0 = down, increasing = counterclockwise on
+// gravity/settling.ts's angle convention (0 = down, increasing = counterclockwise on
 // screen — see computeGravityVector) to the angle convention used below for
 // arc math (0 = positive X axis/right, increasing = clockwise on screen,
 // matching e.g. canvas ctx.arc or SVG's sweep-flag=1).

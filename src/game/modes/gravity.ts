@@ -2,7 +2,7 @@ import type { Board, Disc } from '../model.js';
 import { DiscKind } from '../model.js';
 import type { GameModeConfig } from './mode.js';
 import { isBoardFull } from '../board.js';
-import { gravityRunLengths } from '../gravity.js';
+import { gravityRunLengths } from '../gravity/settling.js';
 import { CLASSIC_MODE } from './classic.js';
 
 // Gravity mode's entry edge can be any of the 4 sides, so a continuous-angle

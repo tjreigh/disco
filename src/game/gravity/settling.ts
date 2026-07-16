@@ -1,6 +1,6 @@
-import type { Board, Disc, EntryEdge, GridPos } from './model.js';
-import type { FallStep } from './events.js';
-import { StepKind } from './events.js';
+import type { Board, Disc, EntryEdge, GridPos } from '../model.js';
+import type { FallStep } from '../events.js';
+import { StepKind } from '../events.js';
 
 export type { EntryEdge };
 
@@ -266,7 +266,7 @@ const EIGHT_DIRECTIONS: readonly [number, number][] = [
 // A player watching that pile reasonably reads it as "a line" and is
 // confused when it doesn't clear as one. So GameEngine snaps the gravity
 // ANGLE itself (not just the run check) to one of these 8 directions at the
-// moment a tilt/drop actually commits — see GameEngine.commitTilt/drop and
+// moment a tilt/drop actually commits — see GravitySystem.prepareTiltCommit and
 // snapAngleToEightDirections — so the pile only ever physically packs into
 // one of these 8 exact shapes, which always matches what the run check
 // (below) expects. Aiming/dragging is still continuous for feel; only the
