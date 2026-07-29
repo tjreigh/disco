@@ -9,7 +9,7 @@ test.describe('Paradox mode', () => {
 
   test('previews the cost, rewinds one turn, fractures the restored board, and consumes history', async ({ page }) => {
     await openDebugPanel(page);
-    await expect(page.locator('.game-hud__instability')).toHaveText('INSTABILITY 0');
+    await expect(page.locator('.game-hud__instability-value')).toHaveText('INSTABILITY 0');
 
     await page.keyboard.press('Enter');
     await waitForPhase(page, 'waiting');
@@ -29,7 +29,7 @@ test.describe('Paradox mode', () => {
     await dialog.locator('.rewind-panel__button--primary').click();
     await waitForPhase(page, 'waiting');
     expect((await readSummary(page)).drops).toBe('1');
-    await expect(page.locator('.game-hud__instability')).toHaveText('INSTABILITY 1');
+    await expect(page.locator('.game-hud__instability-value')).toHaveText('INSTABILITY 1');
     await expect(page.locator('[data-control="rewind"]')).toBeDisabled();
 
     const board = await readLiveBoard(page, 7);
@@ -45,7 +45,7 @@ test.describe('Paradox mode', () => {
 
     await expect(page.locator('.rewind-dialog')).toBeHidden();
     expect((await readSummary(page)).drops).toBe('1');
-    await expect(page.locator('.game-hud__instability')).toHaveText('INSTABILITY 0');
+    await expect(page.locator('.game-hud__instability-value')).toHaveText('INSTABILITY 0');
   });
 
   test('reload preserves the rewind checkpoint and its cost', async ({ page }) => {

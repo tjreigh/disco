@@ -3,6 +3,10 @@ import { expect, type Page } from '@playwright/test';
 export async function playMode(page: Page, modeName: string): Promise<void> {
   await page.locator('.home-mode-card', { hasText: modeName }).click();
   await page.locator('.home-mode-action--play').click();
+  // Account-scoped play refreshes cloud saves before starting or presenting
+  // a saved-game choice. Wait for that async selection to leave the home
+  // screen so the caller's first gameplay input cannot be lost to the menu.
+  await expect(page.locator('.home-screen')).not.toHaveClass(/home-screen--open/);
 }
 
 export async function openDebugPanel(page: Page): Promise<void> {
