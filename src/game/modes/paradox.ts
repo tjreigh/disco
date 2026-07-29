@@ -1,24 +1,44 @@
-import type { GameModeConfig } from './mode.js';
-import { CLASSIC_MODE } from './classic.js';
+import {
+  defineGameRules,
+  defineSoloMode,
+  SOLO_ACCOUNT_STATS,
+  SOLO_AUTOSAVE,
+  SOLO_RUN_SESSION,
+} from './mode.js';
+import {
+  ADJACENT_CRACK_REVEAL,
+  CLASSIC_ADAPTIVE_GENERATION,
+  CLASSIC_CHAIN_SCORING,
+  CLASSIC_LEVEL_PRESSURE,
+  DOWNWARD_DROP,
+  ORTHOGONAL_COUNT_MATCH,
+  OVERFLOW_OR_FULL_BOARD_ENDS_RUN,
+  PARADOX_REWIND,
+  SEVEN_BY_SEVEN,
+} from './modules.js';
 
-/** Classic play with a deterministic, increasingly costly timeline rewind. */
-export const PARADOX_MODE: GameModeConfig = {
-  ...CLASSIC_MODE,
+export const PARADOX_RULES = defineGameRules({
+  id: 'paradox',
+  version: 1,
+  board: SEVEN_BY_SEVEN,
+  placement: DOWNWARD_DROP,
+  clearing: ORTHOGONAL_COUNT_MATCH,
+  revealing: ADJACENT_CRACK_REVEAL,
+  generation: CLASSIC_ADAPTIVE_GENERATION,
+  scoring: CLASSIC_CHAIN_SCORING,
+  progression: CLASSIC_LEVEL_PRESSURE,
+  failure: OVERFLOW_OR_FULL_BOARD_ENDS_RUN,
+  modifiers: [PARADOX_REWIND],
+});
+
+export const PARADOX_MODE = defineSoloMode({
+  kind: 'solo',
   id: 'paradox',
   name: 'Paradox',
   tagline: 'Rewind your mistakes, but every erased turn fractures the board.',
-  rewind: {
-    historyDepth: 5,
-    criticalInstability: 5,
-    pressureStepInstability: 3,
-    maxTurnCost: 3,
-    temporalEcho: {
-      tiers: [
-        { minimumInstability: 5, probability: 0.1 },
-        { minimumInstability: 6, probability: 0.2 },
-        { minimumInstability: 9, probability: 0.3 },
-      ],
-    },
-  },
   hasTutorial: false,
-};
+  rules: PARADOX_RULES,
+  session: SOLO_RUN_SESSION,
+  persistence: SOLO_AUTOSAVE,
+  stats: SOLO_ACCOUNT_STATS,
+});

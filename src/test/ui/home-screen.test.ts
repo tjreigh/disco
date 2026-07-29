@@ -2,7 +2,7 @@
 
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { CLASSIC_MODE, GRAVITY_MODE, PARADOX_MODE, STACK_MODE } from '../../game/modes/index.js';
-import type { GameModeConfig } from '../../game/modes/mode.js';
+import type { SoloModeDefinition } from '../../game/modes/mode.js';
 import type { GameStats } from '../../game/stats.js';
 import { HomeScreen } from '../../ui/home-screen.js';
 import type { AccountStatsState } from '../../platform/account-stats-store.js';
@@ -29,10 +29,10 @@ function auth(overrides: Partial<AccountStatsState> = {}): AccountStatsState {
 }
 
 function createHome(options: {
-  modes?: readonly GameModeConfig[];
+  modes?: readonly SoloModeDefinition[];
   authState?: AccountStatsState;
   loadStats?: (modeId: string) => GameStats;
-  onSelectMode?: (mode: GameModeConfig) => void;
+  onSelectMode?: (mode: SoloModeDefinition) => void;
   onLogin?: () => void;
   onLogout?: () => void;
   mount?: HTMLElement;

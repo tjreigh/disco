@@ -1,4 +1,4 @@
-import type { GameModeConfig } from '../game/modes/mode.js';
+import type { SoloModeDefinition } from '../game/modes/mode.js';
 import { parseSaveGame, stringifySaveGame } from '../game/save.js';
 import type { SaveGameV1 } from '../game/save.js';
 
@@ -17,13 +17,15 @@ export interface LocalSaveStoreOptions {
 
 /** Best-effort storage for the single current local autosave. */
 export class LocalSaveStore {
-  private readonly modesById: ReadonlyMap<string, GameModeConfig>;
+  private readonly modesById: ReadonlyMap<string, SoloModeDefinition>;
 
   constructor(
-    modes: readonly GameModeConfig[],
+    modes: readonly SoloModeDefinition[],
     private readonly options: LocalSaveStoreOptions = {},
   ) {
-    this.modesById = new Map(modes.map(mode => [mode.id, mode]));
+    this.modesById = new Map(
+      modes.filter(mode => mode.persistence.enabled).map(mode => [mode.id, mode]),
+    );
   }
 
   /** Reads and validates the current autosave, removing invalid data when possible. */
@@ -50,7 +52,7 @@ export class LocalSaveStore {
   write(save: SaveGameV1): void {
     const mode = this.modesById.get(save.modeId);
     if (!mode) return;
-    const cleanSave = parseSaveGame(save, mode);
+    const cleanSave = parseSaveGame(save, mode.rules);
     if (!cleanSave) return;
 
     const storage = this.storage();
@@ -80,7 +82,7 @@ export class LocalSaveStore {
     const modeId = (value as Record<string, unknown>).modeId;
     if (typeof modeId !== 'string') return null;
     const mode = this.modesById.get(modeId);
-    return mode ? parseSaveGame(value, mode) : null;
+    return mode ? parseSaveGame(value, mode.rules) : null;
   }
 
   private removeFrom(storage: SaveStorage): void {

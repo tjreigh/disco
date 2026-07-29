@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 import { DiscKind } from '../../game/model.js';
-import { CLASSIC_MODE, GAME_MODES, GRAVITY_MODE } from '../../game/modes/index.js';
-import type { GameModeConfig } from '../../game/modes/mode.js';
+import { CLASSIC_MODE, SOLO_MODES, GRAVITY_MODE } from '../../game/modes/index.js';
+import type { SoloModeDefinition } from '../../game/modes/mode.js';
 import {
   SAVE_GAME_RULES_VERSION,
   SAVE_GAME_VERSION,
@@ -17,7 +17,8 @@ import {
   SyncedSaveStore,
 } from '../../platform/synced-save-store.js';
 
-function validSave(mode: GameModeConfig = CLASSIC_MODE, overrides: { score?: number; savedAt?: number } = {}): SaveGameV1 {
+function validSave(mode: SoloModeDefinition = CLASSIC_MODE, overrides: { score?: number; savedAt?: number } = {}): SaveGameV1 {
+  const rules = mode.rules;
   return {
     version: SAVE_GAME_VERSION,
     rulesVersion: SAVE_GAME_RULES_VERSION,
@@ -26,27 +27,33 @@ function validSave(mode: GameModeConfig = CLASSIC_MODE, overrides: { score?: num
     state: {
       phase: 'waiting',
       board: Array.from(
-        { length: mode.board.rows },
-        () => Array.from({ length: mode.board.cols }, () => null),
+        { length: rules.board.rows },
+        () => Array.from({ length: rules.board.cols }, () => null),
       ),
       cursorCol: 2,
       score: overrides.score ?? 12_345,
       dropCount: 9,
       level: 1,
-      turnsPerLevel: mode.initialTurnsPerLevel,
-      turnsRemaining: mode.initialTurnsPerLevel - 9,
-      ...(mode.gravity ? { gravity: { angle: mode.gravity.initialAngleDeg } } : {}),
+      turnsPerLevel: rules.progression.initialTurnsPerLevel,
+      turnsRemaining: rules.progression.initialTurnsPerLevel - 9,
+      ...(rules.placement.kind === 'stage-and-tilt@1'
+        ? { gravity: { angle: rules.placement.initialAngleDeg } }
+        : {}),
     },
     generation: {
       source: 'seeded',
       seed: 123,
       queue: [
-        { value: mode.discValueMin, kind: DiscKind.Numbered },
-        { value: mode.discValueMax, kind: DiscKind.DoubleCracked },
-        { value: mode.discValueMin, kind: DiscKind.Numbered },
+        { value: rules.generation.discValueMin, kind: DiscKind.Numbered },
+        { value: rules.generation.discValueMax, kind: DiscKind.DoubleCracked },
+        { value: rules.generation.discValueMin, kind: DiscKind.Numbered },
       ],
       playableGenerator: {
-        recentValues: [mode.discValueMin, mode.discValueMax, mode.discValueMin],
+        recentValues: [
+          rules.generation.discValueMin,
+          rules.generation.discValueMax,
+          rules.generation.discValueMin,
+        ],
         recentKinds: [DiscKind.Numbered, DiscKind.DoubleCracked, DiscKind.Numbered],
       },
       random: { playableState: 456, pushState: 789 },
@@ -130,7 +137,7 @@ describe('SyncedSaveStore', () => {
       [LOCAL_SAVE_KEY]: JSON.stringify(classic),
       [`${SAVE_SYNC_KEY_PREFIX}.guest.${GRAVITY_MODE.id}`]: record(gravity),
     });
-    const store = new SyncedSaveStore(GAME_MODES, {
+    const store = new SyncedSaveStore(SOLO_MODES, {
       api: api({ auth: null }),
       storage,
       createRunId: () => '00000000-0000-4000-8000-000000000001',
@@ -149,7 +156,7 @@ describe('SyncedSaveStore', () => {
     const storage = new MemoryStorage({ [LOCAL_SAVE_KEY]: JSON.stringify(classic) });
     vi.spyOn(storage, 'setItem').mockImplementation(() => { throw new Error('quota exceeded'); });
 
-    const store = new SyncedSaveStore(GAME_MODES, {
+    const store = new SyncedSaveStore(SOLO_MODES, {
       api: api({ auth: null }),
       storage,
       autoInitialize: false,
@@ -162,7 +169,7 @@ describe('SyncedSaveStore', () => {
 
   test('keeps independent saves for each mode and isolates account storage', async () => {
     const storage = new MemoryStorage();
-    const store = new SyncedSaveStore(GAME_MODES, { api: api({ auth: null }), storage });
+    const store = new SyncedSaveStore(SOLO_MODES, { api: api({ auth: null }), storage });
     await store.ready;
 
     store.write('classic', validSave(CLASSIC_MODE, { score: 11 }));
@@ -180,7 +187,7 @@ describe('SyncedSaveStore', () => {
   test('recovers a cloud-only save and caches a clean account record', async () => {
     const cloud = validSave(CLASSIC_MODE, { score: 500 });
     const storage = new MemoryStorage();
-    const store = new SyncedSaveStore(GAME_MODES, {
+    const store = new SyncedSaveStore(SOLO_MODES, {
       api: api({ saves: [slot('classic', 4, cloud)] }),
       storage,
     });
@@ -202,7 +209,7 @@ describe('SyncedSaveStore', () => {
       [`${SAVE_SYNC_KEY_PREFIX}.guest.classic`]: record(guest),
     });
     const client = api({ saves: [slot('classic', 3, null)] });
-    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage });
+    const store = new SyncedSaveStore(SOLO_MODES, { api: client, storage });
 
     await store.ready;
 
@@ -225,7 +232,7 @@ describe('SyncedSaveStore', () => {
       [`${SAVE_SYNC_KEY_PREFIX}.guest.classic`]: record(guest),
     });
     const client = api({ saves: [slot('classic', 3, null)] });
-    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage });
+    const store = new SyncedSaveStore(SOLO_MODES, { api: client, storage });
 
     await store.ready;
 
@@ -250,7 +257,7 @@ describe('SyncedSaveStore', () => {
       [`${SAVE_SYNC_KEY_PREFIX}.guest.classic`]: record(guest),
     });
     const client = api({ saves: [slot('classic', 3, cloud)] });
-    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage });
+    const store = new SyncedSaveStore(SOLO_MODES, { api: client, storage });
 
     await store.ready;
 
@@ -271,7 +278,7 @@ describe('SyncedSaveStore', () => {
     const client = api();
     client.getSaves.mockImplementationOnce(async () => await listing);
     const storage = new MemoryStorage();
-    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage });
+    const store = new SyncedSaveStore(SOLO_MODES, { api: client, storage });
 
     await vi.waitFor(() => expect(client.getSaves).toHaveBeenCalled());
     await store.setAuthState(null);
@@ -295,7 +302,7 @@ describe('SyncedSaveStore', () => {
     });
     const guest = validSave(CLASSIC_MODE, { score: 900 });
     const storage = new MemoryStorage();
-    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage });
+    const store = new SyncedSaveStore(SOLO_MODES, { api: client, storage });
     await store.ready;
     storage.setItem(`${SAVE_SYNC_KEY_PREFIX}.guest.classic`, record(guest));
 
@@ -321,7 +328,7 @@ describe('SyncedSaveStore', () => {
       [`${SAVE_SYNC_KEY_PREFIX}.guest.classic`]: record(guest),
     });
     const client = api({ saves: [slot('classic', 3, cloud)] });
-    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage });
+    const store = new SyncedSaveStore(SOLO_MODES, { api: client, storage });
 
     await store.ready;
 
@@ -347,7 +354,7 @@ describe('SyncedSaveStore', () => {
       [`${SAVE_SYNC_KEY_PREFIX}.account.account-1.classic`]: record(local, { revision: 2 }),
     });
     const client = api({ saves: [slot('classic', 3, cloud)] });
-    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage });
+    const store = new SyncedSaveStore(SOLO_MODES, { api: client, storage });
     await store.ready;
 
     expect(store.getConflict('classic')).toMatchObject({
@@ -371,7 +378,7 @@ describe('SyncedSaveStore', () => {
       }),
     });
     const client = api({ saves: [slot('classic', 3, null)] });
-    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage });
+    const store = new SyncedSaveStore(SOLO_MODES, { api: client, storage });
 
     await store.ready;
 
@@ -386,7 +393,7 @@ describe('SyncedSaveStore', () => {
       saves: [],
       put: async () => { throw new ApiSaveConflictError(slot('classic', 2, cloud)); },
     });
-    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage: new MemoryStorage() });
+    const store = new SyncedSaveStore(SOLO_MODES, { api: client, storage: new MemoryStorage() });
     await store.ready;
 
     store.write('classic', validSave(CLASSIC_MODE, { score: 100 }));
@@ -403,7 +410,7 @@ describe('SyncedSaveStore', () => {
       saves: [slot('classic', 2, validSave(CLASSIC_MODE))],
       put: async () => { throw new ApiSaveConflictError(slot('classic', 3, null)); },
     });
-    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage });
+    const store = new SyncedSaveStore(SOLO_MODES, { api: client, storage });
     await store.ready;
 
     store.remove('classic');
@@ -424,7 +431,7 @@ describe('SyncedSaveStore', () => {
         { revision: 2 },
       ),
     });
-    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage });
+    const store = new SyncedSaveStore(SOLO_MODES, { api: client, storage });
     await store.ready;
 
     store.write('classic', validSave(CLASSIC_MODE, { score: 200 }));
@@ -452,7 +459,7 @@ describe('SyncedSaveStore', () => {
         return slot(modeId, 2, request.save, request.runId);
       },
     });
-    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage: new MemoryStorage() });
+    const store = new SyncedSaveStore(SOLO_MODES, { api: client, storage: new MemoryStorage() });
     await store.ready;
 
     store.write('classic', validSave(CLASSIC_MODE, { score: 100 }));
@@ -478,7 +485,7 @@ describe('SyncedSaveStore', () => {
         return await upload;
       },
     });
-    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage: new MemoryStorage() });
+    const store = new SyncedSaveStore(SOLO_MODES, { api: client, storage: new MemoryStorage() });
     await store.ready;
     store.write('classic', validSave(CLASSIC_MODE, { score: 300 }));
     await vi.waitFor(() => expect(client.putSave).toHaveBeenCalledOnce());
@@ -500,7 +507,7 @@ describe('SyncedSaveStore', () => {
     const newer = validSave(CLASSIC_MODE, { score: 400 });
     const saves = [slot('classic', 1, older)];
     const client = api({ saves });
-    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage: new MemoryStorage() });
+    const store = new SyncedSaveStore(SOLO_MODES, { api: client, storage: new MemoryStorage() });
     await store.ready;
     expect(store.read('classic')?.state.score).toBe(100);
 
@@ -515,7 +522,7 @@ describe('SyncedSaveStore', () => {
     const classic = validSave(CLASSIC_MODE, { score: 100 });
     const gravity = validSave(GRAVITY_MODE, { score: 200 });
     const client = api({ saves: [slot('classic', 1, classic), slot('gravity', 2, gravity)] });
-    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage: new MemoryStorage() });
+    const store = new SyncedSaveStore(SOLO_MODES, { api: client, storage: new MemoryStorage() });
     await store.ready;
 
     store.remove('classic');
@@ -536,12 +543,12 @@ describe('SyncedSaveStore', () => {
     });
     const offlineApi = api();
     offlineApi.me.mockRejectedValueOnce(new Error('offline'));
-    const offlineStore = new SyncedSaveStore(GAME_MODES, { api: offlineApi, storage });
+    const offlineStore = new SyncedSaveStore(SOLO_MODES, { api: offlineApi, storage });
     await offlineStore.ready;
     expect(offlineStore.getState()).toMatchObject({ scope: 'account', accountId: 'account-1', apiAvailable: false });
     expect(offlineStore.read('classic')?.state.score).toBe(333);
 
-    const anonymousStore = new SyncedSaveStore(GAME_MODES, { api: api({ auth: null }), storage });
+    const anonymousStore = new SyncedSaveStore(SOLO_MODES, { api: api({ auth: null }), storage });
     await anonymousStore.ready;
     expect(anonymousStore.getState()).toMatchObject({ scope: 'guest', accountId: null, apiAvailable: true });
     expect(anonymousStore.read('classic')).toBeNull();
@@ -551,7 +558,7 @@ describe('SyncedSaveStore', () => {
   test('surfaces malformed cloud payloads without deleting or overwriting them', async () => {
     const invalid = { ...validSave(CLASSIC_MODE), rulesVersion: 999 };
     const client = api({ saves: [slot('classic', 5, invalid as SaveGameV1)] });
-    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage: new MemoryStorage() });
+    const store = new SyncedSaveStore(SOLO_MODES, { api: client, storage: new MemoryStorage() });
     await store.ready;
 
     expect(store.read('classic')).toBeNull();
@@ -566,7 +573,7 @@ describe('SyncedSaveStore', () => {
   test('rejects a cloud slot with a missing runId but a present save', async () => {
     const cloud = validSave(CLASSIC_MODE, { score: 250 });
     const client = api({ saves: [slot('classic', 5, cloud, null)] });
-    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage: new MemoryStorage() });
+    const store = new SyncedSaveStore(SOLO_MODES, { api: client, storage: new MemoryStorage() });
     await store.ready;
 
     expect(store.read('classic')).toBeNull();
@@ -582,7 +589,7 @@ describe('SyncedSaveStore', () => {
     const client = api({
       saves: [slot('classic', 5, null, '00000000-0000-4000-8000-000000000005')],
     });
-    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage: new MemoryStorage() });
+    const store = new SyncedSaveStore(SOLO_MODES, { api: client, storage: new MemoryStorage() });
     await store.ready;
 
     expect(store.read('classic')).toBeNull();
@@ -599,7 +606,7 @@ describe('SyncedSaveStore', () => {
       saves: [],
       put: async () => { throw new TypeError('network failure'); },
     });
-    const store = new SyncedSaveStore(GAME_MODES, { api: client, storage: new MemoryStorage() });
+    const store = new SyncedSaveStore(SOLO_MODES, { api: client, storage: new MemoryStorage() });
     await store.ready;
 
     store.write('classic', validSave(CLASSIC_MODE, { score: 100 }));
@@ -614,7 +621,7 @@ describe('SyncedSaveStore', () => {
     const storage = new MemoryStorage();
     const offlineApi = api();
     offlineApi.me.mockRejectedValueOnce(new TypeError('offline'));
-    const store = new SyncedSaveStore(GAME_MODES, { api: offlineApi, storage });
+    const store = new SyncedSaveStore(SOLO_MODES, { api: offlineApi, storage });
 
     await store.ready;
 

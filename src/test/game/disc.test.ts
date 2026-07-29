@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import { createDiscFactories, DiscQueue, makeCrackedDisc, makeDisc, makeRandomDisc, PlayableDiscGenerator } from '../../game/disc.js';
 import type { Board } from '../../game/model.js';
 import { DiscKind } from '../../game/model.js';
-import { CLASSIC_MODE, STACK_MODE } from '../../game/modes/index.js';
+import { CLASSIC_RULES, STACK_RULES } from '../../game/modes/index.js';
 import { createGameSeed, createSeededRandom } from '../../game/random.js';
 import { makeEmptyBoard } from '../../game/board.js';
 
@@ -16,7 +16,7 @@ describe('makeRandomDisc', () => {
   });
 
   test('uses the level-specific numbered probability boundary', () => {
-    const factory = createDiscFactories(CLASSIC_MODE).discFactory;
+    const factory = createDiscFactories(CLASSIC_RULES).discFactory;
     const board = makeEmptyBoard();
 
     vi.spyOn(Math, 'random')
@@ -57,9 +57,9 @@ describe('makeRandomDisc', () => {
 
 describe('PlayableDiscGenerator', () => {
   test('restores history for an identical continuation and snapshots defensively', () => {
-    const first = new PlayableDiscGenerator(CLASSIC_MODE, createSeededRandom(111));
+    const first = new PlayableDiscGenerator(CLASSIC_RULES, createSeededRandom(111));
     const secondRandom = createSeededRandom(111);
-    const second = new PlayableDiscGenerator(CLASSIC_MODE, secondRandom);
+    const second = new PlayableDiscGenerator(CLASSIC_RULES, secondRandom);
     const board = makeEmptyBoard();
 
     Array.from({ length: 12 }, () => first.generate(2, board));
@@ -81,7 +81,7 @@ describe('PlayableDiscGenerator', () => {
 
   test('returns snapshot arrays that cannot mutate generator history', () => {
     const random = createSeededRandom(222);
-    const generator = new PlayableDiscGenerator(CLASSIC_MODE, random);
+    const generator = new PlayableDiscGenerator(CLASSIC_RULES, random);
     Array.from({ length: 10 }, () => generator.generate(2));
     const before = generator.snapshot();
     const exposed = generator.snapshot();
@@ -93,7 +93,7 @@ describe('PlayableDiscGenerator', () => {
   });
 
   test('enforces value and kind streak limits', () => {
-    const generator = new PlayableDiscGenerator(CLASSIC_MODE, createSeededRandom(12345));
+    const generator = new PlayableDiscGenerator(CLASSIC_RULES, createSeededRandom(12345));
     const discs = Array.from({ length: 10_000 }, () => generator.generate(1));
     let valueRun = 0;
     let numberedRun = 0;
@@ -111,7 +111,7 @@ describe('PlayableDiscGenerator', () => {
   });
 
   test('keeps long-run kind frequency near the level target', () => {
-    const generator = new PlayableDiscGenerator(CLASSIC_MODE, createSeededRandom(54321));
+    const generator = new PlayableDiscGenerator(CLASSIC_RULES, createSeededRandom(54321));
     // Level 2 (past minLevelForBoardClearBonus): generate(level) with no board
     // defaults to a fresh empty board on every single call, which at level 1
     // would keep the empty-board value guard permanently active and distort
@@ -129,14 +129,14 @@ describe('PlayableDiscGenerator', () => {
   });
 
   test('Stack mode never deals a DoubleCracked player disc, including past the normal numbered streak cap', () => {
-    const generator = new PlayableDiscGenerator(STACK_MODE, createSeededRandom(24680));
+    const generator = new PlayableDiscGenerator(STACK_RULES, createSeededRandom(24680));
     const discs = Array.from({ length: 20 }, () => generator.generate(10));
 
     expect(discs.every(disc => disc.kind === DiscKind.Numbered)).toBe(true);
   });
 
   test('re-rolls a value that would immediately clear an empty board, without touching kind', () => {
-    const generator = new PlayableDiscGenerator(CLASSIC_MODE, () => 0);
+    const generator = new PlayableDiscGenerator(CLASSIC_RULES, () => 0);
     const disc = generator.generate(1, makeEmptyBoard());
 
     // On a genuinely empty board only value 1 could chain-clear it straight
@@ -165,7 +165,7 @@ describe('PlayableDiscGenerator', () => {
     const seeds = Array.from({ length: 500 }, () => createGameSeed());
 
     for (const seed of seeds) {
-      const generator = new PlayableDiscGenerator(CLASSIC_MODE, createSeededRandom(seed));
+      const generator = new PlayableDiscGenerator(CLASSIC_RULES, createSeededRandom(seed));
       const board = makeEmptyBoard();
       for (let i = 0; i < 5; i++) {
         const disc = generator.generate(1, board);
@@ -183,10 +183,10 @@ describe('PlayableDiscGenerator', () => {
     let sawNumberedOne = false;
 
     for (const seed of seeds) {
-      const generator = new PlayableDiscGenerator(CLASSIC_MODE, createSeededRandom(seed));
+      const generator = new PlayableDiscGenerator(CLASSIC_RULES, createSeededRandom(seed));
       const board = makeEmptyBoard();
       for (let i = 0; i < 5; i++) {
-        const disc = generator.generate(CLASSIC_MODE.minLevelForBoardClearBonus, board);
+        const disc = generator.generate(CLASSIC_RULES.generation.minLevelForBoardClearBonus, board);
         if (disc.kind === DiscKind.Numbered && disc.value === 1) sawNumberedOne = true;
       }
     }
@@ -197,7 +197,7 @@ describe('PlayableDiscGenerator', () => {
   test('can still deal numbered 1 once the board is not empty', () => {
     const board = makeEmptyBoard();
     board[6]![0] = makeDisc(7, DiscKind.DoubleCracked);
-    const generator = new PlayableDiscGenerator(CLASSIC_MODE, () => 0);
+    const generator = new PlayableDiscGenerator(CLASSIC_RULES, () => 0);
     const disc = generator.generate(1, board);
 
     expect(disc.value).toBe(1);
@@ -205,14 +205,21 @@ describe('PlayableDiscGenerator', () => {
   });
 
   test('the empty-board value guard only applies below minLevelForBoardClearBonus', () => {
-    const generator = new PlayableDiscGenerator(CLASSIC_MODE, () => 0);
-    const disc = generator.generate(CLASSIC_MODE.minLevelForBoardClearBonus, makeEmptyBoard());
+    const generator = new PlayableDiscGenerator(CLASSIC_RULES, () => 0);
+    const disc = generator.generate(CLASSIC_RULES.generation.minLevelForBoardClearBonus, makeEmptyBoard());
 
     expect(disc.value).toBe(1); // guard is off at/after this level, so the raw uniform roll can land on 1 again
   });
 
   test('falls back to the unfiltered candidate pool if every remaining value would be unsafe', () => {
-    const singleValueMode = { ...CLASSIC_MODE, discValueMin: 1, discValueMax: 1 };
+    const singleValueMode = {
+      ...CLASSIC_RULES,
+      generation: {
+        ...CLASSIC_RULES.generation,
+        discValueMin: 1,
+        discValueMax: 1,
+      },
+    };
     const generator = new PlayableDiscGenerator(singleValueMode, () => 0);
 
     const disc = generator.generate(1, makeEmptyBoard());
@@ -222,7 +229,7 @@ describe('PlayableDiscGenerator', () => {
 
   test('is deterministic for a seed and keeps push rolls out of playable history', () => {
     const makeFactories = () => createDiscFactories(
-      CLASSIC_MODE,
+      CLASSIC_RULES,
       createSeededRandom(111),
       createSeededRandom(222),
     );
@@ -244,8 +251,8 @@ describe('PlayableDiscGenerator', () => {
     const lowBoard = makeEmptyBoard();
     const highBoard = makeEmptyBoard();
     for (let row = 0; row < 7; row++) highBoard[row]![6] = makeDisc(7, DiscKind.DoubleCracked);
-    const lowGenerator = new PlayableDiscGenerator(CLASSIC_MODE, createSeededRandom(9876));
-    const highGenerator = new PlayableDiscGenerator(CLASSIC_MODE, createSeededRandom(9876));
+    const lowGenerator = new PlayableDiscGenerator(CLASSIC_RULES, createSeededRandom(9876));
+    const highGenerator = new PlayableDiscGenerator(CLASSIC_RULES, createSeededRandom(9876));
 
     // Level 2 (past minLevelForBoardClearBonus): lowBoard is reused untouched
     // across every call, so at level 1 the empty-board value guard would fire
@@ -265,9 +272,9 @@ describe('PlayableDiscGenerator', () => {
 
   test('boosts values that can clear in more legal drop columns', () => {
     const relevanceOnlyMode = {
-      ...CLASSIC_MODE,
-      discGeneration: {
-        ...CLASSIC_MODE.discGeneration,
+      ...CLASSIC_RULES,
+      generation: {
+        ...CLASSIC_RULES.generation,
         valueBalanceStrength: 0,
         boardPressureStrength: 0,
       },
@@ -309,7 +316,7 @@ describe('PlayableDiscGenerator', () => {
     board[6]![1] = makeDisc(3, DiscKind.DoubleCracked);
     const before = board.map(row => row.map(cell => cell == null ? null : { ...cell }));
 
-    new PlayableDiscGenerator(CLASSIC_MODE, createSeededRandom(1)).generate(1, board);
+    new PlayableDiscGenerator(CLASSIC_RULES, createSeededRandom(1)).generate(1, board);
 
     expect(board).toEqual(before);
   });

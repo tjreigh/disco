@@ -1,5 +1,5 @@
 import type { SaveGameV1 } from '../game/save.js';
-import type { GameModeConfig } from '../game/modes/mode.js';
+import type { SoloModeDefinition } from '../game/modes/mode.js';
 import { ModalController } from './modal-controller.js';
 
 export type SavedGameConflictSide = SaveGameV1 | null;
@@ -55,7 +55,7 @@ export class SavedGameDialog {
   }
 
   /** Shows the ordinary resume-or-replace decision for a valid save. */
-  showSave(mode: GameModeConfig, save: SaveGameV1): void {
+  showSave(mode: SoloModeDefinition, save: SaveGameV1): void {
     this.prepareOpen();
     this.title.textContent = `CONTINUE ${mode.name.toUpperCase()}?`;
     this.description.textContent = 'A saved game is available for this mode.';
@@ -81,7 +81,7 @@ export class SavedGameDialog {
    * tombstone and is presented for context without an action to resume it.
    */
   showConflict(
-    mode: GameModeConfig,
+    mode: SoloModeDefinition,
     local: SavedGameConflictSide,
     cloud: SavedGameConflictSide,
   ): void {
@@ -123,7 +123,7 @@ export class SavedGameDialog {
   }
 
   /** Shows an explicit replacement decision for an incompatible cloud save. */
-  showUnavailable(mode: GameModeConfig, local: SavedGameConflictSide = null): void {
+  showUnavailable(mode: SoloModeDefinition, local: SavedGameConflictSide = null): void {
     this.prepareOpen();
     this.title.textContent = `${mode.name.toUpperCase()} SAVE UNAVAILABLE`;
     this.description.textContent = 'The cloud save is incompatible with this version of the game and cannot be resumed.';
@@ -181,7 +181,7 @@ export class SavedGameDialog {
 
   private createSummary(
     save: SaveGameV1,
-    mode: GameModeConfig,
+    mode: SoloModeDefinition,
     label: string,
   ): HTMLElement {
     const section = document.createElement('section');
@@ -196,8 +196,8 @@ export class SavedGameDialog {
     this.appendStat(stats, 'Turns played', save.state.dropCount.toLocaleString('en-US'));
     this.appendStat(
       stats,
-      mode.scoring.kind === 'stack' ? 'Best turn' : 'Best chain',
-      mode.scoring.kind === 'stack'
+      mode.rules.scoring.kind === 'stack-score@1' ? 'Best turn' : 'Best chain',
+      mode.rules.scoring.kind === 'stack-score@1'
         ? `${save.session.longestStreak.toLocaleString('en-US')} cleared`
         : `${save.session.longestStreak.toLocaleString('en-US')} wave${save.session.longestStreak === 1 ? '' : 's'}`,
     );
@@ -221,7 +221,7 @@ export class SavedGameDialog {
   private createConflictCard(
     label: string,
     save: SavedGameConflictSide,
-    mode: GameModeConfig,
+    mode: SoloModeDefinition,
   ): HTMLElement {
     const card = document.createElement('section');
     card.className = 'saved-game-dialog__save-card';

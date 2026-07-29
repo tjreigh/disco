@@ -1,4 +1,4 @@
-import type { GameModeConfig } from '../game/modes/mode.js';
+import type { SoloModeDefinition } from '../game/modes/mode.js';
 import type { GameStats } from '../game/stats.js';
 import type { AccountStatsState } from '../platform/account-stats-store.js';
 import { blurOnClick } from './dom-utils.js';
@@ -31,11 +31,11 @@ export class HomeScreen {
   onRequestHome?: () => void;
   onRequestToggleSound?: () => void;
   onRequestDebug?: () => void;
-  onRequestTutorial?: (mode: GameModeConfig) => void;
+  onRequestTutorial?: (mode: SoloModeDefinition) => void;
 
   constructor(
-    private readonly modes: readonly GameModeConfig[],
-    private readonly onSelectMode: (mode: GameModeConfig) => void,
+    private readonly modes: readonly SoloModeDefinition[],
+    private readonly onSelectMode: (mode: SoloModeDefinition) => void,
     private readonly loadStats: (modeId: string) => GameStats,
     private readonly getAuthState: () => AccountStatsState,
     private readonly onLogin: () => void,
@@ -429,7 +429,7 @@ export class HomeScreen {
     }
   }
 
-  private renderModeDetails(mode: GameModeConfig, stats: GameStats): void {
+  private renderModeDetails(mode: SoloModeDefinition, stats: GameStats): void {
     const eyebrow = document.createElement('span');
     eyebrow.className = 'home-mode-detail-eyebrow';
     eyebrow.textContent = 'SELECTED MODE';
@@ -446,7 +446,7 @@ export class HomeScreen {
     const records = document.createElement('dl');
     records.className = 'home-mode-records';
     this.appendRecord(records, 'HIGH SCORE', stats.gamesPlayed > 0 ? String(stats.highScore) : '—');
-    if (mode.scoring.kind === 'stack') {
+    if (mode.rules.scoring.kind === 'stack-score@1') {
       this.appendRecord(records, 'BEST TURN', stats.gamesPlayed > 0 ? `${stats.longestStreak} CLEARED` : '—');
     } else {
       const unit = stats.longestStreak === 1 ? 'WAVE' : 'WAVES';

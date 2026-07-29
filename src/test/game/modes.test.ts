@@ -1,177 +1,226 @@
 import { describe, expect, test } from 'vitest';
-import { CLASSIC_MODE, GAME_MODES, GRAVITY_MODE, PARADOX_MODE, STACK_MODE } from '../../game/modes/index.js';
-import {
-  temporalEchoProbability, turnsForLevel, unnumberedProbabilityForLevel,
-} from '../../game/modes/mode.js';
 import { makeEmptyBoard, placeDisc } from '../../game/board.js';
 import { makeDisc } from '../../game/disc.js';
 import { DiscKind } from '../../game/model.js';
+import {
+  CLASSIC_MODE,
+  CLASSIC_RULES,
+  GAME_RULESETS,
+  GRAVITY_MODE,
+  GRAVITY_RULES,
+  MULTIPLAYER_MODES,
+  PARADOX_MODE,
+  PARADOX_RULES,
+  SOLO_MODES,
+  STACK_MODE,
+  STACK_RULES,
+  getGameRules,
+  getSoloMode,
+  validateModeRegistries,
+} from '../../game/modes/index.js';
+import {
+  capabilitiesForRules,
+  defineGameRules,
+  defineMultiplayerMode,
+  rewindModifier,
+  temporalEchoProbability,
+  turnsForLevel,
+  unnumberedProbabilityForLevel,
+} from '../../game/modes/mode.js';
+import { testMode } from '../helpers.js';
 
-describe('CLASSIC_MODE', () => {
-  test('retains the classic rule configuration', () => {
-    expect(CLASSIC_MODE.board).toEqual({ cols: 7, rows: 7 });
-    expect(CLASSIC_MODE.pointsPerDisc).toBe(7);
-    expect(CLASSIC_MODE.chainExponent).toBe(2.5);
-    expect(CLASSIC_MODE.discValueMin).toBe(1);
-    expect(CLASSIC_MODE.discValueMax).toBe(7);
-    expect(CLASSIC_MODE.initialUnnumberedProbability).toBe(0.20);
-    expect(CLASSIC_MODE.unnumberedProbabilityLevelStep).toBe(0.01);
-    expect(CLASSIC_MODE.maxUnnumberedProbability).toBe(0.40);
-    expect(CLASSIC_MODE.levelBonus).toBe(7_000);
-    expect(CLASSIC_MODE.boardClearBonus).toBe(70_000);
-    expect(CLASSIC_MODE.initialTurnsPerLevel).toBe(30);
-    expect(CLASSIC_MODE.turnsPerLevelStep).toBe(1);
-    expect(CLASSIC_MODE.minTurnsPerLevel).toBe(8);
+describe('composed solo rules', () => {
+  test('Classic explicitly selects the shipped rule modules', () => {
+    expect(CLASSIC_RULES).toMatchObject({
+      id: 'classic',
+      version: 1,
+      board: { kind: 'rectangular-grid@1', cols: 7, rows: 7 },
+      placement: { kind: 'downward-drop@1' },
+      clearing: { kind: 'orthogonal-count-match@1' },
+      revealing: { kind: 'adjacent-crack-reveal@1' },
+      generation: {
+        kind: 'adaptive-history@1',
+        discValueMin: 1,
+        discValueMax: 7,
+        initialUnnumberedProbability: 0.2,
+        maxUnnumberedProbability: 0.4,
+      },
+      scoring: {
+        kind: 'chain-score@1',
+        pointsPerDisc: 7,
+        chainExponent: 2.5,
+        levelBonus: 7_000,
+        boardClearBonus: 70_000,
+      },
+      progression: {
+        kind: 'level-pressure@1',
+        initialTurnsPerLevel: 30,
+        turnsPerLevelStep: 1,
+        minTurnsPerLevel: 8,
+      },
+      failure: { kind: 'overflow-or-full-board-ends-run@1' },
+      modifiers: [],
+    });
   });
 
-  test('increases the unnumbered chance by level and caps it at 40%', () => {
-    expect(unnumberedProbabilityForLevel(CLASSIC_MODE, 1)).toBeCloseTo(0.20);
-    expect(unnumberedProbabilityForLevel(CLASSIC_MODE, 2)).toBeCloseTo(0.21);
-    expect(unnumberedProbabilityForLevel(CLASSIC_MODE, 10)).toBeCloseTo(0.29);
-    expect(unnumberedProbabilityForLevel(CLASSIC_MODE, 21)).toBeCloseTo(0.40);
-    expect(unnumberedProbabilityForLevel(CLASSIC_MODE, 100)).toBeCloseTo(0.40);
+  test('Stack explicitly changes generation, scoring, and progression modules', () => {
+    expect(STACK_RULES.board).toBe(CLASSIC_RULES.board);
+    expect(STACK_RULES.placement).toBe(CLASSIC_RULES.placement);
+    expect(STACK_RULES.clearing).toBe(CLASSIC_RULES.clearing);
+    expect(STACK_RULES.revealing).toBe(CLASSIC_RULES.revealing);
+    expect(STACK_RULES.failure).toBe(CLASSIC_RULES.failure);
+    expect(STACK_RULES.generation).not.toBe(CLASSIC_RULES.generation);
+    expect(STACK_RULES.scoring).toMatchObject({
+      kind: 'stack-score@1',
+      pointsPerStackUnit: 10,
+    });
+    expect(STACK_RULES.progression.initialTurnsPerLevel).toBe(22);
+    expect(unnumberedProbabilityForLevel(STACK_RULES.generation, 100)).toBe(0);
   });
 
-  test('has no gravity config', () => {
-    expect(CLASSIC_MODE.gravity).toBeUndefined();
+  test('Gravity is represented by placement and clearing modules', () => {
+    expect(GRAVITY_RULES.placement).toEqual({
+      kind: 'stage-and-tilt@1',
+      initialAngleDeg: 0,
+      maxTiltDeltaDeg: 90,
+    });
+    expect(GRAVITY_RULES.clearing.kind).toBe('gravity-aligned-count-match@1');
+    expect(GRAVITY_RULES.failure).toBe(CLASSIC_RULES.failure);
+    expect(GRAVITY_RULES.generation).toBe(CLASSIC_RULES.generation);
+    expect(GRAVITY_RULES.scoring).toBe(CLASSIC_RULES.scoring);
+    expect(capabilitiesForRules(GRAVITY_RULES)).toEqual({ canTilt: true, canRewind: false });
   });
 
-  test('GAME_MODES contains every player-facing mode', () => {
-    expect(GAME_MODES).toEqual([CLASSIC_MODE, GRAVITY_MODE, STACK_MODE, PARADOX_MODE]);
-  });
-
-  test('isClearable: a numbered disc clears when value equals its run length', () => {
-    const board = makeEmptyBoard();
-    placeDisc(board, 6, 0, makeDisc(1, DiscKind.Numbered));
-    expect(CLASSIC_MODE.isClearable(board, 6, 0, board[6]![0]!)).toBe(true);
-  });
-
-  test('isClearable: a cracked disc never clears directly', () => {
-    const board = makeEmptyBoard();
-    placeDisc(board, 6, 0, makeDisc(1, DiscKind.SingleCracked));
-    expect(CLASSIC_MODE.isClearable(board, 6, 0, board[6]![0]!)).toBe(false);
-  });
-
-  test('revealAdjacent: degrades an orthogonally adjacent cracked disc by one layer', () => {
-    const board = makeEmptyBoard();
-    placeDisc(board, 6, 1, makeDisc(5, DiscKind.DoubleCracked));
-    const reveal = CLASSIC_MODE.revealAdjacent(board, [{ row: 6, col: 0 }]);
-    expect(reveal.positions).toContainEqual({ row: 6, col: 1 });
-    expect(board[6]![1]!.kind).toBe(DiscKind.SingleCracked);
-  });
-
-  test('isGameOver: true only when row 0 has a disc', () => {
-    const empty = makeEmptyBoard();
-    expect(CLASSIC_MODE.isGameOver(empty)).toBe(false);
-
-    const full = makeEmptyBoard();
-    placeDisc(full, 0, 3, makeDisc(1, DiscKind.Numbered));
-    expect(CLASSIC_MODE.isGameOver(full)).toBe(true);
-  });
-});
-
-describe('STACK_MODE', () => {
-  test('keeps Classic rules, removes dropped hazards, and changes scoring to stack awards', () => {
-    expect(STACK_MODE.board).toEqual(CLASSIC_MODE.board);
-    expect(STACK_MODE.discValueMin).toBe(CLASSIC_MODE.discValueMin);
-    expect(STACK_MODE.discValueMax).toBe(CLASSIC_MODE.discValueMax);
-    expect(STACK_MODE.discGeneration).toEqual(CLASSIC_MODE.discGeneration);
-    expect(STACK_MODE.initialTurnsPerLevel).toBe(22);
-    expect(STACK_MODE.turnsPerLevelStep).toBe(CLASSIC_MODE.turnsPerLevelStep);
-    expect(STACK_MODE.minTurnsPerLevel).toBe(CLASSIC_MODE.minTurnsPerLevel);
-    expect(STACK_MODE.isClearable).toBe(CLASSIC_MODE.isClearable);
-    expect(STACK_MODE.revealAdjacent).toBe(CLASSIC_MODE.revealAdjacent);
-    expect(STACK_MODE.scoring).toEqual({ kind: 'stack', pointsPerStackUnit: 10 });
-    expect(unnumberedProbabilityForLevel(STACK_MODE, 1)).toBe(0);
-    expect(unnumberedProbabilityForLevel(STACK_MODE, 100)).toBe(0);
-    expect(STACK_MODE.levelBonus).toBe(CLASSIC_MODE.levelBonus);
-    expect(STACK_MODE.boardClearBonus).toBe(CLASSIC_MODE.boardClearBonus);
-  });
-});
-
-describe('PARADOX_MODE', () => {
-  test('inherits Classic rules and exposes five-turn rewind as a player-facing mode', () => {
-    expect(PARADOX_MODE.board).toEqual(CLASSIC_MODE.board);
-    expect(PARADOX_MODE.scoring).toEqual(CLASSIC_MODE.scoring);
-    expect(PARADOX_MODE.isClearable).toBe(CLASSIC_MODE.isClearable);
-    expect(PARADOX_MODE.revealAdjacent).toBe(CLASSIC_MODE.revealAdjacent);
-    expect(PARADOX_MODE.rewind).toEqual({
+  test('Paradox adds rewind as an orthogonal modifier', () => {
+    expect(PARADOX_RULES.board).toBe(CLASSIC_RULES.board);
+    expect(PARADOX_RULES.placement).toBe(CLASSIC_RULES.placement);
+    expect(rewindModifier(PARADOX_RULES)).toMatchObject({
+      kind: 'rewind-instability@1',
       historyDepth: 5,
       criticalInstability: 5,
       pressureStepInstability: 3,
       maxTurnCost: 3,
-      temporalEcho: {
-        tiers: [
-          { minimumInstability: 5, probability: 0.1 },
-          { minimumInstability: 6, probability: 0.2 },
-          { minimumInstability: 9, probability: 0.3 },
-        ],
+    });
+    expect(capabilitiesForRules(PARADOX_RULES)).toEqual({ canTilt: false, canRewind: true });
+    expect(temporalEchoProbability(PARADOX_RULES, 5)).toBe(0.1);
+    expect(temporalEchoProbability(PARADOX_RULES, 9)).toBe(0.3);
+  });
+
+  test('shared clear/reveal/failure behavior remains intact', () => {
+    const board = makeEmptyBoard();
+    placeDisc(board, 6, 0, makeDisc(1, DiscKind.Numbered));
+    expect(CLASSIC_RULES.clearing.isClearable(board, 6, 0, board[6]![0]!)).toBe(true);
+
+    placeDisc(board, 6, 1, makeDisc(5, DiscKind.DoubleCracked));
+    CLASSIC_RULES.revealing.revealAdjacent(board, [{ row: 6, col: 0 }]);
+    expect(board[6]![1]!.kind).toBe(DiscKind.SingleCracked);
+
+    const topEdge = makeEmptyBoard();
+    placeDisc(topEdge, 0, 3, makeDisc(7, DiscKind.DoubleCracked));
+    expect(CLASSIC_RULES.failure.isTerminalBoard(topEdge)).toBe(false);
+    expect(CLASSIC_RULES.failure.gameOverReason(true, topEdge)).toBe('push-overflow');
+  });
+
+  test('level and generation progression retain their shipped cadence', () => {
+    expect([1, 5, 23, 100].map(level => turnsForLevel(CLASSIC_RULES.progression, level)))
+      .toEqual([30, 26, 8, 8]);
+    expect([1, 2, 21, 100].map(level =>
+      unnumberedProbabilityForLevel(CLASSIC_RULES.generation, level)))
+      .toEqual([0.2, 0.21000000000000002, 0.4, 0.4]);
+  });
+});
+
+describe('mode definitions and registries', () => {
+  test('keeps catalog and solo policy outside engine rules', () => {
+    expect(CLASSIC_MODE).toMatchObject({
+      kind: 'solo',
+      id: 'classic',
+      name: 'Classic',
+      hasTutorial: true,
+      rules: CLASSIC_RULES,
+      persistence: { kind: 'solo-autosave@1', enabled: true },
+      stats: {
+        kind: 'solo-account-stats@1',
+        enabled: true,
+        leaderboardEligible: true,
       },
     });
     expect(PARADOX_MODE.hasTutorial).toBe(false);
-    expect(GAME_MODES).toContain(PARADOX_MODE);
+    expect(SOLO_MODES).toEqual([
+      CLASSIC_MODE,
+      GRAVITY_MODE,
+      STACK_MODE,
+      PARADOX_MODE,
+    ]);
+    expect(MULTIPLAYER_MODES).toEqual([]);
+    expect(GAME_RULESETS).toEqual([
+      CLASSIC_RULES,
+      GRAVITY_RULES,
+      STACK_RULES,
+      PARADOX_RULES,
+    ]);
   });
 
-  test('ramps Temporal Echo odds at instability 5, 6, and 9', () => {
-    expect(temporalEchoProbability(PARADOX_MODE, 4)).toBe(0);
-    expect(temporalEchoProbability(PARADOX_MODE, 5)).toBe(0.1);
-    expect(temporalEchoProbability(PARADOX_MODE, 6)).toBe(0.2);
-    expect(temporalEchoProbability(PARADOX_MODE, 8)).toBe(0.2);
-    expect(temporalEchoProbability(PARADOX_MODE, 9)).toBe(0.3);
-    expect(temporalEchoProbability(CLASSIC_MODE, 99)).toBe(0);
-  });
-});
-
-describe('GRAVITY_MODE', () => {
-  test('has the default gravity config', () => {
-    expect(GRAVITY_MODE.gravity).toEqual({ initialAngleDeg: 0, maxTiltDeltaDeg: 90 });
+  test('lookups reject unsupported identities explicitly', () => {
+    expect(getSoloMode('classic')).toBe(CLASSIC_MODE);
+    expect(getGameRules('classic', 1)).toBe(CLASSIC_RULES);
+    expect(() => getSoloMode('unknown')).toThrow(/unsupported solo mode/i);
+    expect(() => getGameRules('classic', 99)).toThrow(/unsupported game rules/i);
   });
 
-  test('reuses Classic scoring, generation, and board size', () => {
-    expect(GRAVITY_MODE.board).toEqual(CLASSIC_MODE.board);
-    expect(GRAVITY_MODE.pointsPerDisc).toBe(CLASSIC_MODE.pointsPerDisc);
-    expect(GRAVITY_MODE.chainExponent).toBe(CLASSIC_MODE.chainExponent);
-    expect(GRAVITY_MODE.discGeneration).toEqual(CLASSIC_MODE.discGeneration);
-  });
-
-  test('reuses Classic revealAdjacent', () => {
-    expect(GRAVITY_MODE.revealAdjacent).toBe(CLASSIC_MODE.revealAdjacent);
-  });
-
-  // isClearable is gravity-specific (checks runs along the current gravity
-  // angle, not always grid rows/columns — see gravity.test.ts for the
-  // diagonal-angle cases) but at the default angle 0 it's exactly equivalent
-  // to Classic's grid-based rule.
-  test('isClearable at angle 0 matches Classic\'s grid-based rule', () => {
-    const board = makeEmptyBoard();
-    placeDisc(board, 6, 0, makeDisc(1, DiscKind.Numbered));
-    expect(GRAVITY_MODE.isClearable(board, 6, 0, board[6]![0]!, 0)).toBe(true);
-    expect(GRAVITY_MODE.isClearable(board, 6, 0, board[6]![0]!)).toBe(true); // angleDeg defaults to 0
-  });
-
-  test('isClearable: a cracked disc never clears directly', () => {
-    const board = makeEmptyBoard();
-    placeDisc(board, 6, 0, makeDisc(1, DiscKind.SingleCracked));
-    expect(GRAVITY_MODE.isClearable(board, 6, 0, board[6]![0]!, 0)).toBe(false);
-  });
-
-  test('isGameOver is a genuine full-board scan, not a row-0 shortcut', () => {
-    const rowZeroOnly = makeEmptyBoard();
-    for (let c = 0; c < 7; c++) placeDisc(rowZeroOnly, 0, c, makeDisc(1, DiscKind.Numbered));
-    expect(GRAVITY_MODE.isGameOver(rowZeroOnly)).toBe(false);
-
-    const fullBoard = makeEmptyBoard();
-    for (let r = 0; r < 7; r++) for (let c = 0; c < 7; c++) placeDisc(fullBoard, r, c, makeDisc(1, DiscKind.Numbered));
-    expect(GRAVITY_MODE.isGameOver(fullBoard)).toBe(true);
+  test('registry validation rejects duplicate mode and rules identities', () => {
+    expect(() => validateModeRegistries(
+      [CLASSIC_MODE, CLASSIC_MODE],
+      [],
+      [CLASSIC_RULES],
+    )).toThrow(/duplicate mode id/i);
+    expect(() => validateModeRegistries(
+      [CLASSIC_MODE],
+      [],
+      [CLASSIC_RULES, CLASSIC_RULES],
+    )).toThrow(/duplicate rules identity/i);
   });
 });
 
-describe('turnsForLevel', () => {
-  test('shrinks by the configured step down to the configured floor', () => {
-    expect(turnsForLevel(CLASSIC_MODE, 1)).toBe(30);
-    expect(turnsForLevel(CLASSIC_MODE, 5)).toBe(26);
-    expect(turnsForLevel(CLASSIC_MODE, 22)).toBe(9);
-    expect(turnsForLevel(CLASSIC_MODE, 23)).toBe(8);
-    expect(turnsForLevel(CLASSIC_MODE, 100)).toBe(8);
+describe('rule definition validation', () => {
+  test('deep-freezes complete rulesets and their shared modules', () => {
+    expect(Object.isFrozen(CLASSIC_RULES)).toBe(true);
+    expect(Object.isFrozen(CLASSIC_RULES.board)).toBe(true);
+    expect(Object.isFrozen(CLASSIC_RULES.modifiers)).toBe(true);
+  });
+
+  test('rejects incompatible Gravity placement/clearing combinations', () => {
+    const invalid = testMode({
+      id: 'invalid-gravity',
+      placement: {
+        kind: 'stage-and-tilt@1',
+        initialAngleDeg: 0,
+        maxTiltDeltaDeg: 90,
+      },
+    });
+    expect(() => defineGameRules(invalid)).toThrow(/must pair stage-and-tilt/i);
+  });
+
+  test('rejects duplicate modifiers', () => {
+    const rewind = PARADOX_RULES.modifiers[0]!;
+    expect(() => defineGameRules(testMode({
+      id: 'duplicate-rewind',
+      modifiers: [rewind, rewind],
+    }))).toThrow(/repeat modifier/i);
+  });
+
+  test('identical-sequence multiplayer rejects board-adaptive generation', () => {
+    expect(() => defineMultiplayerMode({
+      kind: 'multiplayer',
+      id: 'classic',
+      name: 'Invalid race',
+      tagline: 'Invalid adaptive fairness fixture.',
+      rules: CLASSIC_RULES,
+      session: {
+        kind: 'timed-score-race@1',
+        durationMs: 60_000,
+        fairness: { kind: 'identical-sequence' },
+      },
+    })).toThrow(/board-adaptive generator/i);
   });
 });

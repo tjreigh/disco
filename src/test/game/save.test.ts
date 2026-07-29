@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'vitest';
 import { makeDisc } from '../../game/disc.js';
 import { DiscKind } from '../../game/model.js';
-import { CLASSIC_MODE, GRAVITY_MODE, PARADOX_MODE } from '../../game/modes/index.js';
+import { CLASSIC_RULES, GRAVITY_RULES, PARADOX_RULES } from '../../game/modes/index.js';
 import { GameEngine } from '../../game/engine.js';
-import type { GameModeConfig } from '../../game/modes/mode.js';
+import type { GameRulesConfig } from '../../game/modes/mode.js';
 import {
   deserializeBoard,
   deserializeDisc,
@@ -17,15 +17,17 @@ import {
   type SaveGameV1,
 } from '../../game/save.js';
 
-function emptySavedBoard(mode: GameModeConfig = CLASSIC_MODE) {
+function emptySavedBoard(mode: GameRulesConfig = CLASSIC_RULES) {
   return Array.from(
     { length: mode.board.rows },
     () => Array.from({ length: mode.board.cols }, () => null),
   );
 }
 
-function validSave(mode: GameModeConfig = CLASSIC_MODE): SaveGameV1 {
-  const gravity = mode.gravity ? { gravity: { angle: mode.gravity.initialAngleDeg } } : {};
+function validSave(mode: GameRulesConfig = CLASSIC_RULES): SaveGameV1 {
+  const gravity = mode.placement.kind === 'stage-and-tilt@1'
+    ? { gravity: { angle: mode.placement.initialAngleDeg } }
+    : {};
   return {
     version: SAVE_GAME_VERSION,
     rulesVersion: SAVE_GAME_RULES_VERSION,
@@ -39,20 +41,24 @@ function validSave(mode: GameModeConfig = CLASSIC_MODE): SaveGameV1 {
       score: 12_345,
       dropCount: 9,
       level: 1,
-      turnsPerLevel: mode.initialTurnsPerLevel,
-      turnsRemaining: mode.initialTurnsPerLevel - 9,
+      turnsPerLevel: mode.progression.initialTurnsPerLevel,
+      turnsRemaining: mode.progression.initialTurnsPerLevel - 9,
       ...gravity,
     },
     generation: {
       source: 'seeded',
       seed: 0xffff_ffff,
       queue: [
-        { value: mode.discValueMin, kind: DiscKind.Numbered },
-        { value: mode.discValueMax, kind: DiscKind.DoubleCracked },
-        { value: mode.discValueMin, kind: DiscKind.Numbered },
+        { value: mode.generation.discValueMin, kind: DiscKind.Numbered },
+        { value: mode.generation.discValueMax, kind: DiscKind.DoubleCracked },
+        { value: mode.generation.discValueMin, kind: DiscKind.Numbered },
       ],
       playableGenerator: {
-        recentValues: [mode.discValueMin, mode.discValueMax, mode.discValueMin],
+        recentValues: [
+          mode.generation.discValueMin,
+          mode.generation.discValueMax,
+          mode.generation.discValueMin,
+        ],
         recentKinds: [DiscKind.Numbered, DiscKind.DoubleCracked, DiscKind.Numbered],
       },
       random: { playableState: 0, pushState: 123 },
@@ -124,7 +130,7 @@ describe('save disc and board serialization', () => {
 describe('SaveGameV1 parsing', () => {
   test('accepts a valid autosave and returns a clean independent copy', () => {
     const source = validSave();
-    const parsed = parseSaveGame(source, CLASSIC_MODE);
+    const parsed = parseSaveGame(source, CLASSIC_RULES);
 
     expect(parsed).toEqual(source);
     expect(parsed).not.toBe(source);
@@ -136,8 +142,8 @@ describe('SaveGameV1 parsing', () => {
 
   test('stringifies and parses valid JSON, returning null for invalid JSON', () => {
     const save = validSave();
-    expect(parseSaveGameJson(stringifySaveGame(save), CLASSIC_MODE)).toEqual(save);
-    expect(parseSaveGameJson('{not json', CLASSIC_MODE)).toBeNull();
+    expect(parseSaveGameJson(stringifySaveGame(save), CLASSIC_RULES)).toEqual(save);
+    expect(parseSaveGameJson('{not json', CLASSIC_RULES)).toBeNull();
   });
 
   test.each([
@@ -158,111 +164,111 @@ describe('SaveGameV1 parsing', () => {
   ])('rejects an invalid %s', (_label, mutate) => {
     const candidate = jsonClone(validSave()) as Record<string, unknown>;
     mutate(candidate);
-    expect(parseSaveGame(candidate, CLASSIC_MODE)).toBeNull();
+    expect(parseSaveGame(candidate, CLASSIC_RULES)).toBeNull();
   });
 
   test('rejects malformed board dimensions, cells, and values', () => {
     const wrongRows = validSave();
     wrongRows.state.board.pop();
-    expect(parseSaveGame(wrongRows, CLASSIC_MODE)).toBeNull();
+    expect(parseSaveGame(wrongRows, CLASSIC_RULES)).toBeNull();
 
     const ragged = validSave();
     ragged.state.board[0]!.pop();
-    expect(parseSaveGame(ragged, CLASSIC_MODE)).toBeNull();
+    expect(parseSaveGame(ragged, CLASSIC_RULES)).toBeNull();
 
     const invalidKind = jsonClone(validSave()) as SaveGameV1;
     invalidKind.state.board[0]![0] = { value: 1, kind: 'wild' as DiscKind };
-    expect(parseSaveGame(invalidKind, CLASSIC_MODE)).toBeNull();
+    expect(parseSaveGame(invalidKind, CLASSIC_RULES)).toBeNull();
 
     const invalidValue = validSave();
     invalidValue.state.board[0]![0] = { value: 8, kind: DiscKind.Numbered };
-    expect(parseSaveGame(invalidValue, CLASSIC_MODE)).toBeNull();
+    expect(parseSaveGame(invalidValue, CLASSIC_RULES)).toBeNull();
   });
 
   test('rejects invalid counters, cursor, and turn budgets', () => {
     const invalidScore = validSave();
     invalidScore.state.score = -1;
-    expect(parseSaveGame(invalidScore, CLASSIC_MODE)).toBeNull();
+    expect(parseSaveGame(invalidScore, CLASSIC_RULES)).toBeNull();
 
     const invalidCursor = validSave();
-    invalidCursor.state.cursorCol = CLASSIC_MODE.board.cols;
-    expect(parseSaveGame(invalidCursor, CLASSIC_MODE)).toBeNull();
+    invalidCursor.state.cursorCol = CLASSIC_RULES.board.cols;
+    expect(parseSaveGame(invalidCursor, CLASSIC_RULES)).toBeNull();
 
     const wrongTotal = validSave();
     wrongTotal.state.turnsPerLevel--;
-    expect(parseSaveGame(wrongTotal, CLASSIC_MODE)).toBeNull();
+    expect(parseSaveGame(wrongTotal, CLASSIC_RULES)).toBeNull();
 
     const noTurns = validSave();
     noTurns.state.turnsRemaining = 0;
-    expect(parseSaveGame(noTurns, CLASSIC_MODE)).toBeNull();
+    expect(parseSaveGame(noTurns, CLASSIC_RULES)).toBeNull();
 
     const tooManyTurns = validSave();
     tooManyTurns.state.turnsRemaining = tooManyTurns.state.turnsPerLevel + 1;
-    expect(parseSaveGame(tooManyTurns, CLASSIC_MODE)).toBeNull();
+    expect(parseSaveGame(tooManyTurns, CLASSIC_RULES)).toBeNull();
   });
 
   test('requires exactly three valid playable queue discs', () => {
     const shortQueue = validSave();
     shortQueue.generation.queue.pop();
-    expect(parseSaveGame(shortQueue, CLASSIC_MODE)).toBeNull();
+    expect(parseSaveGame(shortQueue, CLASSIC_RULES)).toBeNull();
 
     const invalidValue = validSave();
     invalidValue.generation.queue[0]!.value = 0;
-    expect(parseSaveGame(invalidValue, CLASSIC_MODE)).toBeNull();
+    expect(parseSaveGame(invalidValue, CLASSIC_RULES)).toBeNull();
 
     const revealedDisc = validSave();
     revealedDisc.generation.queue[0]!.kind = DiscKind.SingleCracked;
-    expect(parseSaveGame(revealedDisc, CLASSIC_MODE)).toBeNull();
+    expect(parseSaveGame(revealedDisc, CLASSIC_RULES)).toBeNull();
   });
 
   test('validates generator histories and unsigned 32-bit random state', () => {
     const mismatchedHistory = validSave();
     mismatchedHistory.generation.playableGenerator.recentKinds.pop();
-    expect(parseSaveGame(mismatchedHistory, CLASSIC_MODE)).toBeNull();
+    expect(parseSaveGame(mismatchedHistory, CLASSIC_RULES)).toBeNull();
 
     const emptyHistory = validSave();
     emptyHistory.generation.playableGenerator.recentValues = [];
     emptyHistory.generation.playableGenerator.recentKinds = [];
-    expect(parseSaveGame(emptyHistory, CLASSIC_MODE)).toBeNull();
+    expect(parseSaveGame(emptyHistory, CLASSIC_RULES)).toBeNull();
 
     const badSeed = validSave();
     badSeed.generation.seed = 0x1_0000_0000;
-    expect(parseSaveGame(badSeed, CLASSIC_MODE)).toBeNull();
+    expect(parseSaveGame(badSeed, CLASSIC_RULES)).toBeNull();
 
     const badPlayableState = validSave();
     badPlayableState.generation.random.playableState = -1;
-    expect(parseSaveGame(badPlayableState, CLASSIC_MODE)).toBeNull();
+    expect(parseSaveGame(badPlayableState, CLASSIC_RULES)).toBeNull();
 
     const badPushState = validSave();
     badPushState.generation.random.pushState = 1.5;
-    expect(parseSaveGame(badPushState, CLASSIC_MODE)).toBeNull();
+    expect(parseSaveGame(badPushState, CLASSIC_RULES)).toBeNull();
 
     const badEchoState = validSave();
     badEchoState.generation.random.echoState = -1;
-    expect(parseSaveGame(badEchoState, CLASSIC_MODE)).toBeNull();
+    expect(parseSaveGame(badEchoState, CLASSIC_RULES)).toBeNull();
   });
 
   test('requires gravity data only for Gravity mode and validates stable angles', () => {
     const gravityInClassic = validSave();
     gravityInClassic.state.gravity = { angle: 0 };
-    expect(parseSaveGame(gravityInClassic, CLASSIC_MODE)).toBeNull();
+    expect(parseSaveGame(gravityInClassic, CLASSIC_RULES)).toBeNull();
 
-    const missingGravity = validSave(GRAVITY_MODE);
+    const missingGravity = validSave(GRAVITY_RULES);
     delete missingGravity.state.gravity;
-    expect(parseSaveGame(missingGravity, GRAVITY_MODE)).toBeNull();
+    expect(parseSaveGame(missingGravity, GRAVITY_RULES)).toBeNull();
 
-    const unsnappedGravity = validSave(GRAVITY_MODE);
+    const unsnappedGravity = validSave(GRAVITY_RULES);
     unsnappedGravity.state.gravity!.angle = 12;
-    expect(parseSaveGame(unsnappedGravity, GRAVITY_MODE)).toBeNull();
+    expect(parseSaveGame(unsnappedGravity, GRAVITY_RULES)).toBeNull();
 
-    expect(parseSaveGame(validSave(GRAVITY_MODE), GRAVITY_MODE)).not.toBeNull();
+    expect(parseSaveGame(validSave(GRAVITY_RULES), GRAVITY_RULES)).not.toBeNull();
   });
 
   test('uses the Gravity entry axis to validate the cursor', () => {
-    const rectangularGravity: GameModeConfig = {
-      ...GRAVITY_MODE,
+    const rectangularGravity: GameRulesConfig = {
+      ...GRAVITY_RULES,
       id: 'rectangular-gravity',
-      board: { cols: 7, rows: 3 },
+      board: { ...GRAVITY_RULES.board, cols: 7, rows: 3 },
     };
     const save = validSave(rectangularGravity);
     save.state.gravity!.angle = 90;
@@ -274,37 +280,37 @@ describe('SaveGameV1 parsing', () => {
   });
 
   test('validates Paradox instability, checkpoints, and temporal board metadata', () => {
-    const source = new GameEngine({ mode: PARADOX_MODE, seed: 1 });
+    const source = new GameEngine({ rules: PARADOX_RULES, seed: 1 });
     source.state.board[6]![0] = makeDisc(7, DiscKind.Numbered);
     source.drop(6);
     source.commitRewind();
     const fractured = source.exportSave({ savedAt: 20 });
-    expect(parseSaveGame(fractured, PARADOX_MODE)).toEqual(fractured);
+    expect(parseSaveGame(fractured, PARADOX_RULES)).toEqual(fractured);
 
-    const checkpointSource = new GameEngine({ mode: PARADOX_MODE, seed: 2 });
+    const checkpointSource = new GameEngine({ rules: PARADOX_RULES, seed: 2 });
     checkpointSource.drop(3);
     checkpointSource.drop(4);
     const checkpoint = checkpointSource.exportSave({ savedAt: 21, rewindLongestStreaks: [3, 4] });
-    expect(parseSaveGame(checkpoint, PARADOX_MODE)).toEqual(checkpoint);
+    expect(parseSaveGame(checkpoint, PARADOX_RULES)).toEqual(checkpoint);
     expect(checkpoint.paradox!.rewinds).toHaveLength(2);
 
     const legacy = jsonClone(checkpoint) as SaveGameV1;
     legacy.paradox!.rewind = legacy.paradox!.rewinds!.at(-1)!;
     delete legacy.paradox!.rewinds;
-    expect(parseSaveGame(legacy, PARADOX_MODE)).toEqual(legacy);
+    expect(parseSaveGame(legacy, PARADOX_RULES)).toEqual(legacy);
 
     const reversed = jsonClone(checkpoint) as SaveGameV1;
     reversed.paradox!.rewinds!.reverse();
-    expect(parseSaveGame(reversed, PARADOX_MODE)).toBeNull();
+    expect(parseSaveGame(reversed, PARADOX_RULES)).toBeNull();
 
     const missingParadox = jsonClone(checkpoint) as Record<string, unknown>;
     delete missingParadox.paradox;
-    expect(parseSaveGame(missingParadox, PARADOX_MODE)).toBeNull();
+    expect(parseSaveGame(missingParadox, PARADOX_RULES)).toBeNull();
 
     const missingFatalCheckpoint = jsonClone(checkpoint) as SaveGameV1;
     missingFatalCheckpoint.state.phase = 'game-over';
     delete missingFatalCheckpoint.paradox!.rewinds;
-    expect(parseSaveGame(missingFatalCheckpoint, PARADOX_MODE)).toBeNull();
+    expect(parseSaveGame(missingFatalCheckpoint, PARADOX_RULES)).toBeNull();
   });
 
   test('rejects temporal metadata in modes without rewind', () => {
@@ -314,21 +320,21 @@ describe('SaveGameV1 parsing', () => {
       kind: DiscKind.SingleCracked,
       temporalFracture: { createdAtInstability: 1, instabilityDebt: 1 },
     };
-    expect(parseSaveGame(save, CLASSIC_MODE)).toBeNull();
+    expect(parseSaveGame(save, CLASSIC_RULES)).toBeNull();
   });
 
   test('accepts legacy fracture debt and rejects invalid explicit debt', () => {
-    const legacy = validSave(PARADOX_MODE);
+    const legacy = validSave(PARADOX_RULES);
     legacy.paradox = { instability: 1 };
     legacy.state.board[6]![0] = {
       value: 7,
       kind: DiscKind.SingleCracked,
       temporalFracture: { createdAtInstability: 1 },
     };
-    expect(parseSaveGame(legacy, PARADOX_MODE)).toEqual(legacy);
+    expect(parseSaveGame(legacy, PARADOX_RULES)).toEqual(legacy);
 
     const invalid = jsonClone(legacy) as SaveGameV1;
     invalid.state.board[6]![0]!.temporalFracture!.instabilityDebt = 0;
-    expect(parseSaveGame(invalid, PARADOX_MODE)).toBeNull();
+    expect(parseSaveGame(invalid, PARADOX_RULES)).toBeNull();
   });
 });

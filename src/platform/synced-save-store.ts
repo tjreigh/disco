@@ -1,4 +1,4 @@
-import type { GameModeConfig } from '../game/modes/mode.js';
+import type { SoloModeDefinition } from '../game/modes/mode.js';
 import { parseSaveGame } from '../game/save.js';
 import type { SaveGameV1 } from '../game/save.js';
 import {
@@ -82,9 +82,9 @@ function isRevision(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
-function cloneSave(save: SaveGameV1, mode: GameModeConfig): SaveGameV1 {
+function cloneSave(save: SaveGameV1, mode: SoloModeDefinition): SaveGameV1 {
   // Callers only receive validated independent values.
-  return parseSaveGame(save, mode)!;
+  return parseSaveGame(save, mode.rules)!;
 }
 
 function sameRecordVersion(left: SyncedSaveRecord, right: SyncedSaveRecord): boolean {
@@ -104,7 +104,8 @@ export class SyncedSaveStore {
   readonly ready: Promise<void>;
 
   private readonly api: SaveSyncApi;
-  private readonly modesById: ReadonlyMap<string, GameModeConfig>;
+  private readonly modesById: ReadonlyMap<string, SoloModeDefinition>;
+  private readonly modes: readonly SoloModeDefinition[];
   private readonly listeners = new Set<Listener>();
   private readonly records = new Map<string, SyncedSaveRecord>();
   private readonly conflicts = new Map<string, InternalConflict>();
@@ -115,9 +116,10 @@ export class SyncedSaveStore {
   private state: SyncedSaveStoreState;
 
   constructor(
-    private readonly modes: readonly GameModeConfig[],
+    modes: readonly SoloModeDefinition[],
     private readonly options: SyncedSaveStoreOptions = {},
   ) {
+    this.modes = modes.filter(mode => mode.persistence.enabled);
     this.api = options.api ?? new DiscoApiClient();
     this.modesById = new Map(modes.map(mode => [mode.id, mode]));
     this.migrateLegacySave();
@@ -176,7 +178,7 @@ export class SyncedSaveStore {
   write(modeId: string, value: SaveGameV1): void {
     const mode = this.modesById.get(modeId);
     if (!mode) return;
-    const save = parseSaveGame(value, mode);
+    const save = parseSaveGame(value, mode.rules);
     if (!save) return;
 
     const previous = this.records.get(modeId);
@@ -523,7 +525,7 @@ export class SyncedSaveStore {
     }
   }
 
-  private validateCloudSlot(slot: ApiSaveSlot, mode: GameModeConfig): ValidCloudSlot | null {
+  private validateCloudSlot(slot: ApiSaveSlot, mode: SoloModeDefinition): ValidCloudSlot | null {
     if (!isObject(slot)
       || slot.modeId !== mode.id
       || !isRevision(slot.revision)
@@ -533,7 +535,7 @@ export class SyncedSaveStore {
       return { modeId: mode.id, revision: slot.revision, runId: null, save: null, updatedAt: slot.updatedAt };
     }
     if (typeof slot.runId !== 'string' || slot.runId.length === 0 || slot.save === null) return null;
-    const save = parseSaveGame(slot.save, mode);
+    const save = parseSaveGame(slot.save, mode.rules);
     return save
       ? { modeId: mode.id, revision: slot.revision, runId: slot.runId, save, updatedAt: slot.updatedAt }
       : null;
@@ -614,7 +616,7 @@ export class SyncedSaveStore {
     }
   }
 
-  private readRecord(key: string, mode: GameModeConfig): SyncedSaveRecord | null {
+  private readRecord(key: string, mode: SoloModeDefinition): SyncedSaveRecord | null {
     const json = this.readStorage(key);
     if (json === null) return null;
     try {
@@ -633,7 +635,7 @@ export class SyncedSaveStore {
         };
       }
       if (typeof value.runId !== 'string' || value.runId.length === 0) throw new Error('invalid run id');
-      const save = parseSaveGame(value.save, mode);
+      const save = parseSaveGame(value.save, mode.rules);
       if (!save) throw new Error('invalid save');
       return {
         storageVersion: SAVE_SYNC_STORAGE_VERSION,
@@ -656,7 +658,7 @@ export class SyncedSaveStore {
       const value = JSON.parse(json) as unknown;
       if (!isObject(value) || typeof value.modeId !== 'string') return;
       const mode = this.modesById.get(value.modeId);
-      const save = mode ? parseSaveGame(value, mode) : null;
+      const save = mode ? parseSaveGame(value, mode.rules) : null;
       if (!mode || !save) return;
       const key = this.guestKey(mode.id);
       if (this.readStorage(key) === null) {

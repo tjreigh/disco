@@ -5,9 +5,8 @@ import { makeDisc } from '../../game/disc.js';
 import { DiscKind } from '../../game/model.js';
 import { GamePhase } from '../../game/state.js';
 import { StepKind } from '../../game/events.js';
-import type { GameModeConfig } from '../../game/modes/mode.js';
-import { CLASSIC_MODE, GRAVITY_MODE, STACK_MODE } from '../../game/modes/index.js';
-import { doubleCrackedFactory } from '../helpers.js';
+import { CLASSIC_RULES, GRAVITY_RULES, STACK_RULES } from '../../game/modes/index.js';
+import { doubleCrackedFactory, testMode } from '../helpers.js';
 
 function numberedFactory(...values: number[]): () => ReturnType<typeof makeDisc> {
   let index = 0;
@@ -129,15 +128,12 @@ describe('GameEngine', () => {
   });
 
   test('a push occurs when the level\'s turn budget is exhausted', () => {
-    const oneTurnMode: GameModeConfig = {
-      ...CLASSIC_MODE,
+    const oneTurnMode = testMode({
       id: 'one-turn-test-mode',
-      initialTurnsPerLevel: 1,
-      turnsPerLevelStep: 1,
-      minTurnsPerLevel: 1,
-    };
+      progression: { initialTurnsPerLevel: 1, turnsPerLevelStep: 1, minTurnsPerLevel: 1 },
+    });
     const engine = new GameEngine({
-      mode: oneTurnMode,
+      rules: oneTurnMode,
       discFactory: numberedFactory(7, 6, 5, 4),
       crackedDiscFactory: () => makeDisc(2, DiscKind.DoubleCracked),
     });
@@ -170,16 +166,13 @@ describe('GameEngine', () => {
     // row at row 6 directly below it, raising its column count to 2 and
     // making it eligible.
     placeDisc(board, 6, 2, makeDisc(2, DiscKind.Numbered));
-    const oneTurnMode: GameModeConfig = {
-      ...CLASSIC_MODE,
+    const oneTurnMode = testMode({
       id: 'one-turn-test-mode-2',
-      initialTurnsPerLevel: 1,
-      turnsPerLevelStep: 1,
-      minTurnsPerLevel: 1,
-    };
+      progression: { initialTurnsPerLevel: 1, turnsPerLevelStep: 1, minTurnsPerLevel: 1 },
+    });
     const engine = new GameEngine({
       board,
-      mode: oneTurnMode,
+      rules: oneTurnMode,
       discFactory: numberedFactory(7, 6, 5, 4),
       crackedDiscFactory: () => makeDisc(7, DiscKind.DoubleCracked),
     });
@@ -266,15 +259,12 @@ describe('GameEngine', () => {
   });
 
   test('a non-default mode drives board size, cursor start, and push cadence', () => {
-    const smallMode: GameModeConfig = {
-      ...CLASSIC_MODE,
+    const smallMode = testMode({
       id: 'small-test-mode',
       board: { cols: 3, rows: 3 },
-      initialTurnsPerLevel: 2,
-      turnsPerLevelStep: 1,
-      minTurnsPerLevel: 1,
-    };
-    const engine = new GameEngine({ mode: smallMode, discFactory: numberedFactory(1, 1, 1, 1) });
+      progression: { initialTurnsPerLevel: 2, turnsPerLevelStep: 1, minTurnsPerLevel: 1 },
+    });
+    const engine = new GameEngine({ rules: smallMode, discFactory: numberedFactory(1, 1, 1, 1) });
 
     expect(engine.state.board.length).toBe(3);
     expect(engine.state.board[0]!.length).toBe(3);
@@ -288,15 +278,12 @@ describe('GameEngine', () => {
   });
 
   test('turn budget exhaustion advances the level and resets the budget without wiping board/score', () => {
-    const smallBudgetMode: GameModeConfig = {
-      ...CLASSIC_MODE,
+    const smallBudgetMode = testMode({
       id: 'small-budget-test-mode',
-      initialTurnsPerLevel: 2,
-      turnsPerLevelStep: 1,
-      minTurnsPerLevel: 1,
-    };
+      progression: { initialTurnsPerLevel: 2, turnsPerLevelStep: 1, minTurnsPerLevel: 1 },
+    });
     // value 7 never matches a run length of 1, so these drops don't clear.
-    const engine = new GameEngine({ mode: smallBudgetMode, discFactory: numberedFactory(7, 7, 7, 7) });
+    const engine = new GameEngine({ rules: smallBudgetMode, discFactory: numberedFactory(7, 7, 7, 7) });
 
     expect(engine.state.level).toBe(1);
     expect(engine.state.turnsPerLevel).toBe(2);
@@ -317,20 +304,17 @@ describe('GameEngine', () => {
   });
 
   test('a clear caused by the level-end push continues the turn chain', () => {
-    const oneTurnMode: GameModeConfig = {
-      ...CLASSIC_MODE,
+    const oneTurnMode = testMode({
       id: 'level-boundary-chain-mode',
-      initialTurnsPerLevel: 1,
-      turnsPerLevelStep: 0,
-      minTurnsPerLevel: 1,
-    };
+      progression: { initialTurnsPerLevel: 1, turnsPerLevelStep: 0, minTurnsPerLevel: 1 },
+    });
     const board = makeEmptyBoard();
     // The dropped 1 clears immediately. The isolated 2 survives that scan,
     // then the pushed cracked row makes its column two discs tall.
     placeDisc(board, 6, 6, makeDisc(2, DiscKind.Numbered));
-    const engine = new GameEngine({ mode: oneTurnMode });
+    const engine = new GameEngine({ rules: oneTurnMode });
     engine.loadScriptedState({
-      mode: oneTurnMode,
+      rules: oneTurnMode,
       board,
       currentDisc: makeDisc(1, DiscKind.Numbered),
       nextDisc: makeDisc(7, DiscKind.Numbered),
@@ -347,18 +331,15 @@ describe('GameEngine', () => {
   });
 
   test('Stack includes a chain continued by the level-end push in its total', () => {
-    const oneTurnStackMode: GameModeConfig = {
-      ...STACK_MODE,
+    const oneTurnStackMode = testMode({
       id: 'stack-level-boundary-chain-mode',
-      initialTurnsPerLevel: 1,
-      turnsPerLevelStep: 0,
-      minTurnsPerLevel: 1,
-    };
+      progression: { initialTurnsPerLevel: 1, turnsPerLevelStep: 0, minTurnsPerLevel: 1 },
+    }, STACK_RULES);
     const board = makeEmptyBoard();
     placeDisc(board, 6, 6, makeDisc(2, DiscKind.Numbered));
-    const engine = new GameEngine({ mode: oneTurnStackMode });
+    const engine = new GameEngine({ rules: oneTurnStackMode });
     engine.loadScriptedState({
-      mode: oneTurnStackMode,
+      rules: oneTurnStackMode,
       board,
       currentDisc: makeDisc(1, DiscKind.Numbered),
       nextDisc: makeDisc(7, DiscKind.Numbered),
@@ -379,18 +360,15 @@ describe('GameEngine', () => {
   });
 
   test('Stack scores a level-end push that initiates the turn\'s first clear', () => {
-    const oneTurnStackMode: GameModeConfig = {
-      ...STACK_MODE,
+    const oneTurnStackMode = testMode({
       id: 'stack-push-initiated-clear-mode',
-      initialTurnsPerLevel: 1,
-      turnsPerLevelStep: 0,
-      minTurnsPerLevel: 1,
-    };
+      progression: { initialTurnsPerLevel: 1, turnsPerLevelStep: 0, minTurnsPerLevel: 1 },
+    }, STACK_RULES);
     const board = makeEmptyBoard();
     placeDisc(board, 6, 6, makeDisc(2, DiscKind.Numbered));
-    const engine = new GameEngine({ mode: oneTurnStackMode });
+    const engine = new GameEngine({ rules: oneTurnStackMode });
     engine.loadScriptedState({
-      mode: oneTurnStackMode,
+      rules: oneTurnStackMode,
       board,
       // This 7 does not clear. The level push makes the isolated 2's column
       // two discs tall, producing the first and only clear of the turn.
@@ -417,14 +395,11 @@ describe('GameEngine', () => {
     for (let row = 0; row < 7; row++) {
       placeDisc(board, row, 1, makeDisc(7, DiscKind.DoubleCracked));
     }
-    const smallBudgetMode: GameModeConfig = {
-      ...CLASSIC_MODE,
+    const smallBudgetMode = testMode({
       id: 'small-budget-game-over-test-mode',
-      initialTurnsPerLevel: 1,
-      turnsPerLevelStep: 1,
-      minTurnsPerLevel: 1,
-    };
-    const engine = new GameEngine({ mode: smallBudgetMode, board, discFactory: numberedFactory(4, 5, 6) });
+      progression: { initialTurnsPerLevel: 1, turnsPerLevelStep: 1, minTurnsPerLevel: 1 },
+    });
+    const engine = new GameEngine({ rules: smallBudgetMode, board, discFactory: numberedFactory(4, 5, 6) });
 
     const result = engine.drop(1);
 
@@ -434,25 +409,22 @@ describe('GameEngine', () => {
   });
 
   test.each([
-    ['Classic', CLASSIC_MODE],
-    ['Stack', STACK_MODE],
+    ['Classic', CLASSIC_RULES],
+    ['Stack', STACK_RULES],
   ])('%s does not resolve or score clears caused after a terminal push overflow', (_name, baseMode) => {
-    const oneTurnMode: GameModeConfig = {
-      ...baseMode,
+    const oneTurnMode = testMode({
       id: `${baseMode.id}-terminal-push-score-mode`,
-      initialTurnsPerLevel: 1,
-      turnsPerLevelStep: 0,
-      minTurnsPerLevel: 1,
-    };
+      progression: { initialTurnsPerLevel: 1, turnsPerLevelStep: 0, minTurnsPerLevel: 1 },
+    }, baseMode);
     const board = makeEmptyBoard();
     // The top-edge disc makes the upcoming push fatal. If resolution wrongly
     // continues afterward, the isolated 2 becomes two cells tall against the
     // pushed cracked row and awards points despite game over.
     placeDisc(board, 0, 0, makeDisc(7, DiscKind.DoubleCracked));
     placeDisc(board, 6, 6, makeDisc(2, DiscKind.Numbered));
-    const engine = new GameEngine({ mode: oneTurnMode });
+    const engine = new GameEngine({ rules: oneTurnMode });
     engine.loadScriptedState({
-      mode: oneTurnMode,
+      rules: oneTurnMode,
       board,
       currentDisc: makeDisc(7, DiscKind.Numbered),
       nextDisc: makeDisc(7, DiscKind.Numbered),
@@ -473,10 +445,10 @@ describe('GameEngine', () => {
   });
 
   test('reconfigure() switches modes without replacing the state object', () => {
-    const engine = new GameEngine({ mode: CLASSIC_MODE });
+    const engine = new GameEngine({ rules: CLASSIC_RULES });
     const stateRef = engine.state;
 
-    const smallMode: GameModeConfig = { ...CLASSIC_MODE, id: 'small-test-mode', board: { cols: 3, rows: 3 } };
+    const smallMode = testMode({ id: 'small-test-mode', board: { cols: 3, rows: 3 } });
     engine.reconfigure(smallMode);
 
     expect(engine.state).toBe(stateRef); // same object reference, mutated in place
@@ -494,16 +466,13 @@ describe('GameEngine', () => {
     // to prove the full-board check alone ends the game, not a push overflow.
     // DoubleCracked discs never clear on their own, so filling the board
     // column by column never triggers a clear/reveal either.
-    const noPushMode: GameModeConfig = {
-      ...CLASSIC_MODE,
+    const noPushMode = testMode({
       id: 'full-board-test-mode',
-      initialTurnsPerLevel: 999,
-      turnsPerLevelStep: 0,
-      minTurnsPerLevel: 999,
-    };
+      progression: { initialTurnsPerLevel: 999, turnsPerLevelStep: 0, minTurnsPerLevel: 999 },
+    });
 
     test('filling all 49 cells ends the game on the filling drop, without a push', () => {
-      const engine = new GameEngine({ mode: noPushMode, discFactory: doubleCrackedFactory() });
+      const engine = new GameEngine({ rules: noPushMode, discFactory: doubleCrackedFactory() });
 
       let lastResult: ReturnType<GameEngine['drop']> | undefined;
       for (let col = 0; col < 7; col++) {
@@ -522,7 +491,7 @@ describe('GameEngine', () => {
     });
 
     test('6 full columns plus a partially-filled 7th is not terminal', () => {
-      const engine = new GameEngine({ mode: noPushMode, discFactory: doubleCrackedFactory() });
+      const engine = new GameEngine({ rules: noPushMode, discFactory: doubleCrackedFactory() });
 
       for (let col = 0; col < 6; col++) {
         for (let row = 0; row < 7; row++) engine.drop(col);
@@ -550,15 +519,12 @@ describe('GameEngine', () => {
 
   describe('steps↔frames parity', () => {
     test('level-bonus turn: every non-Bonus step has exactly one frame', () => {
-      const oneTurnMode: GameModeConfig = {
-        ...CLASSIC_MODE,
+      const oneTurnMode = testMode({
         id: 'parity-level-bonus-mode',
-        initialTurnsPerLevel: 1,
-        turnsPerLevelStep: 1,
-        minTurnsPerLevel: 1,
-      };
+        progression: { initialTurnsPerLevel: 1, turnsPerLevelStep: 1, minTurnsPerLevel: 1 },
+      });
       const engine = new GameEngine({
-        mode: oneTurnMode,
+        rules: oneTurnMode,
         discFactory: numberedFactory(7, 6, 5, 4),
         crackedDiscFactory: () => makeDisc(2, DiscKind.DoubleCracked),
       });
@@ -622,7 +588,7 @@ describe('GameEngine', () => {
 
     test('becomes seeded after reconfigure(), which discards any injected factory', () => {
       const engine = new GameEngine({ discFactory: numberedFactory(1) });
-      engine.reconfigure(CLASSIC_MODE);
+      engine.reconfigure(CLASSIC_RULES);
       expect(engine.state.generationSource).toBe('seeded');
     });
   });
@@ -654,7 +620,7 @@ describe('GameEngine', () => {
     placeDisc(board, 6, 0, boardDisc);
 
     engine.loadScriptedState({
-      mode: CLASSIC_MODE,
+      rules: CLASSIC_RULES,
       board,
       currentDisc: current,
       nextDisc: next,
@@ -688,7 +654,7 @@ describe('GameEngine', () => {
     placeDisc(board, 6, 0, boardDisc);
 
     engine.loadScriptedState({
-      mode: CLASSIC_MODE,
+      rules: CLASSIC_RULES,
       board,
       currentDisc: current,
       nextDisc: next,
@@ -709,8 +675,8 @@ describe('GameEngine', () => {
   // ─── Gravity mode invariants ───────────────────────────────────────────────
 
   describe('Gravity mode invariants', () => {
-    test('CLASSIC_MODE engines have no gravity state; tiltGravity/commitTilt are no-ops', () => {
-      const engine = new GameEngine({ mode: CLASSIC_MODE });
+    test('CLASSIC_RULES engines have no gravity state; tiltGravity/commitTilt are no-ops', () => {
+      const engine = new GameEngine({ rules: CLASSIC_RULES });
       expect(engine.state.gravity).toBeUndefined();
 
       engine.tiltGravity(10);
@@ -722,12 +688,12 @@ describe('GameEngine', () => {
     });
 
     test('a gravity-config engine starts with gravity state at the initial angle', () => {
-      const engine = new GameEngine({ mode: GRAVITY_MODE, seed: 1 });
+      const engine = new GameEngine({ rules: GRAVITY_RULES, seed: 1 });
       expect(engine.state.gravity).toEqual({ angle: 0, turnStartAngle: 0, maxTiltDelta: 90 });
     });
 
     test('another drop is rejected while a Gravity turn is staged', () => {
-      const engine = new GameEngine({ mode: GRAVITY_MODE });
+      const engine = new GameEngine({ rules: GRAVITY_RULES });
       engine.stageGravityDrop(3);
       expect(engine.state.phase).toBe(GamePhase.Aiming);
 
@@ -737,7 +703,7 @@ describe('GameEngine', () => {
     });
 
     test('staging rejects an out-of-range lane without changing phase', () => {
-      const engine = new GameEngine({ mode: GRAVITY_MODE });
+      const engine = new GameEngine({ rules: GRAVITY_RULES });
       expect(engine.stageGravityDrop(-1)).toBe('invalid-column');
       expect(engine.stageGravityDrop(7)).toBe('invalid-column');
       expect(engine.state.phase).toBe(GamePhase.WaitingForDrop);
@@ -747,7 +713,7 @@ describe('GameEngine', () => {
     test('staging rejects a full lane without changing the board', () => {
       const board = makeEmptyBoard();
       for (let r = 0; r < 7; r++) placeDisc(board, r, 2, makeDisc(1, DiscKind.Numbered));
-      const engine = new GameEngine({ mode: GRAVITY_MODE, board });
+      const engine = new GameEngine({ rules: GRAVITY_RULES, board });
       const before = engine.state.board.map(row => [...row]);
 
       expect(engine.stageGravityDrop(2)).toBe('full-column');
@@ -756,7 +722,7 @@ describe('GameEngine', () => {
     });
 
     test('tiltGravity stays within the configured per-turn range', () => {
-      const engine = new GameEngine({ mode: GRAVITY_MODE });
+      const engine = new GameEngine({ rules: GRAVITY_RULES });
       engine.stageGravityDrop(3);
       expect(engine.state.phase).toBe(GamePhase.Aiming);
 
@@ -775,7 +741,7 @@ describe('GameEngine', () => {
       const board = makeEmptyBoard();
       const existing = makeDisc(2, DiscKind.Numbered);
       placeDisc(board, 3, 0, existing);
-      const engine = new GameEngine({ mode: GRAVITY_MODE, board, discFactory: numberedFactory(7) });
+      const engine = new GameEngine({ rules: GRAVITY_RULES, board, discFactory: numberedFactory(7) });
       const staged = engine.state.currentDisc;
       const before = engine.state.board.map(row => [...row]);
 
@@ -790,7 +756,7 @@ describe('GameEngine', () => {
     });
 
     test('previewDropLanding shows the true landing cell without mutating anything', () => {
-      const engine = new GameEngine({ mode: GRAVITY_MODE, discFactory: numberedFactory(2) });
+      const engine = new GameEngine({ rules: GRAVITY_RULES, discFactory: numberedFactory(2) });
 
       engine.stageGravityDrop(0);
       engine.tiltGravity(45);
@@ -807,15 +773,15 @@ describe('GameEngine', () => {
     test('previewDropLanding returns null for a full lane or a non-gravity mode', () => {
       const board = makeEmptyBoard();
       for (let r = 0; r < 7; r++) placeDisc(board, r, 2, makeDisc(1, DiscKind.Numbered));
-      const engine = new GameEngine({ mode: GRAVITY_MODE, board });
+      const engine = new GameEngine({ rules: GRAVITY_RULES, board });
       expect(engine.previewDropLanding(2)).toBeNull();
 
-      const classicEngine = new GameEngine({ mode: CLASSIC_MODE });
+      const classicEngine = new GameEngine({ rules: CLASSIC_RULES });
       expect(classicEngine.previewDropLanding(3)).toBeNull();
     });
 
     test('cancelTilt reverts to the turn-start angle and phase for free (no turn spent)', () => {
-      const engine = new GameEngine({ mode: GRAVITY_MODE });
+      const engine = new GameEngine({ rules: GRAVITY_RULES });
       engine.stageGravityDrop(3);
       engine.tiltGravity(45);
       expect(engine.state.phase).toBe(GamePhase.Aiming);
@@ -828,7 +794,7 @@ describe('GameEngine', () => {
     });
 
     test('commitTilt rejects outside Aiming', () => {
-      const engine = new GameEngine({ mode: GRAVITY_MODE });
+      const engine = new GameEngine({ rules: GRAVITY_RULES });
       const result = engine.commitTilt();
       expect(result.accepted).toBe(false);
       expect(result.reason).toBe('wrong-phase');
@@ -843,7 +809,7 @@ describe('GameEngine', () => {
     // state.gravity.angle (drops, previews, the next tilt's turnStartAngle)
     // stays on that same 8-shape lattice.
     test('commitTilt snaps the raw dragged angle to the nearest of 8 directions and persists the snapped value', () => {
-      const engine = new GameEngine({ mode: GRAVITY_MODE });
+      const engine = new GameEngine({ rules: GRAVITY_RULES });
       engine.stageGravityDrop(3);
       engine.tiltGravity(30);
       expect(engine.state.gravity!.angle).toBe(30);
@@ -856,7 +822,7 @@ describe('GameEngine', () => {
     test('previewSettledBoard matches the board produced by commitTilt', () => {
       const board = makeEmptyBoard();
       placeDisc(board, 3, 0, makeDisc(2, DiscKind.Numbered));
-      const engine = new GameEngine({ mode: GRAVITY_MODE, board, discFactory: numberedFactory(7) });
+      const engine = new GameEngine({ rules: GRAVITY_RULES, board, discFactory: numberedFactory(7) });
 
       engine.stageGravityDrop(6);
       engine.tiltGravity(40);
@@ -883,7 +849,7 @@ describe('GameEngine', () => {
         placeDisc(board, 6, 0, existing[0]!);
         placeDisc(board, 5, 2, existing[1]!);
         placeDisc(board, 3, 5, existing[2]!);
-        const engine = new GameEngine({ mode: GRAVITY_MODE, board, discFactory: numberedFactory(7) });
+        const engine = new GameEngine({ rules: GRAVITY_RULES, board, discFactory: numberedFactory(7) });
         const staged = engine.state.currentDisc;
         engine.stageGravityDrop(3);
         engine.tiltGravity(raw);
@@ -900,15 +866,12 @@ describe('GameEngine', () => {
     // from the edge the CURRENT tilt's gravity pulls toward, same as a drop
     // does, instead of always the bottom (see computePushStep).
     test('a push during Gravity mode enters from the floor edge matching the current tilt, not always the bottom', () => {
-      const twoTurnMode: GameModeConfig = {
-        ...GRAVITY_MODE,
+      const twoTurnMode = testMode({
         id: 'two-turn-gravity-test-mode',
-        initialTurnsPerLevel: 2,
-        turnsPerLevelStep: 1,
-        minTurnsPerLevel: 1,
-      };
+        progression: { initialTurnsPerLevel: 2, turnsPerLevelStep: 1, minTurnsPerLevel: 1 },
+      }, GRAVITY_RULES);
       const engine = new GameEngine({
-        mode: twoTurnMode,
+        rules: twoTurnMode,
         discFactory: numberedFactory(7, 6, 5, 4),
         crackedDiscFactory: () => makeDisc(2, DiscKind.DoubleCracked),
       });
@@ -929,13 +892,13 @@ describe('GameEngine', () => {
     });
 
     test('reconfigure to a gravity mode installs gravity state; reconfigure away clears it', () => {
-      const engine = new GameEngine({ mode: CLASSIC_MODE });
+      const engine = new GameEngine({ rules: CLASSIC_RULES });
       expect(engine.state.gravity).toBeUndefined();
 
-      engine.reconfigure(GRAVITY_MODE);
+      engine.reconfigure(GRAVITY_RULES);
       expect(engine.state.gravity).toEqual({ angle: 0, turnStartAngle: 0, maxTiltDelta: 90 });
 
-      engine.reconfigure(CLASSIC_MODE);
+      engine.reconfigure(CLASSIC_RULES);
       expect(engine.state.gravity).toBeUndefined();
     });
   });
@@ -948,7 +911,7 @@ describe('GameEngine', () => {
     }
 
     test('staging is free and requires a tilt before commit', () => {
-      const engine = new GameEngine({ mode: GRAVITY_MODE });
+      const engine = new GameEngine({ rules: GRAVITY_RULES });
       expect(engine.stageGravityDrop(3)).toBeUndefined();
       expect(engine.state.phase).toBe(GamePhase.Aiming);
       expect(engine.state.gravity?.pendingLane).toBe(3);
@@ -960,7 +923,7 @@ describe('GameEngine', () => {
     });
 
     test('a staged lane can tilt up to 90 degrees in either direction', () => {
-      const engine = new GameEngine({ mode: GRAVITY_MODE });
+      const engine = new GameEngine({ rules: GRAVITY_RULES });
       engine.stageGravityDrop(3);
       engine.tiltGravity(90);
       expect(engine.state.gravity?.angle).toBe(90);
@@ -969,7 +932,7 @@ describe('GameEngine', () => {
     });
 
     test('the staged disc enters from the pre-tilt edge and resolves after the tilt', () => {
-      const engine = new GameEngine({ mode: GRAVITY_MODE, discFactory: numberedFactory(7) });
+      const engine = new GameEngine({ rules: GRAVITY_RULES, discFactory: numberedFactory(7) });
       const result = stageAndTilt(engine, 2, 90);
       const drop = result.steps.find(step => step.kind === StepKind.Drop);
 
@@ -981,7 +944,7 @@ describe('GameEngine', () => {
     });
 
     test('preview includes the staged disc without mutating the live board', () => {
-      const engine = new GameEngine({ mode: GRAVITY_MODE, discFactory: numberedFactory(7) });
+      const engine = new GameEngine({ rules: GRAVITY_RULES, discFactory: numberedFactory(7) });
       engine.stageGravityDrop(0);
       engine.tiltGravity(45);
       const preview = engine.previewSettledBoard();
@@ -991,7 +954,7 @@ describe('GameEngine', () => {
     });
 
     test('cancelling restores the starting angle and discards the staged lane', () => {
-      const engine = new GameEngine({ mode: GRAVITY_MODE });
+      const engine = new GameEngine({ rules: GRAVITY_RULES });
       engine.stageGravityDrop(3);
       engine.tiltGravity(-45);
       engine.cancelTilt();
@@ -1002,14 +965,11 @@ describe('GameEngine', () => {
     });
 
     test('a level push uses the direction committed with the drop', () => {
-      const mode: GameModeConfig = {
-        ...GRAVITY_MODE,
+      const mode = testMode({
         id: 'two-turn-gravity-test-mode',
-        initialTurnsPerLevel: 2,
-        turnsPerLevelStep: 1,
-        minTurnsPerLevel: 1,
-      };
-      const engine = new GameEngine({ mode, discFactory: numberedFactory(7, 6, 5, 4) });
+        progression: { initialTurnsPerLevel: 2, turnsPerLevelStep: 1, minTurnsPerLevel: 1 },
+      }, GRAVITY_RULES);
+      const engine = new GameEngine({ rules: mode, discFactory: numberedFactory(7, 6, 5, 4) });
 
       stageAndTilt(engine, 0, 45);
       const result = stageAndTilt(engine, 0, 45);
@@ -1021,7 +981,7 @@ describe('GameEngine', () => {
     });
 
     test('an axis-flipping tilt recenters the lane cursor to the middle of the new axis', () => {
-      const engine = new GameEngine({ mode: GRAVITY_MODE });
+      const engine = new GameEngine({ rules: GRAVITY_RULES });
       // cursorCol initially 3 (center of 7 columns); move it away from center
       engine.moveCursor(5);
       expect(engine.state.cursorCol).toBe(5);
@@ -1040,11 +1000,10 @@ describe('GameEngine', () => {
       // the same entry axis — with the default ±90° every accepted tilt from
       // a cardinal angle already flips to a different axis, so there is no
       // same-axis path to test with the normal mode config.
-      const mode180: GameModeConfig = {
-        ...GRAVITY_MODE,
-        gravity: { initialAngleDeg: 0, maxTiltDeltaDeg: 180 },
-      };
-      const engine = new GameEngine({ mode: mode180 });
+      const mode180 = testMode({
+        placement: { kind: 'stage-and-tilt@1', initialAngleDeg: 0, maxTiltDeltaDeg: 180 },
+      }, GRAVITY_RULES);
+      const engine = new GameEngine({ rules: mode180 });
       engine.moveCursor(5);
       expect(engine.state.cursorCol).toBe(5);
 
@@ -1072,7 +1031,7 @@ describe('GameEngine', () => {
       const stateRef = restored.state;
       const sourceCurrentId = source.state.currentDisc.id;
 
-      const validated = restored.loadSave(save, CLASSIC_MODE);
+      const validated = restored.loadSave(save, CLASSIC_RULES);
 
       expect(validated.session.longestStreak).toBe(4);
       expect(save).toMatchObject({ savedAt: 1234, appBuild: 'test-build' });
@@ -1086,17 +1045,14 @@ describe('GameEngine', () => {
     });
 
     test('continues deterministically across a level push, restoring both random streams', () => {
-      const twoTurnMode: GameModeConfig = {
-        ...CLASSIC_MODE,
+      const twoTurnMode = testMode({
         id: 'save-push-continuation-test',
-        initialTurnsPerLevel: 2,
-        turnsPerLevelStep: 0,
-        minTurnsPerLevel: 2,
-      };
-      const uninterrupted = new GameEngine({ mode: twoTurnMode, seed: 0xdeadbeef });
+        progression: { initialTurnsPerLevel: 2, turnsPerLevelStep: 0, minTurnsPerLevel: 2 },
+      });
+      const uninterrupted = new GameEngine({ rules: twoTurnMode, seed: 0xdeadbeef });
       expect(uninterrupted.drop(0).accepted).toBe(true);
       const checkpoint = uninterrupted.exportSave({ savedAt: 100 });
-      const restored = new GameEngine({ mode: twoTurnMode, seed: 1 });
+      const restored = new GameEngine({ rules: twoTurnMode, seed: 1 });
       restored.loadSave(checkpoint, twoTurnMode);
 
       const originalTurn = uninterrupted.drop(6);
@@ -1115,38 +1071,40 @@ describe('GameEngine', () => {
       const target = new GameEngine({ seed: 4 });
       const before = target.exportSave({ savedAt: 2 });
 
-      expect(() => target.loadSave({ ...save, rulesVersion: 99 }, CLASSIC_MODE)).toThrow(/invalid|incompatible/i);
-      expect(() => target.loadSave(save, STACK_MODE)).toThrow(/invalid|incompatible/i);
+      expect(() => target.loadSave({ ...save, rulesVersion: 99 }, CLASSIC_RULES)).toThrow(/invalid|incompatible/i);
+      expect(() => target.loadSave(save, STACK_RULES)).toThrow(/invalid|incompatible/i);
       expect(target.exportSave({ savedAt: 2 })).toEqual(before);
 
       const scripted = new GameEngine({ discFactory: numberedFactory(3) });
       expect(() => scripted.exportSave()).toThrow(/injected/i);
 
-      const gravity = new GameEngine({ mode: GRAVITY_MODE, seed: 5 });
+      const gravity = new GameEngine({ rules: GRAVITY_RULES, seed: 5 });
       expect(gravity.stageGravityDrop(3)).toBeUndefined();
       expect(() => gravity.exportSave()).toThrow(/stable/i);
     });
 
     test('round-trips Stack and a committed Gravity angle', () => {
-      const stack = new GameEngine({ mode: STACK_MODE, seed: 12 });
+      const stack = new GameEngine({ rules: STACK_RULES, seed: 12 });
       stack.drop(1);
       const stackSave = stack.exportSave({ savedAt: 12 });
       const restoredStack = new GameEngine({ seed: 1 });
-      restoredStack.loadSave(stackSave, STACK_MODE);
+      restoredStack.loadSave(stackSave, STACK_RULES);
       expect(restoredStack.exportSave({ savedAt: 12 })).toEqual(stackSave);
 
-      const gravity = new GameEngine({ mode: GRAVITY_MODE, seed: 13 });
+      const gravity = new GameEngine({ rules: GRAVITY_RULES, seed: 13 });
       expect(gravity.stageGravityDrop(3)).toBeUndefined();
       gravity.tiltGravity(45);
       expect(gravity.commitTilt().accepted).toBe(true);
       const gravitySave = gravity.exportSave({ savedAt: 13 });
       const restoredGravity = new GameEngine({ seed: 1 });
-      restoredGravity.loadSave(gravitySave, GRAVITY_MODE);
+      restoredGravity.loadSave(gravitySave, GRAVITY_RULES);
 
       expect(restoredGravity.state.gravity).toEqual({
         angle: 45,
         turnStartAngle: 45,
-        maxTiltDelta: GRAVITY_MODE.gravity!.maxTiltDeltaDeg,
+        maxTiltDelta: GRAVITY_RULES.placement.kind === 'stage-and-tilt@1'
+          ? GRAVITY_RULES.placement.maxTiltDeltaDeg
+          : 0,
       });
       expect(restoredGravity.exportSave({ savedAt: 13 })).toEqual(gravitySave);
     });

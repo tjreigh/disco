@@ -1,16 +1,88 @@
-import type { GameModeConfig } from './mode.js';
-import { CLASSIC_MODE } from './classic.js';
-import { GRAVITY_MODE } from './gravity.js';
-import { STACK_MODE } from './stack.js';
-import { PARADOX_MODE } from './paradox.js';
+import type {
+  GameRulesConfig,
+  MultiplayerModeDefinition,
+  SoloModeDefinition,
+} from './mode.js';
+import { CLASSIC_MODE, CLASSIC_RULES } from './classic.js';
+import { GRAVITY_MODE, GRAVITY_RULES } from './gravity.js';
+import { PARADOX_MODE, PARADOX_RULES } from './paradox.js';
+import { STACK_MODE, STACK_RULES } from './stack.js';
 
-export { CLASSIC_MODE } from './classic.js';
-export { GRAVITY_MODE } from './gravity.js';
-export { PARADOX_MODE } from './paradox.js';
-export { STACK_MODE } from './stack.js';
-export type { GameModeConfig, RewindModeConfig } from './mode.js';
+export { CLASSIC_MODE, CLASSIC_RULES } from './classic.js';
+export { GRAVITY_MODE, GRAVITY_RULES } from './gravity.js';
+export { PARADOX_MODE, PARADOX_RULES } from './paradox.js';
+export { STACK_MODE, STACK_RULES } from './stack.js';
+export type {
+  BoardRules,
+  ClearingRules,
+  FailureRules,
+  GameRulesConfig,
+  GenerationRules,
+  MultiplayerModeDefinition,
+  PlacementRules,
+  ProgressionRules,
+  RevealRules,
+  RewindRuleModifier,
+  RuleCapabilities,
+  RuleModifier,
+  ScoringRules,
+  SoloModeDefinition,
+} from './mode.js';
 
-// NOTE: every mode id listed here must also be accepted by the API's
-// modeIdSchema (api/src/stats/schemas.ts) and api/test/mode-ids.test.ts,
-// or signed-in players in that mode cannot sync stats (audit-2 finding #1).
-export const GAME_MODES: readonly GameModeConfig[] = [CLASSIC_MODE, GRAVITY_MODE, STACK_MODE, PARADOX_MODE];
+export const SOLO_MODES: readonly SoloModeDefinition[] = [
+  CLASSIC_MODE,
+  GRAVITY_MODE,
+  STACK_MODE,
+  PARADOX_MODE,
+];
+
+export const MULTIPLAYER_MODES: readonly MultiplayerModeDefinition[] = [];
+
+export const GAME_RULESETS: readonly GameRulesConfig[] = [
+  CLASSIC_RULES,
+  GRAVITY_RULES,
+  STACK_RULES,
+  PARADOX_RULES,
+];
+
+export function validateModeRegistries(
+  soloModes: readonly SoloModeDefinition[],
+  multiplayerModes: readonly MultiplayerModeDefinition[],
+  rulesets: readonly GameRulesConfig[],
+): void {
+  const modeIds = new Set<string>();
+  for (const mode of [...soloModes, ...multiplayerModes]) {
+    if (modeIds.has(mode.id)) throw new Error(`Duplicate mode id: ${mode.id}`);
+    modeIds.add(mode.id);
+  }
+
+  const rulesIdentities = new Set<string>();
+  for (const rules of rulesets) {
+    const identity = `${rules.id}@${rules.version}`;
+    if (rulesIdentities.has(identity)) throw new Error(`Duplicate rules identity: ${identity}`);
+    rulesIdentities.add(identity);
+  }
+
+  for (const mode of [...soloModes, ...multiplayerModes]) {
+    const identity = `${mode.rules.id}@${mode.rules.version}`;
+    if (!rulesIdentities.has(identity)) {
+      throw new Error(`Mode ${mode.id} references unregistered rules ${identity}`);
+    }
+  }
+}
+
+validateModeRegistries(SOLO_MODES, MULTIPLAYER_MODES, GAME_RULESETS);
+
+export function getSoloMode(modeId: string): SoloModeDefinition {
+  const mode = SOLO_MODES.find(candidate => candidate.id === modeId);
+  if (!mode) throw new Error(`Unsupported solo mode: ${modeId}`);
+  return mode;
+}
+
+export function getGameRules(rulesId: string, version: number): GameRulesConfig {
+  const rules = GAME_RULESETS.find(
+    candidate => candidate.id === rulesId && candidate.version === version,
+  );
+  if (!rules) throw new Error(`Unsupported game rules: ${rulesId}@${version}`);
+  return rules;
+}

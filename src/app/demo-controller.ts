@@ -4,7 +4,7 @@ import { makeDisc } from '../game/disc.js';
 import { GameEngine } from '../game/engine.js';
 import type { ScriptedGameStateOptions, TurnResult } from '../game/engine.js';
 import { StepKind } from '../game/events.js';
-import { CLASSIC_MODE } from '../game/modes/index.js';
+import { CLASSIC_RULES } from '../game/modes/index.js';
 import { DiscKind, type Disc } from '../game/model.js';
 import { GamePhase } from '../game/state.js';
 import { emptyStats } from '../game/stats.js';
@@ -33,7 +33,7 @@ function numbered(value: number): Disc {
  * column 0 clears normally; column 2 reveals a cracked neighbor; columns 5–6 chain.
  */
 export function createDemoScenario(): DemoScenario {
-  const board = makeEmptyBoard(CLASSIC_MODE.board.cols, CLASSIC_MODE.board.rows);
+  const board = makeEmptyBoard(CLASSIC_RULES.board.cols, CLASSIC_RULES.board.rows);
 
   placeDisc(board, 5, 0, numbered(3));
   placeDisc(board, 6, 0, numbered(3));
@@ -48,7 +48,7 @@ export function createDemoScenario(): DemoScenario {
   placeDisc(board, 6, 6, numbered(6));
 
   return {
-    mode: CLASSIC_MODE,
+    rules: CLASSIC_RULES,
     board,
     currentDisc: numbered(3),
     nextDisc: numbered(3),
@@ -59,12 +59,12 @@ export function createDemoScenario(): DemoScenario {
 
 /** Passive attract-mode playback backed by the production engine and renderer. */
 export class DemoController {
-  private readonly engine = new GameEngine({ mode: CLASSIC_MODE, seed: 0 });
+  private readonly engine = new GameEngine({ rules: CLASSIC_RULES, seed: 0 });
   private readonly renderer: Renderer;
   private readonly stats = emptyStats();
   private readonly visibilityObserver: IntersectionObserver | null;
   private readonly reducedMotionQuery: MediaQueryList | null;
-  private visualBoard = makeEmptyBoard(CLASSIC_MODE.board.cols, CLASSIC_MODE.board.rows);
+  private visualBoard = makeEmptyBoard(CLASSIC_RULES.board.cols, CLASSIC_RULES.board.rows);
   private animationQueue: AnimationQueue | null = null;
   private scorePopups: ScorePopup[] = [];
   private scenarioMoves: readonly number[] = [];
@@ -77,7 +77,7 @@ export class DemoController {
   private reducedMotion = false;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
-    setGridSize(CLASSIC_MODE.board.cols, CLASSIC_MODE.board.rows);
+    setGridSize(CLASSIC_RULES.board.cols, CLASSIC_RULES.board.rows);
     setHudBands(0, 0);
     this.renderer = new Renderer(canvas);
 

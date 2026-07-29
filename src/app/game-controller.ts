@@ -1,6 +1,6 @@
 import type { Board } from '../game/model.js';
-import type { GameModeConfig } from '../game/modes/mode.js';
-import { turnCostForInstability } from '../game/modes/mode.js';
+import type { SoloModeDefinition } from '../game/modes/mode.js';
+import { rewindModifier, turnCostForInstability } from '../game/modes/mode.js';
 import type { GameState } from '../game/state.js';
 import { GamePhase } from '../game/state.js';
 import type { PhysicsStep } from '../game/events.js';
@@ -10,7 +10,7 @@ import { deepCloneBoard, makeEmptyBoard } from '../game/board.js';
 import { entryEdgeForAngle, snapAngleToEightDirections } from '../game/gravity/settling.js';
 import { GameEngine } from '../game/engine.js';
 import type { GameOverReason, RewindPreview, TurnResult } from '../game/engine.js';
-import { CLASSIC_MODE, GAME_MODES } from '../game/modes/index.js';
+import { CLASSIC_MODE, SOLO_MODES } from '../game/modes/index.js';
 import { DebugPanel } from '../ui/debug/debug-panel.js';
 import {
   AnimationQueue, spawnGravityShiftCue, spawnScoreIndicator, spawnScorePopups,
@@ -45,13 +45,15 @@ interface LevelProgressDisplay {
   turnsRemaining: number;
 }
 
-const TURN_PIP_CAPACITY = Math.max(...GAME_MODES.map(mode => mode.initialTurnsPerLevel));
+const TURN_PIP_CAPACITY = Math.max(
+  ...SOLO_MODES.map(mode => mode.rules.progression.initialTurnsPerLevel),
+);
 const SAVE_EXIT_SYNC_WAIT_MS = 5_000;
 
 export class Game {
   private state: GameState;
   private engine: GameEngine;
-  private mode: GameModeConfig;
+  private mode: SoloModeDefinition;
   private renderer: Renderer;
   private input: InputHandler;
   private audio: AudioManager;
@@ -64,7 +66,7 @@ export class Game {
   private readonly saveStore: SyncedSaveStore;
   private readonly savedGameDialog: SavedGameDialog;
   private readonly rewindDialog: RewindDialog;
-  private saveDialogMode: GameModeConfig | null = null;
+  private saveDialogMode: SoloModeDefinition | null = null;
   private animQueue: AnimationQueue | null = null;
   private rafId = 0;
   // Tracks the board as it should look right now, advanced one physics step at a
@@ -129,7 +131,7 @@ export class Game {
     this.renderer = new Renderer(canvas);
     this.audio    = new AudioManager();
     this.mode     = CLASSIC_MODE; // placeholder until a mode is chosen on the home screen
-    this.engine   = new GameEngine({ mode: this.mode });
+    this.engine   = new GameEngine({ rules: this.mode.rules });
     this.state    = this.engine.state;
     this.state.phase = GamePhase.Menu; // suppress gameplay until a mode is selected
     this.displayedLevelProgress = this.snapshotLevelProgress();
@@ -139,14 +141,14 @@ export class Game {
     this.gameHud = new GameHud(stageMount);
     this.savedGameDialog = new SavedGameDialog(overlayMount, modalBackground);
     this.rewindDialog = new RewindDialog(overlayMount, modalBackground);
-    this.visualBoard = makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
-    this.statsStore = new AccountStatsStore(GAME_MODES);
-    this.saveStore = new SyncedSaveStore(GAME_MODES);
+    this.visualBoard = makeEmptyBoard(this.mode.rules.board.cols, this.mode.rules.board.rows);
+    this.statsStore = new AccountStatsStore(SOLO_MODES);
+    this.saveStore = new SyncedSaveStore(SOLO_MODES);
     this.stats = this.statsStore.loadStats(this.mode.id);
     this.captureGameStartRecords();
 
     this.homeScreen = new HomeScreen(
-      GAME_MODES,
+      SOLO_MODES,
       mode => this.selectMode(mode),
       modeId => this.statsStore.loadStats(modeId),
       () => this.statsStore.getState(),
@@ -214,7 +216,7 @@ export class Game {
     return Number.isInteger(parsed) ? parsed : undefined;
   }
 
-  private selectMode(mode: GameModeConfig): void {
+  private selectMode(mode: SoloModeDefinition): void {
     if (this.saveStore.getState().loading) return;
     if (this.saveStore.getState().scope === 'account') {
       void this.refreshAndSelectMode(mode);
@@ -223,18 +225,18 @@ export class Game {
     this.presentMode(mode);
   }
 
-  private async refreshAndSelectMode(mode: GameModeConfig): Promise<void> {
+  private async refreshAndSelectMode(mode: SoloModeDefinition): Promise<void> {
     await this.saveStore.refreshSaves();
     this.presentMode(mode);
   }
 
-  private presentMode(mode: GameModeConfig): void {
+  private presentMode(mode: SoloModeDefinition): void {
     this.saveDialogMode = mode;
     if (this.showSavedGameChoice(mode)) return;
     this.startGame(mode);
   }
 
-  private showSavedGameChoice(mode: GameModeConfig): boolean {
+  private showSavedGameChoice(mode: SoloModeDefinition): boolean {
     const conflict = this.saveStore.getConflict(mode.id);
     if (conflict?.kind === 'invalid-cloud') {
       this.homeScreen.close();
@@ -274,19 +276,19 @@ export class Game {
     this.resumeSavedGame(save);
   }
 
-  private startGame(mode: GameModeConfig): void {
+  private startGame(mode: SoloModeDefinition): void {
     this.gameOverScreen.close();
     this.rewindDialog.hide();
     this.saveDialogMode = null;
     this.activeTutorial = null;
     this.tutorialOverlay.hide();
     this.mode = mode;
-    this.engine.reconfigure(mode, this.debugSeedOverride()); // mutates engine.state in place; never replaces it
+    this.engine.reconfigure(mode.rules, this.debugSeedOverride());
     this.stats = this.statsStore.loadStats(mode.id);
     this.captureGameStartRecords();
-    setGridSize(mode.board.cols, mode.board.rows);
+    setGridSize(mode.rules.board.cols, mode.rules.board.rows);
     this.renderer.resize();
-    this.visualBoard = makeEmptyBoard(mode.board.cols, mode.board.rows);
+    this.visualBoard = makeEmptyBoard(mode.rules.board.cols, mode.rules.board.rows);
     this.displayedScore = this.state.score;
     this.syncLevelProgressDisplay();
     this.scorePopups = [];
@@ -309,7 +311,7 @@ export class Game {
     this.releaseGameplayFocus();
   }
 
-  private startTutorial(mode: GameModeConfig): void {
+  private startTutorial(mode: SoloModeDefinition): void {
     this.gameOverScreen.close();
     this.rewindDialog.hide();
     const tutorial = TUTORIALS[mode.id];
@@ -317,7 +319,7 @@ export class Game {
     this.mode = mode;
     this.stats = this.statsStore.loadStats(mode.id);
     this.captureGameStartRecords();
-    setGridSize(mode.board.cols, mode.board.rows);
+    setGridSize(mode.rules.board.cols, mode.rules.board.rows);
     this.renderer.resize();
     this.activeTutorial = tutorial;
     this.tutorialStepIndex = 0;
@@ -483,7 +485,7 @@ export class Game {
         return;
       }
       this.state.cursorCol = col;
-      if (this.mode.gravity) {
+      if (this.mode.rules.placement.kind === 'stage-and-tilt@1') {
         const rejected = this.engine.stageGravityDrop(col);
         if (rejected === undefined && tutorialStep?.tiltPrompt) {
           this.tutorialOverlay.setAimingPrompt(tutorialStep.tiltPrompt);
@@ -539,11 +541,12 @@ export class Game {
     );
     const recordForTurn = this.isStackMode() ? result.stackSize : longestStreakThisTurn;
     this.longestStreakThisGame = Math.max(this.longestStreakThisGame, recordForTurn);
-    if (this.mode.rewind) {
+    const rewind = rewindModifier(this.mode.rules);
+    if (rewind) {
       this.rewindLongestStreaks.push(previousLongestStreak);
-      if (this.rewindLongestStreaks.length > this.mode.rewind.historyDepth) {
+      if (this.rewindLongestStreaks.length > rewind.historyDepth) {
         this.rewindLongestStreaks.splice(
-          0, this.rewindLongestStreaks.length - this.mode.rewind.historyDepth,
+          0, this.rewindLongestStreaks.length - rewind.historyDepth,
         );
       }
     }
@@ -552,11 +555,11 @@ export class Game {
     this.stackChainBatches = [];
     this.stackCascadeActive = this.isStackMode();
     if (!this.activeTutorial) {
-      if (!this.mode.rewind) {
+      if (!rewindModifier(this.mode.rules)) {
         const recordsImproved = updateRecords(this.stats, this.state.score, this.longestStreakThisGame);
         if (recordsImproved && !result.gameOver) this.statsStore.saveStats(this.mode.id, this.stats);
       }
-      if (result.gameOver && !this.mode.rewind) this.saveStore.remove(this.mode.id);
+      if (result.gameOver && !rewindModifier(this.mode.rules)) this.saveStore.remove(this.mode.id);
       else this.writeCurrentSave();
     }
     this.visualBoard = result.boardBefore;
@@ -630,7 +633,9 @@ export class Game {
           if (existing) existing.cleared += step.cleared.length;
           else this.stackChainBatches.push({ level, cleared: step.cleared.length });
         }
-        const stackUnit = this.mode.scoring.kind === 'stack' ? this.mode.scoring.pointsPerStackUnit : 0;
+        const stackUnit = this.mode.rules.scoring.kind === 'stack-score@1'
+          ? this.mode.rules.scoring.pointsPerStackUnit
+          : 0;
         const batchAward = stackUnit * (this.activeStack ** 2 - previousStack ** 2);
         this.displayedScore += batchAward;
         this.scorePopups.push(...spawnScorePopups(
@@ -645,7 +650,12 @@ export class Game {
       this.scorePopups.push(...spawnScorePopups(step.cleared, perDiscPoints, now));
       const chainLength = step.chainLevel + 1;
       if (chainLength >= 2) {
-        const multiplier = Math.pow(chainLength, this.mode.chainExponent);
+        const multiplier = Math.pow(
+          chainLength,
+          this.mode.rules.scoring.kind === 'chain-score@1'
+            ? this.mode.rules.scoring.chainExponent
+            : 1,
+        );
         this.scoreIndicators.push(spawnScoreIndicator(
           `CHAIN ${chainLength}`,
           `×${formatMultiplier(multiplier)}  +${step.pointsAwarded}`,
@@ -655,7 +665,9 @@ export class Game {
     } else if (step.kind === StepKind.Bonus && !this.activeTutorial) {
       if (step.bonusKind === 'stack') {
         this.stackCascadeActive = false;
-        const stackUnit = this.mode.scoring.kind === 'stack' ? this.mode.scoring.pointsPerStackUnit : 0;
+        const stackUnit = this.mode.rules.scoring.kind === 'stack-score@1'
+          ? this.mode.rules.scoring.pointsPerStackUnit
+          : 0;
         this.lastStackScore = {
           initial: this.stackInitialClearSize,
           chains: this.stackChainBatches.map(batch => ({ ...batch })),
@@ -765,7 +777,7 @@ export class Game {
 
   private requestRewind(): void {
     if (this.rewindDialog.isOpen()) return;
-    if (this.mode.rewind && this.state.phase === GamePhase.Animating) {
+    if (rewindModifier(this.mode.rules) && this.state.phase === GamePhase.Animating) {
       this.pendingRewind = true;
       return;
     }
@@ -845,7 +857,7 @@ export class Game {
     this.saveStore.remove(this.mode.id);
     this.engine.restart();
     this.debug.reset();
-    this.visualBoard = makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
+    this.visualBoard = makeEmptyBoard(this.mode.rules.board.cols, this.mode.rules.board.rows);
     this.displayedScore = this.state.score;
     this.syncLevelProgressDisplay();
     this.scorePopups = [];
@@ -884,7 +896,7 @@ export class Game {
     if (!tutorial || !step) return;
 
     this.engine.loadScriptedState({
-      mode: this.mode,
+      rules: this.mode.rules,
       board: step.board,
       currentDisc: step.currentDisc,
       nextDisc: step.nextDisc,
@@ -939,18 +951,18 @@ export class Game {
   }
 
   private resumeSavedGame(save: SaveGameV1): void {
-    const mode = GAME_MODES.find(candidate => candidate.id === save.modeId);
+    const mode = SOLO_MODES.find(candidate => candidate.id === save.modeId);
     if (!mode) {
       return;
     }
 
     try {
       this.gameOverScreen.close();
-      const loaded = this.engine.loadSave(save, mode);
+      const loaded = this.engine.loadSave(save, mode.rules);
       this.mode = mode;
       this.stats = this.statsStore.loadStats(mode.id);
       this.captureGameStartRecords();
-      setGridSize(mode.board.cols, mode.board.rows);
+      setGridSize(mode.rules.board.cols, mode.rules.board.rows);
       this.renderer.resize();
       this.activeTutorial = null;
       this.tutorialOverlay.hide();
@@ -1099,8 +1111,8 @@ export class Game {
     const rewindPreview = this.rewindPreview;
     this.gameControls.render({
       phase: this.state.phase,
-      hasGravity: Boolean(this.mode.gravity),
-      hasRewind: Boolean(this.mode.rewind),
+      hasGravity: this.mode.rules.placement.kind === 'stage-and-tilt@1',
+      hasRewind: rewindModifier(this.mode.rules) !== undefined,
       canRewind: this.engine.canRewind(),
       cursorLane: this.state.cursorCol,
       laneCount: this.currentLaneCount(),
@@ -1129,17 +1141,17 @@ export class Game {
         ? { ...this.state.nextDisc, ...rewindPreview.nextDisc }
         : this.state.nextDisc,
       level: rewindPreview?.level ?? this.displayedLevelProgress.level,
-      initialTurnsPerLevel: this.mode.initialTurnsPerLevel,
+      initialTurnsPerLevel: this.mode.rules.progression.initialTurnsPerLevel,
       turnsPerLevel: rewindPreview?.turnsPerLevel ?? this.displayedLevelProgress.turnsPerLevel,
       turnsRemaining: rewindPreview?.turnsRemaining ?? this.displayedLevelProgress.turnsRemaining,
       turnPipCapacity: TURN_PIP_CAPACITY,
-      hasGravity: Boolean(this.mode.gravity),
-      hasRewind: Boolean(this.mode.rewind),
+      hasGravity: this.mode.rules.placement.kind === 'stage-and-tilt@1',
+      hasRewind: rewindModifier(this.mode.rules) !== undefined,
       isRewindPreview: Boolean(rewindPreview),
       instability: rewindPreview?.instabilityAfter ?? this.state.paradox?.instability,
-      criticalInstability: this.mode.rewind?.criticalInstability,
+      criticalInstability: rewindModifier(this.mode.rules)?.criticalInstability,
       turnCost: turnCostForInstability(
-        this.mode,
+        this.mode.rules,
         rewindPreview?.instabilityAfter ?? this.state.paradox?.instability ?? 0,
       ),
       gravityAngle: this.state.gravity?.angle,
@@ -1164,7 +1176,8 @@ export class Game {
     // Gravity mode's ghost preview shows the TRUE predicted landing cell
     // (not just the entry edge) so a drop's outcome is never a surprise —
     // only meaningful while a lane is actually selectable.
-    const previewLanding = this.state.phase === GamePhase.WaitingForDrop && this.mode.gravity
+    const previewLanding = this.state.phase === GamePhase.WaitingForDrop
+      && this.mode.rules.placement.kind === 'stage-and-tilt@1'
       ? this.engine.previewDropLanding(this.state.cursorCol)
       : null;
     const renderState = this.rewindPreview
@@ -1188,7 +1201,7 @@ export class Game {
   }
 
   private isStackMode(): boolean {
-    return this.mode.scoring?.kind === 'stack';
+    return this.mode.rules.scoring.kind === 'stack-score@1';
   }
 }
 

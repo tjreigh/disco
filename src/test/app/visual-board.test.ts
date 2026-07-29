@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { applyStepToVisualBoard } from '../../app/visual-board.js';
-import { CLASSIC_MODE } from '../../game/modes/index.js';
+import { CLASSIC_RULES } from '../../game/modes/index.js';
 import { GameEngine } from '../../game/engine.js';
 import type { TurnResult } from '../../game/engine.js';
 import { GamePhase } from '../../game/state.js';
@@ -79,14 +79,14 @@ describe('visual board playback', () => {
     const seeds = [1, 7, 13, 21, 34, 55];
 
     for (const seed of seeds) {
-      const engine = new GameEngine({ mode: CLASSIC_MODE, seed });
+      const engine = new GameEngine({ rules: CLASSIC_RULES, seed });
 
       for (let turn = 0; turn < 60 && engine.state.phase !== GamePhase.GameOver; turn++) {
-        const startCol = (seed + turn) % CLASSIC_MODE.board.cols;
+        const startCol = (seed + turn) % CLASSIC_RULES.board.cols;
         let result: TurnResult | null = null;
 
-        for (let offset = 0; offset < CLASSIC_MODE.board.cols; offset++) {
-          const col = (startCol + offset) % CLASSIC_MODE.board.cols;
+        for (let offset = 0; offset < CLASSIC_RULES.board.cols; offset++) {
+          const col = (startCol + offset) % CLASSIC_RULES.board.cols;
           const attempt = engine.drop(col);
           if (attempt.accepted || attempt.gameOver) {
             result = attempt;

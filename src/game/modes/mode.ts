@@ -1,25 +1,112 @@
-import type { Board, Disc, GridPos } from '../model.js';
 import type { RevealStep } from '../events.js';
+import type { Board, Disc, GridPos } from '../model.js';
 
-/** Determines how clears made during a turn translate into score. */
-export type ScoringConfig =
-  | { readonly kind: 'chain' }
+export interface BoardRules {
+  readonly kind: 'rectangular-grid@1';
+  readonly cols: number;
+  readonly rows: number;
+}
+
+export type PlacementRules =
   | {
-    readonly kind: 'stack';
-    /** Points = unit × stackSize². */
-    readonly pointsPerStackUnit: number;
+    readonly kind: 'downward-drop@1';
+  }
+  | {
+    readonly kind: 'stage-and-tilt@1';
+    readonly initialAngleDeg: number;
+    readonly maxTiltDeltaDeg: number;
   };
 
+export type ClearingRules =
+  | {
+    readonly kind: 'orthogonal-count-match@1';
+    readonly isClearable: (
+      board: Board,
+      row: number,
+      col: number,
+      disc: Disc,
+      angleDeg?: number,
+    ) => boolean;
+  }
+  | {
+    readonly kind: 'gravity-aligned-count-match@1';
+    readonly isClearable: (
+      board: Board,
+      row: number,
+      col: number,
+      disc: Disc,
+      angleDeg?: number,
+    ) => boolean;
+  };
+
+export interface RevealRules {
+  readonly kind: 'adjacent-crack-reveal@1';
+  readonly revealAdjacent: (board: Board, cleared: GridPos[]) => RevealStep;
+}
+
+export interface GenerationRules {
+  readonly kind: 'adaptive-history@1';
+  readonly discValueMin: number;
+  readonly discValueMax: number;
+  readonly initialUnnumberedProbability: number;
+  readonly unnumberedProbabilityLevelStep: number;
+  readonly maxUnnumberedProbability: number;
+  readonly minLevelForBoardClearBonus: number;
+  /** Whether choices may vary with the live board even when the seed is shared. */
+  readonly boardAdaptive: boolean;
+  /** Hard cap on repeats of the same disc value in a row. */
+  readonly maxSameValueRun: number;
+  /** Hard cap on consecutive Numbered discs. */
+  readonly maxNumberedRun: number;
+  /** Hard cap on consecutive DoubleCracked discs. */
+  readonly maxCrackedRun: number;
+  readonly valueBalanceWindow: number;
+  readonly valueBalanceStrength: number;
+  readonly kindBalanceWindow: number;
+  readonly kindBalanceStrength: number;
+  readonly boardPressureStartHeight: number;
+  readonly boardPressureStrength: number;
+  readonly boardRelevanceStrength: number;
+}
+
+export type ScoringRules =
+  | {
+    readonly kind: 'chain-score@1';
+    readonly pointsPerDisc: number;
+    readonly chainExponent: number;
+    readonly levelBonus: number;
+    readonly boardClearBonus: number;
+  }
+  | {
+    readonly kind: 'stack-score@1';
+    readonly pointsPerStackUnit: number;
+    readonly levelBonus: number;
+    readonly boardClearBonus: number;
+  };
+
+export interface ProgressionRules {
+  readonly kind: 'level-pressure@1';
+  readonly initialTurnsPerLevel: number;
+  readonly turnsPerLevelStep: number;
+  readonly minTurnsPerLevel: number;
+}
+
+export interface FailureRules {
+  readonly kind: 'overflow-or-full-board-ends-run@1';
+  readonly isTerminalBoard: (board: Board) => boolean;
+  readonly gameOverReason: (
+    pushOverflow: boolean,
+    board: Board,
+  ) => 'push-overflow' | 'board-full' | undefined;
+}
+
 /** Enables deterministic rewind through a bounded history of stable turns. */
-export interface RewindModeConfig {
+export interface RewindRuleModifier {
+  readonly kind: 'rewind-instability@1';
   readonly historyDepth: number;
-  /** Instability value at which presentation should communicate critical damage. */
   readonly criticalInstability: number;
-  /** Every complete step adds one turn pip to the cost of each move. */
   readonly pressureStepInstability: number;
-  /** Upper bound on turn pips consumed by one move. */
   readonly maxTurnCost: number;
-  /** Instability tiers that can repeat a completed drop into another legal lane. */
   readonly temporalEcho: {
     readonly tiers: readonly {
       readonly minimumInstability: number;
@@ -28,118 +115,276 @@ export interface RewindModeConfig {
   };
 }
 
-export interface GameModeConfig {
+/**
+ * Closed union for orthogonal rule capabilities. Rewind is the only current
+ * member; future modifiers extend this union without changing GameRulesConfig.
+ */
+export type RuleModifier = RewindRuleModifier;
+
+export interface GameRulesConfig {
+  readonly id: string;
+  readonly version: number;
+  readonly board: BoardRules;
+  readonly placement: PlacementRules;
+  readonly clearing: ClearingRules;
+  readonly revealing: RevealRules;
+  readonly generation: GenerationRules;
+  readonly scoring: ScoringRules;
+  readonly progression: ProgressionRules;
+  readonly failure: FailureRules;
+  readonly modifiers: readonly RuleModifier[];
+}
+
+export interface SoloSessionRules {
+  readonly kind: 'solo-run@1';
+}
+
+export interface SoloPersistenceRules {
+  readonly kind: 'solo-autosave@1';
+  readonly enabled: boolean;
+}
+
+export interface SoloStatsRules {
+  readonly kind: 'solo-account-stats@1';
+  readonly enabled: boolean;
+  readonly leaderboardEligible: boolean;
+}
+
+export interface SoloModeDefinition {
+  readonly kind: 'solo';
   readonly id: string;
   readonly name: string;
   readonly tagline: string;
-  /** Whether this mode has a guided tutorial available from the home screen. Defaults to true. */
-  readonly hasTutorial?: boolean;
-  readonly board: { cols: number; rows: number };
-  /** Inclusive range of numbered disc values that can be dealt. Widening it makes matches rarer (more values to spread across). */
-  readonly discValueMin: number;
-  readonly discValueMax: number;
-  /** Chance a dealt disc is DoubleCracked (unnumbered/hazard) at level 1. See {@link unnumberedProbabilityForLevel}. */
-  readonly initialUnnumberedProbability: number;
-  /** Flat amount added to the unnumbered probability per level (linear ramp, not exponential). Higher = hazards ramp up faster. */
-  readonly unnumberedProbabilityLevelStep: number;
-  /** Ceiling the unnumbered probability ramp saturates at, however high the level gets. */
-  readonly maxUnnumberedProbability: number;
-  readonly discGeneration: DiscGenerationConfig;
-  readonly scoring: ScoringConfig;
-  /** Present only for modes that can restore a completed turn. */
-  readonly rewind?: RewindModeConfig;
-  /** Base points per disc in a clear, before the chain-length exponent is applied. See {@link pointsForChain}. */
-  readonly pointsPerDisc: number;
-  /** Exponent on chain length in the scoring formula (points = pointsPerDisc * chainLength^chainExponent). >1 makes longer chains reward superlinearly; higher values make big chains far more lucrative than several small ones. */
-  readonly chainExponent: number;
-  /** Flat bonus awarded once when a level is completed. */
-  readonly levelBonus: number;
-  /** Flat bonus awarded once when the board is fully cleared. */
-  readonly boardClearBonus: number;
-  /** Below this level, a disc value can't be dealt in a way that would let it immediately complete a board-emptying clear. */
-  readonly minLevelForBoardClearBonus: number;
-  /** Turn budget for level 1. See {@link turnsForLevel}. */
-  readonly initialTurnsPerLevel: number;
-  /** Amount the turn budget shrinks per level (linear decay) as levels progress. */
-  readonly turnsPerLevelStep: number;
-  /** Floor the shrinking turn budget cannot drop below, however high the level gets. */
-  readonly minTurnsPerLevel: number;
-  /**
-   * Present only for Gravity mode. Each turn stages a lane, requires a tilt,
-   * then settles the staged disc and board under the committed angle. See
-   * {@link GameEngine.drop}/{@link GameEngine.tiltGravity}/{@link GameEngine.commitTilt}/{@link GameEngine.cancelTilt}.
-   */
-  readonly gravity?: {
-    readonly initialAngleDeg: number;
-    /** Maximum absolute tilt allowed from a tilt action's starting angle. */
-    readonly maxTiltDeltaDeg: number;
+  readonly hasTutorial: boolean;
+  readonly rules: GameRulesConfig;
+  readonly session: SoloSessionRules;
+  readonly persistence: SoloPersistenceRules;
+  readonly stats: SoloStatsRules;
+}
+
+export type MultiplayerFairnessRules =
+  | { readonly kind: 'identical-sequence' }
+  | { readonly kind: 'same-seed-adaptive' }
+  | { readonly kind: 'independent' };
+
+export interface MultiplayerSessionRules {
+  readonly kind: 'timed-score-race@1';
+  readonly durationMs: number;
+  readonly fairness: MultiplayerFairnessRules;
+}
+
+export interface MultiplayerModeDefinition {
+  readonly kind: 'multiplayer';
+  readonly id: string;
+  readonly name: string;
+  readonly tagline: string;
+  readonly rules: GameRulesConfig;
+  readonly session: MultiplayerSessionRules;
+}
+
+export interface RuleCapabilities {
+  readonly canTilt: boolean;
+  readonly canRewind: boolean;
+}
+
+export const SOLO_RUN_SESSION: SoloSessionRules = Object.freeze({ kind: 'solo-run@1' });
+export const SOLO_AUTOSAVE: SoloPersistenceRules = Object.freeze({
+  kind: 'solo-autosave@1',
+  enabled: true,
+});
+export const SOLO_ACCOUNT_STATS: SoloStatsRules = Object.freeze({
+  kind: 'solo-account-stats@1',
+  enabled: true,
+  leaderboardEligible: true,
+});
+
+function assertPositiveInteger(value: number, label: string): void {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${label} must be a positive integer`);
+  }
+}
+
+function assertProbability(value: number, label: string): void {
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error(`${label} must be between 0 and 1`);
+  }
+}
+
+function deepFreeze<T>(value: T, seen = new Set<object>()): T {
+  if (typeof value !== 'object' || value === null || seen.has(value)) return value;
+  seen.add(value);
+  for (const child of Object.values(value)) deepFreeze(child, seen);
+  return Object.freeze(value);
+}
+
+export function defineGameRules(config: GameRulesConfig): GameRulesConfig {
+  if (!config.id.trim()) throw new Error('Game rules id must not be empty');
+  assertPositiveInteger(config.version, `Rules version for ${config.id}`);
+  assertPositiveInteger(config.board.cols, `Board columns for ${config.id}`);
+  assertPositiveInteger(config.board.rows, `Board rows for ${config.id}`);
+
+  const usesGravityPlacement = config.placement.kind === 'stage-and-tilt@1';
+  const usesGravityClearing = config.clearing.kind === 'gravity-aligned-count-match@1';
+  if (usesGravityPlacement !== usesGravityClearing) {
+    throw new Error(
+      `Rules ${config.id}@${config.version} must pair stage-and-tilt placement with gravity-aligned clearing`,
+    );
+  }
+  if (usesGravityPlacement) {
+    if (!Number.isFinite(config.placement.initialAngleDeg)) {
+      throw new Error(`Initial gravity angle for ${config.id} must be finite`);
+    }
+    if (!Number.isFinite(config.placement.maxTiltDeltaDeg)
+      || config.placement.maxTiltDeltaDeg <= 0) {
+      throw new Error(`Maximum gravity tilt for ${config.id} must be positive`);
+    }
+  }
+
+  const generation = config.generation;
+  assertPositiveInteger(generation.discValueMin, `Minimum disc value for ${config.id}`);
+  assertPositiveInteger(generation.discValueMax, `Maximum disc value for ${config.id}`);
+  if (generation.discValueMin > generation.discValueMax) {
+    throw new Error(`Disc value range for ${config.id} is inverted`);
+  }
+  assertProbability(
+    generation.initialUnnumberedProbability,
+    `Initial unnumbered probability for ${config.id}`,
+  );
+  assertProbability(
+    generation.maxUnnumberedProbability,
+    `Maximum unnumbered probability for ${config.id}`,
+  );
+  if (generation.unnumberedProbabilityLevelStep < 0
+    || generation.initialUnnumberedProbability > generation.maxUnnumberedProbability) {
+    throw new Error(`Unnumbered probability progression for ${config.id} is invalid`);
+  }
+  for (const [label, value] of [
+    ['maxSameValueRun', generation.maxSameValueRun],
+    ['maxNumberedRun', generation.maxNumberedRun],
+    ['maxCrackedRun', generation.maxCrackedRun],
+    ['valueBalanceWindow', generation.valueBalanceWindow],
+    ['kindBalanceWindow', generation.kindBalanceWindow],
+    ['minLevelForBoardClearBonus', generation.minLevelForBoardClearBonus],
+  ] as const) {
+    assertPositiveInteger(value, `${label} for ${config.id}`);
+  }
+
+  const progression = config.progression;
+  assertPositiveInteger(
+    progression.initialTurnsPerLevel,
+    `Initial turn budget for ${config.id}`,
+  );
+  if (!Number.isSafeInteger(progression.turnsPerLevelStep)
+    || progression.turnsPerLevelStep < 0) {
+    throw new Error(`Turn-budget step for ${config.id} must be a non-negative integer`);
+  }
+  assertPositiveInteger(progression.minTurnsPerLevel, `Minimum turn budget for ${config.id}`);
+  if (progression.minTurnsPerLevel > progression.initialTurnsPerLevel) {
+    throw new Error(`Minimum turn budget for ${config.id} exceeds its initial budget`);
+  }
+
+  const modifierKinds = new Set<string>();
+  for (const modifier of config.modifiers) {
+    if (modifierKinds.has(modifier.kind)) {
+      throw new Error(`Rules ${config.id}@${config.version} repeat modifier ${modifier.kind}`);
+    }
+    modifierKinds.add(modifier.kind);
+    assertPositiveInteger(modifier.historyDepth, `Rewind history depth for ${config.id}`);
+    assertPositiveInteger(modifier.pressureStepInstability, `Rewind pressure step for ${config.id}`);
+    assertPositiveInteger(modifier.maxTurnCost, `Maximum rewind turn cost for ${config.id}`);
+    for (const tier of modifier.temporalEcho.tiers) {
+      assertPositiveInteger(tier.minimumInstability, `Temporal Echo tier for ${config.id}`);
+      assertProbability(tier.probability, `Temporal Echo probability for ${config.id}`);
+    }
+  }
+  if (usesGravityPlacement && modifierKinds.has('rewind-instability@1')) {
+    throw new Error(`Rules ${config.id}@${config.version} cannot combine Gravity and rewind`);
+  }
+
+  return deepFreeze(config);
+}
+
+export function defineSoloMode(definition: SoloModeDefinition): SoloModeDefinition {
+  if (definition.id !== definition.rules.id) {
+    throw new Error(
+      `Solo mode ${definition.id} must use a ruleset with the same stable id; received ${definition.rules.id}`,
+    );
+  }
+  return deepFreeze(definition);
+}
+
+export function defineMultiplayerMode(
+  definition: MultiplayerModeDefinition,
+): MultiplayerModeDefinition {
+  if (definition.id !== definition.rules.id) {
+    throw new Error(
+      `Multiplayer mode ${definition.id} must use a ruleset with the same stable id; received ${definition.rules.id}`,
+    );
+  }
+  if (definition.session.fairness.kind === 'identical-sequence'
+    && definition.rules.generation.boardAdaptive) {
+    throw new Error(
+      `Multiplayer mode ${definition.id} promises identical sequences with a board-adaptive generator`,
+    );
+  }
+  return deepFreeze(definition);
+}
+
+export function rewindModifier(
+  rules: Pick<GameRulesConfig, 'modifiers'>,
+): RewindRuleModifier | undefined {
+  return rules.modifiers.find(
+    (modifier): modifier is RewindRuleModifier => modifier.kind === 'rewind-instability@1',
+  );
+}
+
+export function capabilitiesForRules(rules: GameRulesConfig): RuleCapabilities {
+  return {
+    canTilt: rules.placement.kind === 'stage-and-tilt@1',
+    canRewind: rewindModifier(rules) !== undefined,
   };
-  // angleDeg is the current gravity angle a Gravity-family mode's run check
-  // should measure runs along (see gravityRunLengths in gravity/settling.ts, which
-  // snaps it to the nearest of 8 directions — a genuinely continuous run
-  // check isn't well-defined on a discrete grid) — always the same angle the
-  // caller just settled the board under, so a run means the same thing here
-  // as it does to the settling that produced this board. Omitted (defaults
-  // to grid-up/down) for modes with no gravity concept.
-  isClearable(board: Board, row: number, col: number, disc: Disc, angleDeg?: number): boolean;
-  revealAdjacent(board: Board, cleared: GridPos[]): RevealStep;
-  isGameOver(board: Board): boolean;
 }
 
-export interface DiscGenerationConfig {
-  /** Hard cap on repeats of the same disc value in a row; that value is excluded once hit. Lower = more variety, never 0. */
-  readonly maxSameValueRun: number;
-  /** Hard cap on consecutive Numbered discs; the next disc is forced DoubleCracked once hit. Lower = more frequent forced hazards. */
-  readonly maxNumberedRun: number;
-  /** Hard cap on consecutive DoubleCracked discs; the next disc is forced Numbered once hit. Lower = fewer hazard streaks. */
-  readonly maxCrackedRun: number;
-  /** How many recent discs count toward "expected vs. observed" value frequency. Bigger = smoother/slower-reacting value distribution. */
-  readonly valueBalanceWindow: number;
-  /** How hard under/over-dealt values get pushed back toward even distribution. 0 = no correction (pure weighted random); higher = snappier correction. */
-  readonly valueBalanceStrength: number;
-  /** How many recent discs count toward "expected vs. observed" Numbered ratio. Bigger = smoother/slower-reacting kind distribution. */
-  readonly kindBalanceWindow: number;
-  /** How hard the Numbered/DoubleCracked ratio gets pushed back toward the level's target probability. 0 = no correction; higher = snappier correction. */
-  readonly kindBalanceStrength: number;
-  /** Column height (in rows), below which "board pressure" is 0 (no bias yet). Higher = more room before pressure kicks in. */
-  readonly boardPressureStartHeight: number;
-  /** As pressure rises (tall columns), how strongly high-value discs get suppressed in favor of low ones. 0 = no suppression; higher = low values dealt almost exclusively near the top. */
-  readonly boardPressureStrength: number;
-  /** As pressure rises, how strongly values that would immediately complete a clear get boosted. 0 = no boost; higher = generation actively bails you out under pressure. */
-  readonly boardRelevanceStrength: number;
+export function turnsForLevel(rules: ProgressionRules, level: number): number {
+  return Math.max(
+    rules.minTurnsPerLevel,
+    rules.initialTurnsPerLevel - rules.turnsPerLevelStep * (level - 1),
+  );
 }
 
-// Turn budget for a given level: shrinks by turnsPerLevelStep per level from
-// initialTurnsPerLevel, floored at minTurnsPerLevel.
-export function turnsForLevel(mode: GameModeConfig, level: number): number {
-  return Math.max(mode.minTurnsPerLevel, mode.initialTurnsPerLevel - mode.turnsPerLevelStep * (level - 1));
-}
-
-/** Turn pips consumed by one accepted move at the supplied Instability. */
-export function turnCostForInstability(mode: GameModeConfig, instability: number): number {
-  if (!mode.rewind) return 1;
+export function turnCostForInstability(
+  rules: Pick<GameRulesConfig, 'modifiers'>,
+  instability: number,
+): number {
+  const rewind = rewindModifier(rules);
+  if (!rewind) return 1;
   const normalized = Math.max(0, Math.floor(instability));
-  const step = Math.max(1, mode.rewind.pressureStepInstability);
-  return Math.min(mode.rewind.maxTurnCost, 1 + Math.floor(normalized / step));
+  const step = Math.max(1, rewind.pressureStepInstability);
+  return Math.min(rewind.maxTurnCost, 1 + Math.floor(normalized / step));
 }
 
-/** Chance that a completed move repeats into another legal lane. */
-export function temporalEchoProbability(mode: GameModeConfig, instability: number): number {
-  if (!mode.rewind) return 0;
+export function temporalEchoProbability(
+  rules: Pick<GameRulesConfig, 'modifiers'>,
+  instability: number,
+): number {
+  const rewind = rewindModifier(rules);
+  if (!rewind) return 0;
   const normalized = Math.max(0, Math.floor(instability));
   let probability = 0;
-  for (const tier of mode.rewind.temporalEcho.tiers) {
+  for (const tier of rewind.temporalEcho.tiers) {
     if (normalized < tier.minimumInstability) continue;
     probability = Math.max(probability, tier.probability);
   }
   return Math.max(0, Math.min(1, probability));
 }
 
-/** Chance that a dealt disc is unnumbered at a given one-based level. */
-export function unnumberedProbabilityForLevel(mode: GameModeConfig, level: number): number {
+export function unnumberedProbabilityForLevel(
+  rules: GenerationRules,
+  level: number,
+): number {
   const levelOffset = Math.max(1, level) - 1;
   return Math.min(
-    mode.maxUnnumberedProbability,
-    mode.initialUnnumberedProbability + mode.unnumberedProbabilityLevelStep * levelOffset,
+    rules.maxUnnumberedProbability,
+    rules.initialUnnumberedProbability + rules.unnumberedProbabilityLevelStep * levelOffset,
   );
 }

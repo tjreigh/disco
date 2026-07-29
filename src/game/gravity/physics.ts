@@ -2,8 +2,8 @@ import { cloneBoard, deepCloneBoard, placeDisc } from '../board.js';
 import type { DropStep, FallStep, PhysicsStep } from '../events.js';
 import { StepKind } from '../events.js';
 import type { Board, Disc, EntryEdge } from '../model.js';
-import { CLASSIC_MODE } from '../modes/index.js';
-import type { GameModeConfig } from '../modes/mode.js';
+import { GRAVITY_RULES } from '../modes/index.js';
+import type { GameRulesConfig } from '../modes/mode.js';
 import {
   commitBoard, resolveClearSteps, type PhysicsTrace, type SettleFn,
 } from '../physics.js';
@@ -19,7 +19,7 @@ export function computeGravityDropSteps(
   lane: number,
   entryEdge: EntryEdge,
   finalAngleDeg: number,
-  mode: GameModeConfig = CLASSIC_MODE,
+  rules: GameRulesConfig = GRAVITY_RULES,
   trace?: PhysicsTrace,
 ): PhysicsStep[] {
   const steps: PhysicsStep[] = [];
@@ -57,7 +57,7 @@ export function computeGravityDropSteps(
     });
   }
 
-  steps.push(...resolveClearSteps(scratch, mode, trace, settle, finalAngleDeg));
+  steps.push(...resolveClearSteps(scratch, rules, trace, settle, finalAngleDeg));
   commitBoard(board, scratch);
   return steps;
 }
@@ -67,7 +67,7 @@ export function computeGravityDropSteps(
 export function computeGravityTiltSteps(
   board: Board,
   finalAngleDeg: number,
-  mode: GameModeConfig = CLASSIC_MODE,
+  rules: GameRulesConfig = GRAVITY_RULES,
   trace?: PhysicsTrace,
 ): PhysicsStep[] {
   const steps: PhysicsStep[] = [];
@@ -83,7 +83,7 @@ export function computeGravityTiltSteps(
     });
   }
 
-  steps.push(...resolveClearSteps(scratch, mode, trace, settle, finalAngleDeg));
+  steps.push(...resolveClearSteps(scratch, rules, trace, settle, finalAngleDeg));
   commitBoard(board, scratch);
   return steps;
 }

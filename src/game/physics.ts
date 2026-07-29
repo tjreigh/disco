@@ -1,6 +1,6 @@
 import type { Board, Disc, EntryEdge, GridPos } from './model.js';
 import { DiscKind } from './model.js';
-import type { GameModeConfig } from './modes/mode.js';
+import type { GameRulesConfig } from './modes/mode.js';
 import type { PhysicsStep, DropStep, FallStep, ClearStep, PushStep } from './events.js';
 import { StepKind } from './events.js';
 import {
@@ -12,7 +12,7 @@ import {
 } from './gravity/settling.js';
 import { makeCrackedDisc } from './disc.js';
 import type { DiscFactory } from './disc.js';
-import { CLASSIC_MODE } from './modes/index.js';
+import { CLASSIC_RULES } from './modes/index.js';
 
 /** Compacts a board toward a gravity direction, producing a Fall step of every disc that moved. */
 export type SettleFn = (board: Board) => FallStep;
@@ -45,7 +45,7 @@ export interface PhysicsTrace {
 }
 
 function inspectClears(
-  board: Board, mode: GameModeConfig, angleDeg: number,
+  board: Board, rules: GameRulesConfig, angleDeg: number,
 ): { clears: GridPos[]; checks: ClearCheck[] } {
   const result: GridPos[] = [];
   const checks: ClearCheck[] = [];
@@ -56,7 +56,7 @@ function inspectClears(
       if (disc && disc.kind === DiscKind.Numbered) {
         // rowCount/colCount are still computed via the classic contiguous-run
         // helpers for trace/debug purposes, independent of which predicate
-        // mode.isClearable actually uses.
+        // rules.clearing.isClearable actually uses.
         const rowCount = countHorizontalRun(board, row, col);
         const colCount = countVerticalRun(board, row, col);
         const clearsByRow = disc.value === rowCount;
@@ -65,7 +65,7 @@ function inspectClears(
           pos: { row, col }, discId: disc.id, value: disc.value,
           rowCount, colCount, clearsByRow, clearsByCol,
         });
-        if (!mode.isClearable(board, row, col, disc, angleDeg)) continue;
+        if (!rules.clearing.isClearable(board, row, col, disc, angleDeg)) continue;
         result.push({ row, col });
       }
     }
@@ -89,8 +89,8 @@ function isBoardEmpty(board: Board): boolean {
 /** Points awarded per cleared disc at a one-based chain length. */
 export function pointsForChain(
   chainLength: number,
-  pointsPerDisc: number = CLASSIC_MODE.pointsPerDisc,
-  exponent: number = CLASSIC_MODE.chainExponent,
+  pointsPerDisc = 7,
+  exponent = 2.5,
 ): number {
   if (!Number.isInteger(chainLength) || chainLength < 1) return 0;
   return Math.floor(pointsPerDisc * Math.pow(chainLength, exponent));
@@ -118,14 +118,14 @@ export function pointsForStack(stackSize: number, pointsPerStackUnit: number): n
 // and the engine's level bonus — never emit a frame, since a bonus doesn't
 // change the board and so has nothing new to render.
 export function resolveClearSteps(
-  scratch: Board, mode: GameModeConfig, trace?: PhysicsTrace,
+  scratch: Board, rules: GameRulesConfig, trace?: PhysicsTrace,
   settle: SettleFn = applyGravity, angleDeg = 0, startingChainLevel = 0,
 ): PhysicsStep[] {
   const steps: PhysicsStep[] = [];
   let chainLevel = startingChainLevel;
 
   while (true) {
-    const inspection = inspectClears(scratch, mode, angleDeg);
+    const inspection = inspectClears(scratch, rules, angleDeg);
     const clears = inspection.clears;
     trace?.scans.push({
       chainLevel,
@@ -134,8 +134,12 @@ export function resolveClearSteps(
     });
     if (clears.length === 0) break;
 
-    const points = mode.scoring.kind === 'chain'
-      ? clears.length * pointsForChain(chainLevel + 1, mode.pointsPerDisc, mode.chainExponent)
+    const points = rules.scoring.kind === 'chain-score@1'
+      ? clears.length * pointsForChain(
+        chainLevel + 1,
+        rules.scoring.pointsPerDisc,
+        rules.scoring.chainExponent,
+      )
       : 0;
     // Capture immutable playback values before removeDisc() makes the positions null.
     const clearedDiscs = clears.map(pos => ({ ...scratch[pos.row]![pos.col]! }));
@@ -147,7 +151,7 @@ export function resolveClearSteps(
       board: deepCloneBoard(scratch),
     });
 
-    const reveal = mode.revealAdjacent(scratch, clears);
+    const reveal = rules.revealing.revealAdjacent(scratch, clears);
     if (reveal.positions.length > 0) {
       steps.push(reveal);
       trace?.frames.push({ label: `Reveal ${reveal.positions.length} adjacent tile${reveal.positions.length === 1 ? '' : 's'}`, board: deepCloneBoard(scratch) });
@@ -160,11 +164,11 @@ export function resolveClearSteps(
     }
 
 
-    if (mode.boardClearBonus > 0 && isBoardEmpty(scratch)) {
+    if (rules.scoring.boardClearBonus > 0 && isBoardEmpty(scratch)) {
       steps.push({
         kind: StepKind.Bonus,
         bonusKind: 'board-clear',
-        pointsAwarded: mode.boardClearBonus,
+        pointsAwarded: rules.scoring.boardClearBonus,
       });
     }
 
@@ -176,11 +180,11 @@ export function resolveClearSteps(
 
 /** Resolves clear chains after an in-place board change such as a row push. */
 export function computeClearSteps(
-  board: Board, mode: GameModeConfig = CLASSIC_MODE, trace?: PhysicsTrace,
+  board: Board, rules: GameRulesConfig = CLASSIC_RULES, trace?: PhysicsTrace,
   settle: SettleFn = applyGravity, angleDeg = 0, startingChainLevel = 0,
 ): PhysicsStep[] {
   const scratch = cloneBoard(board);
-  const steps = resolveClearSteps(scratch, mode, trace, settle, angleDeg, startingChainLevel);
+  const steps = resolveClearSteps(scratch, rules, trace, settle, angleDeg, startingChainLevel);
   commitBoard(board, scratch);
   return steps;
 }
@@ -194,7 +198,7 @@ export function computeDropSteps(
   board: Board,
   disc: Disc,
   col: number,
-  mode: GameModeConfig = CLASSIC_MODE,
+  rules: GameRulesConfig = CLASSIC_RULES,
   trace?: PhysicsTrace,
   settle: SettleFn = applyGravity,
   startingChainLevel = 0,
@@ -213,7 +217,7 @@ export function computeDropSteps(
     entryPos: { row: -1, col }, landPos: { row, col },
   } satisfies DropStep);
   trace?.frames.push({ label: `Drop #${disc.id} into r${row + 1}c${col + 1}`, board: deepCloneBoard(scratch) });
-  steps.push(...resolveClearSteps(scratch, mode, trace, settle, 0, startingChainLevel));
+  steps.push(...resolveClearSteps(scratch, rules, trace, settle, 0, startingChainLevel));
 
   // Write the scratch result back into the caller's board array in-place.
   // Replacing the board reference entirely wouldn't work because GameState
@@ -243,7 +247,7 @@ function edgeHasDisc(board: Board, edge: EntryEdge): boolean {
 // (where a drop enters, and where a full pile would spill off the board) has
 // any disc before the shift — those discs would be pushed off and lost,
 // which counts as overflow. This is deliberately a direct edge-occupancy
-// check, not mode.isGameOver(board) (which for Gravity mode is a full-board
+// check, not the terminal-board failure rule (which is a full-board
 // scan serving a different, more general purpose elsewhere) — a push's
 // overflow condition is specifically about the one edge THIS push discards.
 export function computePushStep(

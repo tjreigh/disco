@@ -1,4 +1,4 @@
-import type { GameModeConfig } from '../game/modes/index.js';
+import type { SoloModeDefinition } from '../game/modes/index.js';
 import { emptyStats } from '../game/stats.js';
 import type { GameStats } from '../game/stats.js';
 import { loadStats as loadCookieStats, saveStats as saveCookieStats } from './cookie-stats-store.js';
@@ -11,6 +11,7 @@ export interface AccountStatsState extends AuthState {
 }
 
 type Listener = () => void;
+type StatsModeDefinition = Pick<SoloModeDefinition, 'id' | 'stats'>;
 
 interface StatsStoreApi {
   login(provider?: string): void;
@@ -85,11 +86,11 @@ export class AccountStatsStore {
   };
 
   constructor(
-    private readonly modes: readonly GameModeConfig[],
+    private readonly modes: readonly StatsModeDefinition[],
     private readonly options: AccountStatsStoreOptions = {},
   ) {
     this.apiClient = options.api ?? new DiscoApiClient();
-    for (const mode of modes) {
+    for (const mode of modes.filter(candidate => candidate.stats.enabled)) {
       this.statsByMode.set(mode.id, this.loadCookieStats(mode.id));
     }
     this.ready = this.refresh();
@@ -120,7 +121,7 @@ export class AccountStatsStore {
       // Treat failed logout as local logout so the UI does not stay stuck.
     }
     this.state = { account: null, identities: [], loading: false, apiAvailable: true };
-    for (const mode of this.modes) {
+    for (const mode of this.modes.filter(candidate => candidate.stats.enabled)) {
       this.statsByMode.set(mode.id, this.loadCookieStats(mode.id));
     }
     this.emit();
@@ -177,7 +178,7 @@ export class AccountStatsStore {
     const importedKey = `disco_imported_account_${accountId}`;
     const shouldImport = !this.hasImportedLocalStats(importedKey);
 
-    for (const mode of this.modes) {
+    for (const mode of this.modes.filter(candidate => candidate.stats.enabled)) {
       const local = this.loadCookieStats(mode.id);
       const remote = remoteStats.get(mode.id) ?? emptyStats();
       const shouldImportLocalStats = shouldImport && hasStats(local);

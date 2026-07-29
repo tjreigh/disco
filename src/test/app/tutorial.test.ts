@@ -5,7 +5,7 @@ import {
   type TutorialTurnResult,
 } from '../../app/tutorial.js';
 import { GameEngine } from '../../game/engine.js';
-import { CLASSIC_MODE, GRAVITY_MODE, STACK_MODE } from '../../game/modes/index.js';
+import { CLASSIC_RULES, GRAVITY_RULES, STACK_RULES } from '../../game/modes/index.js';
 import { settleContinuous } from '../../game/gravity/settling.js';
 import { deepCloneBoard } from '../../game/board.js';
 
@@ -54,9 +54,9 @@ describe('CLASSIC_TUTORIAL', () => {
 
   test('scripted steps are winnable through the real engine', () => {
     for (const step of CLASSIC_TUTORIAL.steps) {
-      const engine = new GameEngine({ mode: CLASSIC_MODE });
+      const engine = new GameEngine({ rules: CLASSIC_RULES });
       engine.loadScriptedState({
-        mode: CLASSIC_MODE,
+        rules: CLASSIC_RULES,
         board: step.board,
         currentDisc: step.currentDisc,
         nextDisc: step.nextDisc,
@@ -101,9 +101,9 @@ describe('GRAVITY_TUTORIAL', () => {
   // resulting placement through the real engine.
   test('scripted steps are winnable through the real engine', () => {
     for (const step of GRAVITY_TUTORIAL.steps) {
-      const engine = new GameEngine({ mode: GRAVITY_MODE });
+      const engine = new GameEngine({ rules: GRAVITY_RULES });
       engine.loadScriptedState({
-        mode: GRAVITY_MODE,
+        rules: GRAVITY_RULES,
         board: step.board,
         currentDisc: step.currentDisc,
         nextDisc: step.nextDisc,
@@ -121,9 +121,9 @@ describe('GRAVITY_TUTORIAL', () => {
   test('tilt-reveals-lines succeeds clockwise but not counter-clockwise', () => {
     const step = GRAVITY_TUTORIAL.steps.find(candidate => candidate.id === 'tilt-reveals-lines')!;
     const play = (tiltDelta: number) => {
-      const engine = new GameEngine({ mode: GRAVITY_MODE });
+      const engine = new GameEngine({ rules: GRAVITY_RULES });
       engine.loadScriptedState({
-        mode: GRAVITY_MODE,
+        rules: GRAVITY_RULES,
         board: step.board,
         currentDisc: step.currentDisc,
         nextDisc: step.nextDisc,
@@ -140,8 +140,8 @@ describe('GRAVITY_TUTORIAL', () => {
   });
 
   test('is registered under its mode id in TUTORIALS', () => {
-    expect(TUTORIALS[GRAVITY_MODE.id]).toBe(GRAVITY_TUTORIAL);
-    expect(TUTORIALS[CLASSIC_MODE.id]).toBe(CLASSIC_TUTORIAL);
+    expect(TUTORIALS[GRAVITY_RULES.id]).toBe(GRAVITY_TUTORIAL);
+    expect(TUTORIALS[CLASSIC_RULES.id]).toBe(CLASSIC_TUTORIAL);
   });
 });
 
@@ -192,8 +192,8 @@ describe('STACK_TUTORIAL', () => {
         for (let col = 0; col < step.board[row]!.length; col++) {
           const disc = step.board[row]![col];
           if (!disc) continue;
-          expect(disc.value, `${step.id} has out-of-range value ${disc.value} at r${row + 1}c${col + 1}`).toBeGreaterThanOrEqual(STACK_MODE.discValueMin);
-          expect(disc.value).toBeLessThanOrEqual(STACK_MODE.discValueMax);
+          expect(disc.value, `${step.id} has out-of-range value ${disc.value} at r${row + 1}c${col + 1}`).toBeGreaterThanOrEqual(STACK_RULES.generation.discValueMin);
+          expect(disc.value).toBeLessThanOrEqual(STACK_RULES.generation.discValueMax);
         }
       }
     }
@@ -209,7 +209,7 @@ describe('STACK_TUTORIAL', () => {
           const disc = step.board[row]![col];
           if (!disc) continue;
           expect(
-            STACK_MODE.isClearable(step.board, row, col, disc),
+            STACK_RULES.clearing.isClearable(step.board, row, col, disc),
             `${step.id} has a clearable disc at r${row + 1}c${col + 1} before any drop`,
           ).toBe(false);
         }
@@ -219,9 +219,9 @@ describe('STACK_TUTORIAL', () => {
 
   test('scripted steps are winnable through the real engine', () => {
     for (const step of STACK_TUTORIAL.steps) {
-      const engine = new GameEngine({ mode: STACK_MODE });
+      const engine = new GameEngine({ rules: STACK_RULES });
       engine.loadScriptedState({
-        mode: STACK_MODE,
+        rules: STACK_RULES,
         board: step.board,
         currentDisc: step.currentDisc,
         nextDisc: step.nextDisc,
@@ -234,6 +234,6 @@ describe('STACK_TUTORIAL', () => {
   });
 
   test('is registered under its mode id in TUTORIALS', () => {
-    expect(TUTORIALS[STACK_MODE.id]).toBe(STACK_TUTORIAL);
+    expect(TUTORIALS[STACK_RULES.id]).toBe(STACK_TUTORIAL);
   });
 });

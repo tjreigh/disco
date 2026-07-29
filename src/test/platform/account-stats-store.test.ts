@@ -1,15 +1,21 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import type { GameModeConfig } from '../../game/modes/index.js';
+import type { SoloModeDefinition } from '../../game/modes/index.js';
 import type { GameStats } from '../../game/stats.js';
 import { AccountStatsStore, mergeLocalAndRemoteStats } from '../../platform/account-stats-store.js';
 import { ApiRequestError, ApiUnauthorizedError } from '../../platform/api-client.js';
 
 const MODES = [
-  { id: 'classic', name: 'Classic', tagline: 'Default mode' },
-  { id: 'speed', name: 'Speed', tagline: 'Faster turns' },
-] as const satisfies readonly Pick<GameModeConfig, 'id' | 'name' | 'tagline'>[];
+  {
+    id: 'classic',
+    stats: { kind: 'solo-account-stats@1', enabled: true, leaderboardEligible: true },
+  },
+  {
+    id: 'speed',
+    stats: { kind: 'solo-account-stats@1', enabled: true, leaderboardEligible: true },
+  },
+] as const satisfies readonly Pick<SoloModeDefinition, 'id' | 'stats'>[];
 
-const TEST_MODES = MODES as unknown as readonly GameModeConfig[];
+const TEST_MODES = MODES;
 
 function stats(overrides: Partial<GameStats> = {}): GameStats {
   return {

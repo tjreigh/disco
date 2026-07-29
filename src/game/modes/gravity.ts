@@ -1,46 +1,43 @@
-import type { Board, Disc } from '../model.js';
-import { DiscKind } from '../model.js';
-import type { GameModeConfig } from './mode.js';
-import { isBoardFull } from '../board.js';
-import { gravityRunLengths } from '../gravity/settling.js';
-import { CLASSIC_MODE } from './classic.js';
+import {
+  defineGameRules,
+  defineSoloMode,
+  SOLO_ACCOUNT_STATS,
+  SOLO_AUTOSAVE,
+  SOLO_RUN_SESSION,
+} from './mode.js';
+import {
+  ADJACENT_CRACK_REVEAL,
+  CLASSIC_ADAPTIVE_GENERATION,
+  CLASSIC_CHAIN_SCORING,
+  CLASSIC_LEVEL_PRESSURE,
+  GRAVITY_ALIGNED_COUNT_MATCH,
+  OVERFLOW_OR_FULL_BOARD_ENDS_RUN,
+  SEVEN_BY_SEVEN,
+  STAGE_AND_TILT,
+} from './modules.js';
 
-// Gravity mode's entry edge can be any of the 4 sides, so a continuous-angle
-// settle can leave gaps a single-edge check would miss — a genuine full-board
-// scan is the only correct terminal condition here.
-function gravityIsGameOver(board: Board): boolean {
-  return isBoardFull(board);
-}
+export const GRAVITY_RULES = defineGameRules({
+  id: 'gravity',
+  version: 1,
+  board: SEVEN_BY_SEVEN,
+  placement: STAGE_AND_TILT,
+  clearing: GRAVITY_ALIGNED_COUNT_MATCH,
+  revealing: ADJACENT_CRACK_REVEAL,
+  generation: CLASSIC_ADAPTIVE_GENERATION,
+  scoring: CLASSIC_CHAIN_SCORING,
+  progression: CLASSIC_LEVEL_PRESSURE,
+  failure: OVERFLOW_OR_FULL_BOARD_ENDS_RUN,
+  modifiers: [],
+});
 
-// Runs are measured along the CURRENT gravity angle (the same angle the
-// board was just settled under — see gravityRunLengths), not always grid
-// rows/columns like Classic. Settling packs discs into diagonal "staircases"
-// at non-cardinal angles; checking grid-aligned runs against a diagonally
-// packed pile made clears (and chains especially, which are several clears
-// in a row) look arbitrary to the player, disconnected from how the pile
-// actually formed. The angle snaps to the nearest of 8 directions for this
-// check specifically (settling itself stays fully continuous) — a genuinely
-// continuous run check turns out not to be well-defined on a discrete grid
-// except at cardinal/diagonal angles, see gravityRunLengths. angleDeg
-// defaults to 0 (straight down, i.e. identical to Classic) for any caller
-// that doesn't have a current angle to pass.
-function gravityIsClearable(board: Board, row: number, col: number, disc: Disc, angleDeg = 0): boolean {
-  if (disc.kind !== DiscKind.Numbered) return false;
-  const { alongGravity, crossGravity } = gravityRunLengths(board, row, col, angleDeg);
-  return disc.value === alongGravity || disc.value === crossGravity;
-}
-
-// Reuses Classic's revealAdjacent (cracked-disc degrade stays orthogonal in
-// the upright grid regardless of gravity angle — a visual-adjacency rule,
-// not a physics one, per the design doc) and scoring/generation tuning —
-// first-slice recommendation is to prove out gravity mastery on otherwise-
-// familiar rules before tuning difficulty separately.
-export const GRAVITY_MODE: GameModeConfig = {
-  ...CLASSIC_MODE,
+export const GRAVITY_MODE = defineSoloMode({
+  kind: 'solo',
   id: 'gravity',
   name: 'Gravity',
   tagline: 'Stage each drop, then tilt gravity to settle the board.',
-  gravity: { initialAngleDeg: 0, maxTiltDeltaDeg: 90 },
-  isClearable: gravityIsClearable,
-  isGameOver: gravityIsGameOver,
-};
+  hasTutorial: true,
+  rules: GRAVITY_RULES,
+  session: SOLO_RUN_SESSION,
+  persistence: SOLO_AUTOSAVE,
+  stats: SOLO_ACCOUNT_STATS,
+});

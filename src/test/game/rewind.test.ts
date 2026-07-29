@@ -4,8 +4,8 @@ import { makeDisc } from '../../game/disc.js';
 import { GameEngine } from '../../game/engine.js';
 import { StepKind } from '../../game/events.js';
 import { DiscKind } from '../../game/model.js';
-import { CLASSIC_MODE, PARADOX_MODE } from '../../game/modes/index.js';
-import type { GameModeConfig } from '../../game/modes/mode.js';
+import { CLASSIC_RULES, PARADOX_RULES } from '../../game/modes/index.js';
+import { testMode } from '../helpers.js';
 import { GamePhase } from '../../game/state.js';
 
 const SEED = 0x1357_2468;
@@ -16,7 +16,7 @@ function stableSave(engine: GameEngine) {
 
 describe('Paradox rewind history', () => {
   test('restores pre-turn progress in place and materializes missing fracture debt', () => {
-    const engine = new GameEngine({ mode: PARADOX_MODE, seed: SEED });
+    const engine = new GameEngine({ rules: PARADOX_RULES, seed: SEED });
     const stateReference = engine.state;
     const before = stableSave(engine);
 
@@ -53,7 +53,7 @@ describe('Paradox rewind history', () => {
   });
 
   test('preview is pure, independent, and reports the erased drop anchor', () => {
-    const engine = new GameEngine({ mode: PARADOX_MODE, seed: SEED });
+    const engine = new GameEngine({ rules: PARADOX_RULES, seed: SEED });
     const before = stableSave(engine);
     const turn = engine.drop(4);
     const drop = turn.steps.find(step => step.kind === StepKind.Drop);
@@ -78,19 +78,16 @@ describe('Paradox rewind history', () => {
   });
 
   test('rewinds generator history and all random streams', () => {
-    const pushEveryTurn: GameModeConfig = {
-      ...PARADOX_MODE,
+    const pushEveryTurn = testMode({
       id: 'paradox-push-every-turn-test',
-      initialTurnsPerLevel: 1,
-      turnsPerLevelStep: 0,
-      minTurnsPerLevel: 1,
-    };
-    const rewound = new GameEngine({ mode: pushEveryTurn, seed: SEED });
+      progression: { initialTurnsPerLevel: 1, turnsPerLevelStep: 0, minTurnsPerLevel: 1 },
+    }, PARADOX_RULES);
+    const rewound = new GameEngine({ rules: pushEveryTurn, seed: SEED });
     rewound.drop(0);
     rewound.commitRewind();
     rewound.drop(5);
 
-    const control = new GameEngine({ mode: pushEveryTurn, seed: SEED });
+    const control = new GameEngine({ rules: pushEveryTurn, seed: SEED });
     control.drop(5);
 
     const rewoundSave = stableSave(rewound);
@@ -99,7 +96,7 @@ describe('Paradox rewind history', () => {
   });
 
   test('a rejected drop neither creates nor replaces a checkpoint', () => {
-    const engine = new GameEngine({ mode: PARADOX_MODE, seed: SEED });
+    const engine = new GameEngine({ rules: PARADOX_RULES, seed: SEED });
     expect(engine.drop(-1)).toMatchObject({ accepted: false, reason: 'invalid-column' });
     expect(engine.canRewind()).toBe(false);
 
@@ -110,7 +107,7 @@ describe('Paradox rewind history', () => {
   });
 
   test('defaults to the newest checkpoint when no depth is supplied', () => {
-    const engine = new GameEngine({ mode: PARADOX_MODE, seed: SEED });
+    const engine = new GameEngine({ rules: PARADOX_RULES, seed: SEED });
     engine.drop(0);
     const afterFirstTurn = stableSave(engine);
 
@@ -125,7 +122,7 @@ describe('Paradox rewind history', () => {
   });
 
   test('previews and restores any turn in the five-turn rolling window', () => {
-    const engine = new GameEngine({ mode: PARADOX_MODE, seed: SEED });
+    const engine = new GameEngine({ rules: PARADOX_RULES, seed: SEED });
     const initial = stableSave(engine);
     engine.drop(0);
     const afterOne = stableSave(engine);
@@ -155,7 +152,7 @@ describe('Paradox rewind history', () => {
   });
 
   test('caps retained history at the configured depth', () => {
-    const engine = new GameEngine({ mode: PARADOX_MODE, seed: SEED });
+    const engine = new GameEngine({ rules: PARADOX_RULES, seed: SEED });
     for (let turn = 0; turn < 6; turn++) {
       expect(engine.drop(turn).accepted).toBe(true);
     }
@@ -171,7 +168,7 @@ describe('Paradox rewind history', () => {
     for (const [row, col] of [[6, 0], [5, 2], [6, 2], [4, 4], [6, 6]] as const) {
       placeDisc(board, row, col, makeDisc(7, DiscKind.Numbered));
     }
-    const engine = new GameEngine({ mode: PARADOX_MODE, seed: SEED, board });
+    const engine = new GameEngine({ rules: PARADOX_RULES, seed: SEED, board });
     engine.drop(1);
     engine.drop(3);
     engine.drop(5);
@@ -189,7 +186,7 @@ describe('Paradox rewind history', () => {
   test('materializes erased discs when the restored board lacks enough fracture targets', () => {
     const board = makeEmptyBoard();
     placeDisc(board, 6, 0, makeDisc(7, DiscKind.Numbered));
-    const engine = new GameEngine({ mode: PARADOX_MODE, seed: SEED, board });
+    const engine = new GameEngine({ rules: PARADOX_RULES, seed: SEED, board });
     engine.drop(2);
     engine.drop(4);
 
@@ -220,7 +217,7 @@ describe('Paradox rewind history', () => {
     { instability: 6, cost: 3 },
     { instability: 12, cost: 3 },
   ])('instability $instability consumes $cost turn pips per move', ({ instability, cost }) => {
-    const engine = new GameEngine({ mode: PARADOX_MODE, seed: SEED });
+    const engine = new GameEngine({ rules: PARADOX_RULES, seed: SEED });
     engine.state.paradox!.instability = instability;
     const before = engine.state.turnsRemaining;
 
@@ -230,7 +227,7 @@ describe('Paradox rewind history', () => {
   });
 
   test('accelerated pressure triggers the existing level push when it exhausts the clock', () => {
-    const engine = new GameEngine({ mode: PARADOX_MODE, seed: SEED });
+    const engine = new GameEngine({ rules: PARADOX_RULES, seed: SEED });
     engine.state.paradox!.instability = 3;
     engine.state.turnsRemaining = 2;
 
@@ -241,7 +238,7 @@ describe('Paradox rewind history', () => {
   });
 
   test('animation phases temporarily suppress an otherwise valid checkpoint', () => {
-    const engine = new GameEngine({ mode: PARADOX_MODE, seed: SEED });
+    const engine = new GameEngine({ rules: PARADOX_RULES, seed: SEED });
     engine.drop(0);
     engine.state.phase = GamePhase.Animating;
     expect(engine.canRewind()).toBe(false);
@@ -252,11 +249,13 @@ describe('Paradox rewind history', () => {
   });
 
   test('a fatal turn remains rewindable and restores a playable phase', () => {
-    const fatalMode: GameModeConfig = {
-      ...PARADOX_MODE,
+    const fatalMode = testMode({
       id: 'paradox-fatal-test',
-      isClearable: () => false,
-    };
+      clearing: {
+        ...PARADOX_RULES.clearing,
+        isClearable: () => false,
+      },
+    }, PARADOX_RULES);
     const almostFull = makeEmptyBoard();
     for (let row = 0; row < almostFull.length; row++) {
       for (let col = 0; col < almostFull[row]!.length; col++) {
@@ -265,7 +264,7 @@ describe('Paradox rewind history', () => {
         }
       }
     }
-    const engine = new GameEngine({ mode: fatalMode, seed: SEED, board: almostFull });
+    const engine = new GameEngine({ rules: fatalMode, seed: SEED, board: almostFull });
 
     const turn = engine.drop(0);
     expect(turn).toMatchObject({ accepted: true, gameOver: true });
@@ -278,12 +277,12 @@ describe('Paradox rewind history', () => {
   });
 
   test('modes without the capability and injected generation do not capture rewind state', () => {
-    const classic = new GameEngine({ mode: CLASSIC_MODE, seed: SEED });
+    const classic = new GameEngine({ rules: CLASSIC_RULES, seed: SEED });
     classic.drop(0);
     expect(classic.canRewind()).toBe(false);
 
     const injected = new GameEngine({
-      mode: PARADOX_MODE,
+      rules: PARADOX_RULES,
       discFactory: () => makeDisc(7, DiscKind.Numbered),
     });
     injected.drop(0);
@@ -292,20 +291,20 @@ describe('Paradox rewind history', () => {
   });
 
   test('restart, reconfigure, and scripted state clear checkpoints while save loading restores one', () => {
-    const engine = new GameEngine({ mode: PARADOX_MODE, seed: SEED });
+    const engine = new GameEngine({ rules: PARADOX_RULES, seed: SEED });
     engine.drop(0);
     expect(engine.canRewind()).toBe(true);
     engine.restart();
     expect(engine.canRewind()).toBe(false);
 
     engine.drop(0);
-    engine.reconfigure(PARADOX_MODE, SEED);
+    engine.reconfigure(PARADOX_RULES, SEED);
     expect(engine.canRewind()).toBe(false);
 
     engine.drop(0);
     const save = stableSave(engine);
     expect(engine.canRewind()).toBe(true);
-    engine.loadSave(save, PARADOX_MODE);
+    engine.loadSave(save, PARADOX_RULES);
     expect(engine.canRewind()).toBe(true);
     expect(engine.previewRewind()).toEqual(expect.objectContaining({
       anchor: save.paradox!.rewinds!.at(-1)!.anchor,
@@ -315,7 +314,7 @@ describe('Paradox rewind history', () => {
     const board = makeEmptyBoard();
     placeDisc(board, 6, 3, makeDisc(4, DiscKind.Numbered));
     engine.loadScriptedState({
-      mode: PARADOX_MODE,
+      rules: PARADOX_RULES,
       board,
       currentDisc: makeDisc(2, DiscKind.Numbered),
     });
@@ -336,7 +335,7 @@ describe('Paradox rewind history', () => {
       { before: 2, kind: DiscKind.DoubleCracked, count: 1 },
       { before: 4, kind: DiscKind.DoubleCracked, count: 1 },
     ] as const) {
-      const engine = new GameEngine({ mode: PARADOX_MODE, seed: SEED, board: makeBoard() });
+      const engine = new GameEngine({ rules: PARADOX_RULES, seed: SEED, board: makeBoard() });
       engine.state.paradox!.instability = scenario.before;
       const turn = engine.drop(6);
       expect(turn.accepted).toBe(true);
@@ -369,7 +368,7 @@ describe('Paradox rewind history', () => {
     placeDisc(board, 6, 0, temporal);
     placeDisc(board, 6, 1, makeDisc(3, DiscKind.Numbered));
     const engine = new GameEngine({
-      mode: PARADOX_MODE,
+      rules: PARADOX_RULES,
       board,
       discFactory: () => makeDisc(3, DiscKind.Numbered),
     });
@@ -396,7 +395,7 @@ describe('Paradox rewind history', () => {
     placeDisc(board, 6, 0, temporal);
     placeDisc(board, 6, 1, makeDisc(3, DiscKind.Numbered));
     const engine = new GameEngine({
-      mode: PARADOX_MODE,
+      rules: PARADOX_RULES,
       board,
       discFactory: () => makeDisc(3, DiscKind.Numbered),
     });
@@ -412,7 +411,7 @@ describe('Paradox rewind history', () => {
 
   test('an ordinary clear does not recover instability without repairing a temporal fracture', () => {
     const engine = new GameEngine({
-      mode: PARADOX_MODE,
+      rules: PARADOX_RULES,
       discFactory: () => makeDisc(1, DiscKind.Numbered),
     });
     engine.state.paradox!.instability = 3;
@@ -424,12 +423,12 @@ describe('Paradox rewind history', () => {
   });
 
   test('loading an old save materializes repair debt for orphaned instability', () => {
-    const source = new GameEngine({ mode: PARADOX_MODE, seed: SEED });
+    const source = new GameEngine({ rules: PARADOX_RULES, seed: SEED });
     const legacy = source.exportSave({ savedAt: 0 });
     legacy.paradox!.instability = 2;
-    const restored = new GameEngine({ mode: PARADOX_MODE, seed: 1 });
+    const restored = new GameEngine({ rules: PARADOX_RULES, seed: 1 });
 
-    restored.loadSave(legacy, PARADOX_MODE);
+    restored.loadSave(legacy, PARADOX_RULES);
 
     const temporalDiscs = restored.state.board.flat().filter(disc => disc?.temporalFracture);
     expect(temporalDiscs).toHaveLength(2);
@@ -441,7 +440,7 @@ describe('Paradox rewind history', () => {
   });
 
   test('loading a saturated board stacks orphaned debt instead of leaving instability stuck', () => {
-    const source = new GameEngine({ mode: PARADOX_MODE, seed: SEED });
+    const source = new GameEngine({ rules: PARADOX_RULES, seed: SEED });
     const legacy = source.exportSave({ savedAt: 0 });
     legacy.paradox!.instability = 50;
     legacy.state.board = legacy.state.board.map((row, rowIndex) => row.map((_cell, colIndex) => (
@@ -453,9 +452,9 @@ describe('Paradox rewind history', () => {
             temporalFracture: { createdAtInstability: 48, instabilityDebt: 1 },
           }
     )));
-    const restored = new GameEngine({ mode: PARADOX_MODE, seed: 1 });
+    const restored = new GameEngine({ rules: PARADOX_RULES, seed: 1 });
 
-    restored.loadSave(legacy, PARADOX_MODE);
+    restored.loadSave(legacy, PARADOX_RULES);
 
     const temporalDiscs = restored.state.board.flat().filter(disc => disc?.temporalFracture);
     expect(restored.state.board.flat().filter(disc => disc === null)).toHaveLength(1);
@@ -469,14 +468,14 @@ describe('Paradox rewind history', () => {
   });
 
   test('save loading restores exact rewind history and controller session metadata', () => {
-    const source = new GameEngine({ mode: PARADOX_MODE, seed: SEED });
+    const source = new GameEngine({ rules: PARADOX_RULES, seed: SEED });
     source.drop(4);
     source.drop(5);
     source.drop(6);
     const save = source.exportSave({ longestStreak: 5, rewindLongestStreaks: [1, 2, 3], savedAt: 10 });
-    const restored = new GameEngine({ mode: PARADOX_MODE, seed: 1 });
+    const restored = new GameEngine({ rules: PARADOX_RULES, seed: 1 });
 
-    const loaded = restored.loadSave(save, PARADOX_MODE);
+    const loaded = restored.loadSave(save, PARADOX_RULES);
 
     expect(loaded.paradox!.rewinds!.map(rewind => rewind.session.longestStreak)).toEqual([1, 2, 3]);
     expect(restored.previewRewind(3)).toEqual(source.previewRewind(3));

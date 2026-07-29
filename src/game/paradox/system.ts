@@ -7,8 +7,12 @@ import type { PhysicsStep } from '../events.js';
 import { StepKind } from '../events.js';
 import type { Board, GridPos } from '../model.js';
 import { DiscKind } from '../model.js';
-import type { GameModeConfig } from '../modes/mode.js';
-import { temporalEchoProbability, turnCostForInstability } from '../modes/mode.js';
+import type { GameRulesConfig } from '../modes/mode.js';
+import {
+  rewindModifier,
+  temporalEchoProbability,
+  turnCostForInstability,
+} from '../modes/mode.js';
 import { computeDropSteps, type PhysicsTrace } from '../physics.js';
 import type { SnapshotRandomSource } from '../random.js';
 import type { GravityState } from '../state.js';
@@ -74,24 +78,24 @@ export interface PreparedRewind {
  * checkpoint data so this system never controls the queue or normal lifecycle.
  */
 export class ParadoxSystem {
-  private mode: GameModeConfig;
+  private rules: GameRulesConfig;
   private history: TurnCheckpoint[] = [];
 
-  constructor(mode: GameModeConfig) {
-    this.mode = mode;
+  constructor(rules: GameRulesConfig) {
+    this.rules = rules;
   }
 
   get enabled(): boolean {
-    return this.mode.rewind !== undefined;
+    return rewindModifier(this.rules) !== undefined;
   }
 
-  reconfigure(mode: GameModeConfig): void {
-    this.mode = mode;
+  reconfigure(rules: GameRulesConfig): void {
+    this.rules = rules;
     this.clearHistory();
   }
 
   initialState(): { instability: number } | undefined {
-    return this.mode.rewind ? { instability: 0 } : undefined;
+    return rewindModifier(this.rules) ? { instability: 0 } : undefined;
   }
 
   clearHistory(): void {
@@ -107,19 +111,20 @@ export class ParadoxSystem {
   }
 
   captureCheckpoint(checkpoint: TurnCheckpoint, hasSnapshotGeneration: boolean): TurnCheckpoint | null {
-    if (!this.mode.rewind || !hasSnapshotGeneration) {
+    const rewind = rewindModifier(this.rules);
+    if (!rewind || !hasSnapshotGeneration) {
       this.clearHistory();
       return null;
     }
     this.history.push(checkpoint);
-    if (this.history.length > this.mode.rewind.historyDepth) {
-      this.history.splice(0, this.history.length - this.mode.rewind.historyDepth);
+    if (this.history.length > rewind.historyDepth) {
+      this.history.splice(0, this.history.length - rewind.historyDepth);
     }
     return checkpoint;
   }
 
   canRewind(turns: number, phase: GamePhase, hasSnapshotGeneration: boolean): boolean {
-    return this.mode.rewind !== undefined
+    return rewindModifier(this.rules) !== undefined
       && Number.isInteger(turns)
       && turns >= 1
       && turns <= this.history.length
@@ -173,8 +178,8 @@ export class ParadoxSystem {
     random: SnapshotRandomSource | undefined,
     instability: number,
   ): void {
-    if (this.mode.gravity || !random) return;
-    const probability = temporalEchoProbability(this.mode, instability);
+    if (this.rules.placement.kind === 'stage-and-tilt@1' || !random) return;
+    const probability = temporalEchoProbability(this.rules, instability);
     if (probability <= 0 || random() >= probability) return;
 
     const originalDrop = steps.find(step => step.kind === StepKind.Drop && !step.temporalEcho);
@@ -196,7 +201,7 @@ export class ParadoxSystem {
       board,
       makeDisc(originalDrop.disc.value, originalDrop.disc.kind),
       targetCol,
-      this.mode,
+      this.rules,
       trace,
       undefined,
       nextChainLevel,
@@ -256,8 +261,8 @@ export class ParadoxSystem {
       rescuesGameOver: phase === GamePhase.GameOver,
       instabilityBefore,
       instabilityAfter,
-      turnCostBefore: turnCostForInstability(this.mode, instabilityBefore),
-      turnCostAfter: turnCostForInstability(this.mode, instabilityAfter),
+      turnCostBefore: turnCostForInstability(this.rules, instabilityBefore),
+      turnCostAfter: turnCostForInstability(this.rules, instabilityAfter),
       turnsRewound,
       historyAvailable: this.history.length,
       fractures,

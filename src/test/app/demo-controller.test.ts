@@ -6,7 +6,7 @@ import { applyStepToVisualBoard } from '../../app/visual-board.js';
 import { deepCloneBoard } from '../../game/board.js';
 import { GameEngine } from '../../game/engine.js';
 import { StepKind } from '../../game/events.js';
-import { CLASSIC_MODE } from '../../game/modes/index.js';
+import { CLASSIC_RULES } from '../../game/modes/index.js';
 import { DiscKind } from '../../game/model.js';
 import { GamePhase } from '../../game/state.js';
 import type { ScorePopup } from '../../ui/rendering/animation-types.js';
@@ -103,7 +103,7 @@ describe('demo scenario', () => {
 
   test('uses legal deterministic moves for a basic clear, cracked reveal, and chain', () => {
     const scenario = createDemoScenario();
-    const engine = new GameEngine({ mode: CLASSIC_MODE, seed: 0 });
+    const engine = new GameEngine({ rules: CLASSIC_RULES, seed: 0 });
     engine.loadScriptedState(scenario);
 
     const results = scenario.moves.map(lane => engine.drop(lane));
@@ -122,7 +122,7 @@ describe('demo scenario', () => {
 
   test('replays every engine step to the same final board the renderer receives', () => {
     const scenario = createDemoScenario();
-    const engine = new GameEngine({ mode: CLASSIC_MODE, seed: 0 });
+    const engine = new GameEngine({ rules: CLASSIC_RULES, seed: 0 });
     engine.loadScriptedState(scenario);
 
     for (const lane of scenario.moves) {

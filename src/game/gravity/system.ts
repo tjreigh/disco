@@ -1,7 +1,7 @@
 import { deepCloneBoard, placeDisc } from '../board.js';
 import type { Disc } from '../model.js';
 import type { Board, GridPos } from '../model.js';
-import type { GameModeConfig } from '../modes/mode.js';
+import type { GameRulesConfig } from '../modes/mode.js';
 import type { PhysicsTrace, SettleFn } from '../physics.js';
 import type { GameState, GravityState } from '../state.js';
 import { GamePhase } from '../state.js';
@@ -30,35 +30,37 @@ export interface GravityResolutionContext {
 
 /** Owns Gravity's staged-drop interaction and angle-aware turn preparation. */
 export class GravitySystem {
-  private mode: GameModeConfig;
+  private rules: GameRulesConfig;
 
-  constructor(mode: GameModeConfig) {
-    this.mode = mode;
+  constructor(rules: GameRulesConfig) {
+    this.rules = rules;
   }
 
   get enabled(): boolean {
-    return this.mode.gravity !== undefined;
+    return this.rules.placement.kind === 'stage-and-tilt@1';
   }
 
-  reconfigure(mode: GameModeConfig): void {
-    this.mode = mode;
+  reconfigure(rules: GameRulesConfig): void {
+    this.rules = rules;
   }
 
   initialState(): GravityState | undefined {
-    if (!this.mode.gravity) return undefined;
+    const placement = this.rules.placement;
+    if (placement.kind !== 'stage-and-tilt@1') return undefined;
     return {
-      angle: this.mode.gravity.initialAngleDeg,
-      turnStartAngle: this.mode.gravity.initialAngleDeg,
-      maxTiltDelta: this.mode.gravity.maxTiltDeltaDeg,
+      angle: placement.initialAngleDeg,
+      turnStartAngle: placement.initialAngleDeg,
+      maxTiltDelta: placement.maxTiltDeltaDeg,
     };
   }
 
   restoredState(angle: number | undefined): GravityState | undefined {
-    if (angle === undefined || !this.mode.gravity) return undefined;
+    const placement = this.rules.placement;
+    if (angle === undefined || placement.kind !== 'stage-and-tilt@1') return undefined;
     return {
       angle,
       turnStartAngle: angle,
-      maxTiltDelta: this.mode.gravity.maxTiltDeltaDeg,
+      maxTiltDelta: placement.maxTiltDeltaDeg,
     };
   }
 
@@ -165,7 +167,7 @@ export class GravitySystem {
       lane,
       entryEdge,
       snappedAngle,
-      this.mode,
+      this.rules,
       trace,
     );
     return { accepted: true, steps };

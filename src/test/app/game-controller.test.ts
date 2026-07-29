@@ -322,8 +322,8 @@ describe('constructor / home state', () => {
     createGame();
     const saveStore = lastOf(saveStoreInstances);
     const savedGameDialog = lastOf(savedGameDialogInstances);
-    const oldSave = new GameEngine({ mode: CLASSIC_MODE, seed: 40 }).exportSave({ savedAt: 40 });
-    const newSave = new GameEngine({ mode: CLASSIC_MODE, seed: 41 }).exportSave({ savedAt: 41 });
+    const oldSave = new GameEngine({ rules: CLASSIC_MODE.rules, seed: 40 }).exportSave({ savedAt: 40 });
+    const newSave = new GameEngine({ rules: CLASSIC_MODE.rules, seed: 41 }).exportSave({ savedAt: 41 });
     saveStoreState.byMode.set(CLASSIC_MODE.id, oldSave);
     lastOf(homeScreenInstances).onSelectMode(CLASSIC_MODE);
     savedGameDialog.showSave.mockClear();
@@ -378,7 +378,7 @@ describe('starting normal play', () => {
     homeScreen.onSelectMode(CLASSIC_MODE);
     expect(savedGameDialog.showSave).not.toHaveBeenCalled();
 
-    const source = new GameEngine({ mode: CLASSIC_MODE, seed: 44 });
+    const source = new GameEngine({ rules: CLASSIC_MODE.rules, seed: 44 });
     saveStoreState.byMode.set(CLASSIC_MODE.id, source.exportSave({ savedAt: 44 }));
     finishRefresh();
 
@@ -962,7 +962,7 @@ describe('restart', () => {
 
 describe('saved game resume', () => {
   test('opens the mode dialog and restores its save, streak, and clean presentation', () => {
-    const source = new GameEngine({ mode: STACK_MODE, seed: 91 });
+    const source = new GameEngine({ rules: STACK_MODE.rules, seed: 91 });
     source.drop(2);
     const save = source.exportSave({ longestStreak: 7, savedAt: 123 });
     saveStoreState.byMode.set(STACK_MODE.id, save);
@@ -1006,10 +1006,10 @@ describe('saved game resume', () => {
   });
 
   test('starting new replaces only the selected mode save', () => {
-    const classic = new GameEngine({ mode: CLASSIC_MODE, seed: 7 });
+    const classic = new GameEngine({ rules: CLASSIC_MODE.rules, seed: 7 });
     classic.drop(1);
     const classicSave = classic.exportSave({ savedAt: 10 });
-    const stack = new GameEngine({ mode: STACK_MODE, seed: 8 });
+    const stack = new GameEngine({ rules: STACK_MODE.rules, seed: 8 });
     stack.drop(2);
     const stackSave = stack.exportSave({ savedAt: 11 });
     saveStoreState.byMode.set(CLASSIC_MODE.id, classicSave);
@@ -1028,10 +1028,10 @@ describe('saved game resume', () => {
   });
 
   test('presents a cloud conflict and resumes the chosen version', () => {
-    const localEngine = new GameEngine({ mode: CLASSIC_MODE, seed: 12 });
+    const localEngine = new GameEngine({ rules: CLASSIC_MODE.rules, seed: 12 });
     localEngine.drop(1);
     const local = localEngine.exportSave({ savedAt: 12 });
-    const cloudEngine = new GameEngine({ mode: CLASSIC_MODE, seed: 13 });
+    const cloudEngine = new GameEngine({ rules: CLASSIC_MODE.rules, seed: 13 });
     cloudEngine.drop(2);
     cloudEngine.drop(2);
     const cloud = cloudEngine.exportSave({ savedAt: 13 });
@@ -1057,7 +1057,7 @@ describe('saved game resume', () => {
   });
 
   test('offers a valid device save when the cloud record is incompatible', () => {
-    const engine = new GameEngine({ mode: CLASSIC_MODE, seed: 14 });
+    const engine = new GameEngine({ rules: CLASSIC_MODE.rules, seed: 14 });
     engine.drop(1);
     const local = engine.exportSave({ savedAt: 14 });
     saveStoreState.conflicts.set(CLASSIC_MODE.id, {

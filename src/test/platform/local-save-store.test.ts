@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { DiscKind } from '../../game/model.js';
-import { CLASSIC_MODE, GAME_MODES } from '../../game/modes/index.js';
+import { CLASSIC_MODE, SOLO_MODES } from '../../game/modes/index.js';
 import {
   SAVE_GAME_RULES_VERSION,
   SAVE_GAME_VERSION,
@@ -21,15 +21,15 @@ function validSave(): SaveGameV1 {
     state: {
       phase: 'waiting',
       board: Array.from(
-        { length: CLASSIC_MODE.board.rows },
-        () => Array.from({ length: CLASSIC_MODE.board.cols }, () => null),
+        { length: CLASSIC_MODE.rules.board.rows },
+        () => Array.from({ length: CLASSIC_MODE.rules.board.cols }, () => null),
       ),
       cursorCol: 2,
       score: 12_345,
       dropCount: 9,
       level: 1,
-      turnsPerLevel: CLASSIC_MODE.initialTurnsPerLevel,
-      turnsRemaining: CLASSIC_MODE.initialTurnsPerLevel - 9,
+      turnsPerLevel: CLASSIC_MODE.rules.progression.initialTurnsPerLevel,
+      turnsRemaining: CLASSIC_MODE.rules.progression.initialTurnsPerLevel - 9,
     },
     generation: {
       source: 'seeded',
@@ -71,7 +71,7 @@ class MemoryStorage implements SaveStorage {
 describe('LocalSaveStore', () => {
   test('writes, reads, and removes the single current autosave', () => {
     const storage = new MemoryStorage();
-    const store = new LocalSaveStore(GAME_MODES, { storage });
+    const store = new LocalSaveStore(SOLO_MODES, { storage });
     const save = validSave();
 
     store.write(save);
@@ -85,7 +85,7 @@ describe('LocalSaveStore', () => {
 
   test('returns clean copies rather than trusting stored or previously returned objects', () => {
     const storage = new MemoryStorage();
-    const store = new LocalSaveStore(GAME_MODES, { storage });
+    const store = new LocalSaveStore(SOLO_MODES, { storage });
     const source = validSave();
 
     store.write(source);
@@ -109,7 +109,7 @@ describe('LocalSaveStore', () => {
   ])('ignores and removes %s', (_label, json) => {
     const storage = new MemoryStorage();
     storage.values.set(LOCAL_SAVE_KEY, json);
-    const store = new LocalSaveStore(GAME_MODES, { storage });
+    const store = new LocalSaveStore(SOLO_MODES, { storage });
 
     expect(store.read()).toBeNull();
     expect(storage.removed).toEqual([LOCAL_SAVE_KEY]);
@@ -118,7 +118,7 @@ describe('LocalSaveStore', () => {
 
   test('supports a dependency-injected storage key', () => {
     const storage = new MemoryStorage();
-    const store = new LocalSaveStore(GAME_MODES, { storage, key: 'test.save' });
+    const store = new LocalSaveStore(SOLO_MODES, { storage, key: 'test.save' });
 
     store.write(validSave());
     expect(storage.values.has('test.save')).toBe(true);
@@ -127,7 +127,7 @@ describe('LocalSaveStore', () => {
 
   test('ignores invalid values passed to write', () => {
     const storage = new MemoryStorage();
-    const store = new LocalSaveStore(GAME_MODES, { storage });
+    const store = new LocalSaveStore(SOLO_MODES, { storage });
     const invalid = { ...validSave(), rulesVersion: 2 } as unknown as SaveGameV1;
 
     expect(() => store.write(invalid)).not.toThrow();
@@ -140,7 +140,7 @@ describe('LocalSaveStore', () => {
       setItem: () => { throw new Error('quota exceeded'); },
       removeItem: () => { throw new Error('remove disabled'); },
     };
-    const store = new LocalSaveStore(GAME_MODES, { storage: throwingStorage });
+    const store = new LocalSaveStore(SOLO_MODES, { storage: throwingStorage });
 
     expect(() => store.write(validSave())).not.toThrow();
     expect(store.read()).toBeNull();
@@ -153,7 +153,7 @@ describe('LocalSaveStore', () => {
       setItem: () => undefined,
       removeItem: () => { throw new Error('remove disabled'); },
     };
-    const store = new LocalSaveStore(GAME_MODES, { storage });
+    const store = new LocalSaveStore(SOLO_MODES, { storage });
 
     expect(store.read()).toBeNull();
   });

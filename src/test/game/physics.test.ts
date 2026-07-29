@@ -9,8 +9,9 @@ import type { Board } from '../../game/model.js';
 import { DiscKind } from '../../game/model.js';
 import type { ClearStep, FallStep, RevealStep, DropStep } from '../../game/events.js';
 import { StepKind } from '../../game/events.js';
-import type { GameModeConfig } from '../../game/modes/mode.js';
-import { CLASSIC_MODE, GRAVITY_MODE } from '../../game/modes/index.js';
+import type { GameRulesConfig } from '../../game/modes/mode.js';
+import { CLASSIC_RULES, GRAVITY_RULES } from '../../game/modes/index.js';
+import { testMode } from '../helpers.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -416,18 +417,16 @@ describe('computePushStep', () => {
   });
 });
 
-// ─── Custom GameModeConfig ───────────────────────────────────────────────────
+// ─── Custom GameRulesConfig ───────────────────────────────────────────────────
 // Proves the mode parameter is actually load-bearing (board size, scoring),
 // not just decoratively threaded through, without inventing a real mode.
 
-describe('a non-default GameModeConfig', () => {
-  const smallMode: GameModeConfig = {
-    ...CLASSIC_MODE,
+describe('a non-default GameRulesConfig', () => {
+  const smallMode = testMode({
     id: 'small-test-mode',
     board: { cols: 3, rows: 3 },
-    pointsPerDisc: 1,
-    chainExponent: 1,
-  };
+    scoring: { pointsPerDisc: 1, chainExponent: 1 },
+  });
 
   test('computeDropSteps respects a smaller board size', () => {
     const board = makeEmptyBoard(3, 3);
@@ -459,7 +458,7 @@ describe('computeGravityTiltSteps – gravity-aware clearing', () => {
     placeDisc(board, 3, 3, makeDisc(3, DiscKind.Numbered));
     placeDisc(board, 4, 4, makeDisc(3, DiscKind.Numbered));
 
-    const steps = computeGravityTiltSteps(board, 45, GRAVITY_MODE);
+    const steps = computeGravityTiltSteps(board, 45, GRAVITY_RULES);
     const clear = steps.find(s => s.kind === StepKind.Clear) as ClearStep | undefined;
 
     expect(clear).toBeDefined();
@@ -474,7 +473,7 @@ describe('computeGravityTiltSteps – gravity-aware clearing', () => {
     placeDisc(board, 6, 3, makeDisc(3, DiscKind.Numbered));
     placeDisc(board, 6, 6, makeDisc(3, DiscKind.Numbered));
 
-    const steps = computeGravityTiltSteps(board, 0, GRAVITY_MODE);
+    const steps = computeGravityTiltSteps(board, 0, GRAVITY_RULES);
     const clear = steps.find(s => s.kind === StepKind.Clear);
 
     expect(clear).toBeUndefined();

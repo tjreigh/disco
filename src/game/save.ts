@@ -2,8 +2,8 @@ import { makeDisc } from './disc.js';
 import { entryEdgeForAngle, snapAngleToEightDirections } from './gravity/settling.js';
 import type { Board, Disc } from './model.js';
 import { DiscKind } from './model.js';
-import type { GameModeConfig } from './modes/mode.js';
-import { turnsForLevel } from './modes/mode.js';
+import type { GameRulesConfig } from './modes/mode.js';
+import { rewindModifier, turnsForLevel } from './modes/mode.js';
 
 export const SAVE_GAME_VERSION = 1 as const;
 export const SAVE_GAME_RULES_VERSION = 1 as const;
@@ -71,7 +71,7 @@ export interface SavedGenerationState {
 
 export interface SaveGameV1 {
   version: typeof SAVE_GAME_VERSION;
-  rulesVersion: typeof SAVE_GAME_RULES_VERSION;
+  rulesVersion: number;
   savedAt: number;
   appBuild?: string;
   modeId: string;
@@ -116,15 +116,15 @@ function isDiscKind(value: unknown): value is DiscKind {
   return typeof value === 'string' && DISC_KINDS.has(value);
 }
 
-function parseDisc(value: unknown, mode: GameModeConfig, playableOnly = false): SavedDisc | null {
+function parseDisc(value: unknown, rules: GameRulesConfig, playableOnly = false): SavedDisc | null {
   if (!isObject(value) || !hasOnlyKeys(value, ['value', 'kind'], ['temporalFracture'])) return null;
   if (!isPositiveInteger(value.value)
-    || value.value < mode.discValueMin
-    || value.value > mode.discValueMax
+    || value.value < rules.generation.discValueMin
+    || value.value > rules.generation.discValueMax
     || !isDiscKind(value.kind)
     || (playableOnly && !PLAYABLE_DISC_KINDS.has(value.kind))) return null;
   if (value.temporalFracture !== undefined) {
-    if (!mode.rewind || playableOnly
+    if (!rewindModifier(rules) || playableOnly
       || (value.kind !== DiscKind.SingleCracked && value.kind !== DiscKind.DoubleCracked)
       || !isObject(value.temporalFracture)
       || !hasOnlyKeys(value.temporalFracture, ['createdAtInstability'], ['instabilityDebt'])
@@ -145,18 +145,18 @@ function parseDisc(value: unknown, mode: GameModeConfig, playableOnly = false): 
   return { value: value.value, kind: value.kind };
 }
 
-function parseBoard(value: unknown, mode: GameModeConfig): SavedBoard | null {
-  if (!Array.isArray(value) || value.length !== mode.board.rows) return null;
+function parseBoard(value: unknown, rules: GameRulesConfig): SavedBoard | null {
+  if (!Array.isArray(value) || value.length !== rules.board.rows) return null;
   const board: SavedBoard = [];
   for (const sourceRow of value) {
-    if (!Array.isArray(sourceRow) || sourceRow.length !== mode.board.cols) return null;
+    if (!Array.isArray(sourceRow) || sourceRow.length !== rules.board.cols) return null;
     const row: SavedCell[] = [];
     for (const cell of sourceRow) {
       if (cell === null) {
         row.push(null);
         continue;
       }
-      const disc = parseDisc(cell, mode);
+      const disc = parseDisc(cell, rules);
       if (!disc) return null;
       row.push(disc);
     }
@@ -196,7 +196,7 @@ export function deserializeBoard(board: SavedBoard): Board {
   return board.map(row => row.map(cell => cell === null ? null : deserializeDisc(cell)));
 }
 
-function parseState(value: unknown, mode: GameModeConfig, allowGameOver = false): SavedGameState | null {
+function parseState(value: unknown, rules: GameRulesConfig, allowGameOver = false): SavedGameState | null {
   if (!isObject(value) || !hasOnlyKeys(value, [
     'phase', 'board', 'cursorCol', 'score', 'dropCount', 'level',
     'turnsPerLevel', 'turnsRemaining',
@@ -210,18 +210,18 @@ function parseState(value: unknown, mode: GameModeConfig, allowGameOver = false)
     || !isNonNegativeInteger(value.turnsRemaining)
     || (value.phase === 'waiting' && value.turnsRemaining === 0)) return null;
 
-  const expectedTurns = turnsForLevel(mode, value.level);
+  const expectedTurns = turnsForLevel(rules.progression, value.level);
   if (value.turnsPerLevel !== expectedTurns || value.turnsRemaining > value.turnsPerLevel) return null;
-  const board = parseBoard(value.board, mode);
+  const board = parseBoard(value.board, rules);
   if (!board) return null;
 
-  if (mode.gravity) {
+  if (rules.placement.kind === 'stage-and-tilt@1') {
     if (!isObject(value.gravity) || !hasOnlyKeys(value.gravity, ['angle'])) return null;
     const angle = value.gravity.angle;
     if (typeof angle !== 'number' || !Number.isFinite(angle)
       || snapAngleToEightDirections(angle) !== angle) return null;
     const edge = entryEdgeForAngle(angle);
-    const laneCount = edge === 'top' || edge === 'bottom' ? mode.board.cols : mode.board.rows;
+    const laneCount = edge === 'top' || edge === 'bottom' ? rules.board.cols : rules.board.rows;
     if (value.cursorCol >= laneCount) return null;
     return {
       phase: value.phase, board, cursorCol: value.cursorCol, score: value.score,
@@ -230,7 +230,7 @@ function parseState(value: unknown, mode: GameModeConfig, allowGameOver = false)
     };
   }
 
-  if (value.gravity !== undefined || value.cursorCol >= mode.board.cols) return null;
+  if (value.gravity !== undefined || value.cursorCol >= rules.board.cols) return null;
   return {
     phase: value.phase, board, cursorCol: value.cursorCol, score: value.score,
     dropCount: value.dropCount, level: value.level, turnsPerLevel: value.turnsPerLevel,
@@ -238,18 +238,18 @@ function parseState(value: unknown, mode: GameModeConfig, allowGameOver = false)
   };
 }
 
-function parseAnchor(value: unknown, mode: GameModeConfig): { row: number; col: number } | null {
+function parseAnchor(value: unknown, rules: GameRulesConfig): { row: number; col: number } | null {
   if (!isObject(value) || !hasOnlyKeys(value, ['row', 'col'])
-    || !isNonNegativeInteger(value.row) || value.row >= mode.board.rows
-    || !isNonNegativeInteger(value.col) || value.col >= mode.board.cols) return null;
+    || !isNonNegativeInteger(value.row) || value.row >= rules.board.rows
+    || !isNonNegativeInteger(value.col) || value.col >= rules.board.cols) return null;
   return { row: value.row, col: value.col };
 }
 
-function parseRewindCheckpoint(value: unknown, mode: GameModeConfig): SavedRewindCheckpoint | null {
+function parseRewindCheckpoint(value: unknown, rules: GameRulesConfig): SavedRewindCheckpoint | null {
   if (!isObject(value) || !hasOnlyKeys(value, ['state', 'generation', 'anchor', 'instability', 'session'])) return null;
-  const state = parseState(value.state, mode);
-  const generation = parseGeneration(value.generation, mode);
-  const anchor = parseAnchor(value.anchor, mode);
+  const state = parseState(value.state, rules);
+  const generation = parseGeneration(value.generation, rules);
+  const anchor = parseAnchor(value.anchor, rules);
   if (!state || state.phase !== 'waiting' || !generation || !anchor
     || !isNonNegativeInteger(value.instability)
     || !isObject(value.session) || !hasOnlyKeys(value.session, ['longestStreak'])
@@ -263,17 +263,19 @@ function parseRewindCheckpoint(value: unknown, mode: GameModeConfig): SavedRewin
   };
 }
 
-function parseParadoxState(value: unknown, mode: GameModeConfig): SavedParadoxState | null {
+function parseParadoxState(value: unknown, rules: GameRulesConfig): SavedParadoxState | null {
   if (!isObject(value) || !hasOnlyKeys(value, ['instability'], ['rewind', 'rewinds'])
     || !isNonNegativeInteger(value.instability)) return null;
   if (value.rewind !== undefined && value.rewinds !== undefined) return null;
   if (value.rewinds !== undefined) {
+    const rewindRules = rewindModifier(rules);
     if (!Array.isArray(value.rewinds)
       || value.rewinds.length < 1
-      || value.rewinds.length > mode.rewind!.historyDepth) return null;
+      || !rewindRules
+      || value.rewinds.length > rewindRules.historyDepth) return null;
     const rewinds: SavedRewindCheckpoint[] = [];
     for (const item of value.rewinds) {
-      const rewind = parseRewindCheckpoint(item, mode);
+      const rewind = parseRewindCheckpoint(item, rules);
       if (!rewind) return null;
       rewinds.push(rewind);
     }
@@ -283,17 +285,17 @@ function parseParadoxState(value: unknown, mode: GameModeConfig): SavedParadoxSt
     return { instability: value.instability, rewinds };
   }
   if (value.rewind === undefined) return { instability: value.instability };
-  const rewind = parseRewindCheckpoint(value.rewind, mode);
+  const rewind = parseRewindCheckpoint(value.rewind, rules);
   return rewind ? { instability: value.instability, rewind } : null;
 }
 
-function parseGeneration(value: unknown, mode: GameModeConfig): SavedGenerationState | null {
+function parseGeneration(value: unknown, rules: GameRulesConfig): SavedGenerationState | null {
   if (!isObject(value) || !hasOnlyKeys(value, ['source', 'seed', 'queue', 'playableGenerator', 'random'])
     || value.source !== 'seeded' || !isUint32(value.seed)
     || !Array.isArray(value.queue) || value.queue.length !== 3) return null;
   const queue: SavedDisc[] = [];
   for (const item of value.queue) {
-    const disc = parseDisc(item, mode, true);
+    const disc = parseDisc(item, rules, true);
     if (!disc) return null;
     queue.push(disc);
   }
@@ -304,10 +306,13 @@ function parseGeneration(value: unknown, mode: GameModeConfig): SavedGenerationS
     || !Array.isArray(value.playableGenerator.recentKinds)) return null;
   const recentValues = value.playableGenerator.recentValues;
   const recentKinds = value.playableGenerator.recentKinds;
-  const historyLimit = Math.max(mode.discGeneration.valueBalanceWindow, mode.discGeneration.kindBalanceWindow);
+  const historyLimit = Math.max(
+    rules.generation.valueBalanceWindow,
+    rules.generation.kindBalanceWindow,
+  );
   if (recentValues.length === 0 || recentValues.length !== recentKinds.length || recentValues.length > historyLimit
     || !recentValues.every(item => isPositiveInteger(item)
-      && item >= mode.discValueMin && item <= mode.discValueMax)
+      && item >= rules.generation.discValueMin && item <= rules.generation.discValueMax)
     || !recentKinds.every(item => isDiscKind(item) && PLAYABLE_DISC_KINDS.has(item))) return null;
 
   if (!isObject(value.random) || !hasOnlyKeys(value.random, ['playableState', 'pushState'], ['echoState'])
@@ -329,28 +334,29 @@ function parseGeneration(value: unknown, mode: GameModeConfig): SavedGenerationS
 }
 
 /**
- * Validates an untrusted value against schema/rules V1 and the supplied mode.
+ * Validates an untrusted value against the save schema and supplied rules version.
  * The returned save is a clean, independent copy; invalid values return null.
  */
-export function parseSaveGame(value: unknown, mode: GameModeConfig): SaveGameV1 | null {
+export function parseSaveGame(value: unknown, rules: GameRulesConfig): SaveGameV1 | null {
   if (!isObject(value) || !hasOnlyKeys(value, [
     'version', 'rulesVersion', 'savedAt', 'modeId', 'state',
     'generation', 'session', 'meta',
   ], ['appBuild', 'paradox'])) return null;
-  if (value.version !== SAVE_GAME_VERSION || value.rulesVersion !== SAVE_GAME_RULES_VERSION
-    || !isNonNegativeInteger(value.savedAt) || value.modeId !== mode.id
+  if (value.version !== SAVE_GAME_VERSION || value.rulesVersion !== rules.version
+    || !isNonNegativeInteger(value.savedAt) || value.modeId !== rules.id
     || (value.appBuild !== undefined && typeof value.appBuild !== 'string')) return null;
 
-  const state = parseState(value.state, mode, mode.rewind !== undefined);
-  const generation = parseGeneration(value.generation, mode);
+  const rewind = rewindModifier(rules);
+  const state = parseState(value.state, rules, rewind !== undefined);
+  const generation = parseGeneration(value.generation, rules);
   if (!state || !generation) return null;
   if (!isObject(value.session) || !hasOnlyKeys(value.session, ['longestStreak'])
     || !isNonNegativeInteger(value.session.longestStreak)) return null;
   if (!isObject(value.meta) || !hasOnlyKeys(value.meta, ['source'])
     || value.meta.source !== 'autosave') return null;
 
-  const paradox = mode.rewind ? parseParadoxState(value.paradox, mode) : null;
-  if (mode.rewind) {
+  const paradox = rewind ? parseParadoxState(value.paradox, rules) : null;
+  if (rewind) {
     if (!paradox || (state.phase === 'game-over' && !paradox.rewind && !paradox.rewinds?.length)) return null;
   } else if (value.paradox !== undefined || state.phase !== 'waiting') {
     return null;
@@ -358,9 +364,9 @@ export function parseSaveGame(value: unknown, mode: GameModeConfig): SaveGameV1 
 
   const save: SaveGameV1 = {
     version: SAVE_GAME_VERSION,
-    rulesVersion: SAVE_GAME_RULES_VERSION,
+    rulesVersion: rules.version,
     savedAt: value.savedAt,
-    modeId: mode.id,
+    modeId: rules.id,
     state,
     generation,
     session: { longestStreak: value.session.longestStreak },
@@ -376,9 +382,9 @@ export function stringifySaveGame(save: SaveGameV1): string {
 }
 
 /** Parses JSON and applies the same strict runtime validation as parseSaveGame. */
-export function parseSaveGameJson(json: string, mode: GameModeConfig): SaveGameV1 | null {
+export function parseSaveGameJson(json: string, rules: GameRulesConfig): SaveGameV1 | null {
   try {
-    return parseSaveGame(JSON.parse(json) as unknown, mode);
+    return parseSaveGame(JSON.parse(json) as unknown, rules);
   } catch {
     return null;
   }

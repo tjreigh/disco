@@ -1,6 +1,6 @@
 import type { Board, Disc, GridPos } from './model.js';
 import { DiscKind } from './model.js';
-import type { GameModeConfig } from './modes/mode.js';
+import type { GameRulesConfig } from './modes/mode.js';
 import { unnumberedProbabilityForLevel } from './modes/mode.js';
 import type { RandomSource } from './random.js';
 import { cloneBoard, landingRow, placeDisc, removeDisc, applyGravity } from './board.js';
@@ -17,7 +17,7 @@ export function makeDisc(value: number, kind: DiscKind): Disc {
 export interface DiscSpawnConfig {
   valueMin: number;
   valueMax: number;
-  /** Chance of Numbered vs. DoubleCracked — inverse of GameModeConfig's unnumbered probability. Only consulted by makeRandomDisc; makeCrackedDisc/makeCrackedDiscWithRandom ignore it and always produce DoubleCracked. */
+  /** Chance of Numbered vs. DoubleCracked — inverse of the generation rules' unnumbered probability. */
   probNumbered: number;
 }
 
@@ -92,13 +92,14 @@ function weightedChoice<T>(candidates: readonly T[], weights: readonly number[],
 // Reimplements the small fixed-point loop shape resolveClearSteps
 // (physics.ts) already has, rather than importing it — physics.ts imports
 // from this module, so the reverse import would be circular.
-function resolvesToEmptyBoard(mode: GameModeConfig, board: Board): boolean {
+function resolvesToEmptyBoard(rules: GameRulesConfig, board: Board): boolean {
   while (true) {
     const clears: GridPos[] = [];
     for (let row = 0; row < board.length; row++) {
       for (let col = 0; col < board[row]!.length; col++) {
         const disc = board[row]![col];
-        if (disc && disc.kind === DiscKind.Numbered && mode.isClearable(board, row, col, disc, 0)) {
+        if (disc && disc.kind === DiscKind.Numbered
+          && rules.clearing.isClearable(board, row, col, disc, 0)) {
           clears.push({ row, col });
         }
       }
@@ -113,14 +114,14 @@ function resolvesToEmptyBoard(mode: GameModeConfig, board: Board): boolean {
 // True if dropping a fresh Numbered disc of this value into any legal column,
 // right now, would resolve (through the normal clear/reveal/gravity chain)
 // to a completely empty board.
-function wouldEmptyBoardIfDropped(mode: GameModeConfig, board: Board, value: number): boolean {
+function wouldEmptyBoardIfDropped(rules: GameRulesConfig, board: Board, value: number): boolean {
   const cols = board[0]?.length ?? 0;
   for (let col = 0; col < cols; col++) {
     const row = landingRow(board, col);
     if (row === null) continue;
     const scratch = cloneBoard(board);
     placeDisc(scratch, row, col, makeDisc(value, DiscKind.Numbered));
-    if (resolvesToEmptyBoard(mode, scratch)) return true;
+    if (resolvesToEmptyBoard(rules, scratch)) return true;
   }
   return false;
 }
@@ -130,12 +131,18 @@ export class PlayableDiscGenerator {
   private readonly values: number[] = [];
   private readonly kinds: DiscKind[] = [];
 
-  constructor(private readonly mode: GameModeConfig, private readonly random: RandomSource = () => Math.random()) {}
+  constructor(
+    private readonly rules: GameRulesConfig,
+    private readonly random: RandomSource = () => Math.random(),
+  ) {}
 
   generate(level: number, board: Board = this.emptyBoard()): Disc {
     const value = this.chooseValue(level, board);
     const kind = this.chooseKind(level);
-    const historyLimit = Math.max(this.mode.discGeneration.valueBalanceWindow, this.mode.discGeneration.kindBalanceWindow);
+    const historyLimit = Math.max(
+      this.rules.generation.valueBalanceWindow,
+      this.rules.generation.kindBalanceWindow,
+    );
     this.values.push(value);
     this.kinds.push(kind);
     if (this.values.length > historyLimit) this.values.shift();
@@ -157,32 +164,32 @@ export class PlayableDiscGenerator {
 
   private emptyBoard(): Board {
     return Array.from(
-      { length: this.mode.board.rows },
-      () => Array(this.mode.board.cols).fill(null),
+      { length: this.rules.board.rows },
+      () => Array(this.rules.board.cols).fill(null),
     );
   }
 
   private chooseValue(level: number, board: Board): number {
-    const config = this.mode.discGeneration;
-    const valueCount = this.mode.discValueMax - this.mode.discValueMin + 1;
-    const guardActive = level < this.mode.minLevelForBoardClearBonus;
+    const config = this.rules.generation;
+    const valueCount = config.discValueMax - config.discValueMin + 1;
+    const guardActive = level < config.minLevelForBoardClearBonus;
     let candidates = Array.from(
       { length: valueCount },
-      (_, index) => this.mode.discValueMin + index,
+      (_, index) => config.discValueMin + index,
     ).filter(value => trailingRun(this.values, value) < config.maxSameValueRun);
     if (guardActive) {
-      const safe = candidates.filter(value => !wouldEmptyBoardIfDropped(this.mode, board, value));
+      const safe = candidates.filter(value => !wouldEmptyBoardIfDropped(this.rules, board, value));
       if (safe.length > 0) candidates = safe; // never exhaust the pool entirely
     }
     const recent = this.values.slice(-config.valueBalanceWindow);
     const expected = recent.length / valueCount;
     const pressure = this.boardPressure(board);
     const relevanceRates = this.relevanceRates(board, candidates);
-    const valueRange = this.mode.discValueMax - this.mode.discValueMin;
+    const valueRange = config.discValueMax - config.discValueMin;
     const weights = candidates.map(value => {
       const count = recent.filter(item => item === value).length;
       const historyWeight = Math.max(0.1, 1 + config.valueBalanceStrength * (expected - count));
-      const normalizedValue = valueRange === 0 ? 0 : (value - this.mode.discValueMin) / valueRange;
+      const normalizedValue = valueRange === 0 ? 0 : (value - config.discValueMin) / valueRange;
       const pressureWeight = Math.exp(-config.boardPressureStrength * pressure * normalizedValue);
       const relevanceWeight = 1 + config.boardRelevanceStrength * pressure * relevanceRates.get(value)!;
       return historyWeight * pressureWeight * relevanceWeight;
@@ -191,7 +198,7 @@ export class PlayableDiscGenerator {
   }
 
   private boardPressure(board: Board): number {
-    const config = this.mode.discGeneration;
+    const config = this.rules.generation;
     const cols = board[0]?.length ?? 0;
     let maxColumnHeight = 0;
     for (let col = 0; col < cols; col++) {
@@ -201,7 +208,7 @@ export class PlayableDiscGenerator {
       }
       maxColumnHeight = Math.max(maxColumnHeight, height);
     }
-    const denominator = this.mode.board.rows - config.boardPressureStartHeight;
+    const denominator = this.rules.board.rows - config.boardPressureStartHeight;
     if (denominator <= 0) return maxColumnHeight > config.boardPressureStartHeight ? 1 : 0;
     return Math.max(0, Math.min(1,
       (maxColumnHeight - config.boardPressureStartHeight) / denominator,
@@ -250,8 +257,8 @@ export class PlayableDiscGenerator {
   }
 
   private chooseKind(level: number): DiscKind {
-    const config = this.mode.discGeneration;
-    const target = 1 - unnumberedProbabilityForLevel(this.mode, level);
+    const config = this.rules.generation;
+    const target = 1 - unnumberedProbabilityForLevel(config, level);
     // A mode can explicitly opt out of player-dropped hazards. Respect that
     // even when the normal variety cap would otherwise force one.
     if (target >= 1) return DiscKind.Numbered;
@@ -271,16 +278,16 @@ export class PlayableDiscGenerator {
 
 // Builds the DiscFactory closures a GameEngine needs from a mode's spawn config.
 export function createDiscFactories(
-  mode: GameModeConfig,
+  rules: GameRulesConfig,
   playableRandom: RandomSource = () => Math.random(),
   pushRandom: RandomSource = () => Math.random(),
 ): { discFactory: LevelDiscFactory; crackedDiscFactory: DiscFactory; playableGenerator: PlayableDiscGenerator } {
   const spawnForLevel = (level: number): DiscSpawnConfig => ({
-    valueMin: mode.discValueMin,
-    valueMax: mode.discValueMax,
-    probNumbered: 1 - unnumberedProbabilityForLevel(mode, level),
+    valueMin: rules.generation.discValueMin,
+    valueMax: rules.generation.discValueMax,
+    probNumbered: 1 - unnumberedProbabilityForLevel(rules.generation, level),
   });
-  const playable = new PlayableDiscGenerator(mode, playableRandom);
+  const playable = new PlayableDiscGenerator(rules, playableRandom);
   return {
     discFactory: (level, board) => playable.generate(level, board),
     crackedDiscFactory: () => makeCrackedDiscWithRandom(spawnForLevel(1), pushRandom),

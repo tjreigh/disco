@@ -1,11 +1,11 @@
 import type { Board, Disc, GridPos } from './model.js';
-import type { GameModeConfig } from './modes/mode.js';
+import type { GameRulesConfig } from './modes/mode.js';
 import type { GameState } from './state.js';
 import { GamePhase } from './state.js';
 import type { PhysicsStep } from './events.js';
 import { StepKind } from './events.js';
 import {
-  deepCloneBoard, isBoardFull, isColumnFull, landingRow, makeEmptyBoard,
+  deepCloneBoard, isColumnFull, landingRow, makeEmptyBoard,
 } from './board.js';
 import { GravitySystem } from './gravity/system.js';
 import {
@@ -15,8 +15,12 @@ import {
 import {
   computeClearSteps, computeDropSteps, computePushStep, PhysicsTrace, pointsForStack,
 } from './physics.js';
-import { CLASSIC_MODE } from './modes/index.js';
-import { turnCostForInstability, turnsForLevel } from './modes/mode.js';
+import { CLASSIC_RULES } from './modes/index.js';
+import {
+  rewindModifier,
+  turnCostForInstability,
+  turnsForLevel,
+} from './modes/mode.js';
 import {
   ParadoxSystem, type RewindPreview, type TurnCheckpoint,
 } from './paradox/system.js';
@@ -25,7 +29,7 @@ import {
   createGameSeed, createSeededRandom, deriveSeed, SnapshotRandomSource,
 } from './random.js';
 import {
-  deserializeBoard, parseSaveGame, SAVE_GAME_RULES_VERSION, SAVE_GAME_VERSION,
+  deserializeBoard, parseSaveGame, SAVE_GAME_VERSION,
   serializeBoard, type SaveGameV1, type SavedGenerationState, type SavedRewindCheckpoint,
 } from './save.js';
 
@@ -54,7 +58,7 @@ export interface TurnResult {
  * turn budget is derived from the mode, not injected.
  */
 export interface GameEngineOptions {
-  mode?: GameModeConfig;
+  rules?: GameRulesConfig;
   /** Reproduce built-in disc generation with a known unsigned 32-bit seed. */
   seed?: number;
   discFactory?: DiscFactory;
@@ -65,7 +69,7 @@ export interface GameEngineOptions {
 }
 
 export interface ScriptedGameStateOptions {
-  mode?: GameModeConfig;
+  rules?: GameRulesConfig;
   board: Board;
   currentDisc: Disc;
   nextDisc?: Disc;
@@ -99,7 +103,7 @@ interface SeededFactories extends ReturnType<typeof createDiscFactories> {
  */
 export class GameEngine {
   readonly state: GameState;
-  private mode: GameModeConfig;
+  private rules: GameRulesConfig;
   private queue: DiscQueue;
   private crackedDiscFactory: DiscFactory;
   private customDiscFactory: DiscFactory | undefined;
@@ -112,9 +116,9 @@ export class GameEngine {
   private readonly gravitySystem: GravitySystem;
 
   constructor(options: GameEngineOptions = {}) {
-    this.mode = options.mode ?? CLASSIC_MODE;
-    this.paradoxSystem = new ParadoxSystem(this.mode);
-    this.gravitySystem = new GravitySystem(this.mode);
+    this.rules = options.rules ?? CLASSIC_RULES;
+    this.paradoxSystem = new ParadoxSystem(this.rules);
+    this.gravitySystem = new GravitySystem(this.rules);
     this.customDiscFactory = options.discFactory;
     this.customCrackedDiscFactory = options.crackedDiscFactory;
     const seed = options.seed === undefined ? createGameSeed() : options.seed >>> 0;
@@ -122,7 +126,7 @@ export class GameEngine {
     this.retainSeededGeneration(factories);
     const initialBoard = options.board
       ? deepCloneBoard(options.board)
-      : makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
+      : makeEmptyBoard(this.rules.board.cols, this.rules.board.rows);
     const queueFactory = options.discFactory
       ? (_level: number, _board: Board) => options.discFactory!()
       : factories.discFactory;
@@ -132,16 +136,18 @@ export class GameEngine {
     this.state = {
       generationSeed: seed,
       generationSource: options.discFactory || options.crackedDiscFactory ? 'injected' : 'seeded',
-      phase: isBoardFull(initialBoard) ? GamePhase.GameOver : GamePhase.WaitingForDrop,
+      phase: this.rules.failure.isTerminalBoard(initialBoard)
+        ? GamePhase.GameOver
+        : GamePhase.WaitingForDrop,
       board: initialBoard,
       currentDisc: this.queue.peek(),
       nextDisc: this.queue.peekNext(),
-      cursorCol: Math.floor(this.mode.board.cols / 2),
+      cursorCol: Math.floor(this.rules.board.cols / 2),
       score: options.score ?? 0,
       dropCount,
       level: 1,
-      turnsPerLevel: turnsForLevel(this.mode, 1),
-      turnsRemaining: turnsForLevel(this.mode, 1),
+      turnsPerLevel: turnsForLevel(this.rules.progression, 1),
+      turnsRemaining: turnsForLevel(this.rules.progression, 1),
       gravity: this.gravitySystem.initialState(),
       paradox: this.paradoxSystem.initialState(),
     };
@@ -158,7 +164,7 @@ export class GameEngine {
       throw new Error('Cannot save a game that uses injected disc generation');
     }
     const savesFatalRewind = this.state.phase === GamePhase.GameOver
-      && this.mode.rewind !== undefined
+      && rewindModifier(this.rules) !== undefined
       && this.paradoxSystem.checkpoints.some(checkpoint => checkpoint.anchor != null);
     if (this.state.phase !== GamePhase.WaitingForDrop && !savesFatalRewind) {
       throw new Error('Can only save at a stable waiting-for-drop turn boundary');
@@ -166,9 +172,9 @@ export class GameEngine {
 
     const save: SaveGameV1 = {
       version: SAVE_GAME_VERSION,
-      rulesVersion: SAVE_GAME_RULES_VERSION,
+      rulesVersion: this.rules.version,
       savedAt: options.savedAt ?? Date.now(),
-      modeId: this.mode.id,
+      modeId: this.rules.id,
       state: {
         phase: this.state.phase === GamePhase.GameOver ? 'game-over' : 'waiting',
         board: serializeBoard(this.state.board),
@@ -192,7 +198,7 @@ export class GameEngine {
         },
       },
       session: { longestStreak: options.longestStreak ?? 0 },
-      ...(this.mode.rewind ? {
+      ...(rewindModifier(this.rules) ? {
         paradox: {
           instability: this.state.paradox?.instability ?? 0,
           ...(this.paradoxSystem.checkpoints.length > 0 ? {
@@ -215,13 +221,13 @@ export class GameEngine {
    * Returns the validated copy so controller-owned session metadata is easy to
    * restore alongside the engine state.
    */
-  loadSave(value: unknown, mode: GameModeConfig): SaveGameV1 {
-    const save = parseSaveGame(value, mode);
+  loadSave(value: unknown, rules: GameRulesConfig): SaveGameV1 {
+    const save = parseSaveGame(value, rules);
     if (!save) throw new Error('Invalid or incompatible save game');
 
-    this.mode = mode;
-    this.paradoxSystem.reconfigure(mode);
-    this.gravitySystem.reconfigure(mode);
+    this.rules = rules;
+    this.paradoxSystem.reconfigure(rules);
+    this.gravitySystem.reconfigure(rules);
     this.customDiscFactory = undefined;
     this.customCrackedDiscFactory = undefined;
     const factories = this.createSeededFactories(save.generation.seed);
@@ -359,7 +365,7 @@ export class GameEngine {
 
     const checkpoint = this.captureRewindCheckpoint();
     this.state.cursorCol = lane;
-    const steps = computeDropSteps(this.state.board, this.queue.peek(), lane, this.mode, trace);
+    const steps = computeDropSteps(this.state.board, this.queue.peek(), lane, this.rules, trace);
     const drop = steps.find(step => step.kind === StepKind.Drop);
     if (checkpoint && drop?.kind === StepKind.Drop) checkpoint.anchor = { ...drop.landPos };
     return this.finishTurn(steps, boardBefore, trace);
@@ -459,7 +465,7 @@ export class GameEngine {
 
     // Instability accelerates Paradox's pressure clock. Other modes always
     // resolve to a cost of one, keeping their existing level cadence intact.
-    const turnCost = turnCostForInstability(this.mode, this.state.paradox?.instability ?? 0);
+    const turnCost = turnCostForInstability(this.rules, this.state.paradox?.instability ?? 0);
     this.state.turnsRemaining -= turnCost;
     const levelComplete = this.state.turnsRemaining <= 0;
 
@@ -486,7 +492,7 @@ export class GameEngine {
         // instead of disappearing on a later, unrelated drop.
         const pushClearSteps = computeClearSteps(
           this.state.board,
-          this.mode,
+          this.rules,
           trace,
           resolution.settle,
           resolution.angleDeg,
@@ -504,11 +510,11 @@ export class GameEngine {
     // turn. A level-boundary push is part of that same resolution, whether it
     // continues an existing chain or initiates the turn's first clear.
     const stackSize = entryStackSize + pushStackSize;
-    if (this.mode.scoring.kind === 'stack' && stackSize > 0) {
+    if (this.rules.scoring.kind === 'stack-score@1' && stackSize > 0) {
       steps.push({
         kind: StepKind.Bonus,
         bonusKind: 'stack',
-        pointsAwarded: pointsForStack(stackSize, this.mode.scoring.pointsPerStackUnit),
+        pointsAwarded: pointsForStack(stackSize, this.rules.scoring.pointsPerStackUnit),
       });
     }
 
@@ -516,7 +522,7 @@ export class GameEngine {
       steps.push({
         kind: StepKind.Bonus,
         bonusKind: 'level',
-        pointsAwarded: this.mode.levelBonus,
+        pointsAwarded: this.rules.scoring.levelBonus,
       });
     }
 
@@ -532,9 +538,9 @@ export class GameEngine {
 
     // Two terminal conditions:
     // 1. A push shoving a row-0 disc off the board — resting in row 0 through
-    //    normal stacking is a valid, non-terminal state. mode.isGameOver is
-    //    already applied at the correct point, inside computePushStep, before
-    //    the shift; its result flows in here via pushOverflow.
+    //    normal stacking is a valid, non-terminal state. computePushStep
+    //    detects the discarded entry-edge cell before the shift and passes
+    //    that fact to the explicit failure policy as pushOverflow.
     // 2. A fully-occupied board after this turn's resolution. Turn resolution
     //    loops until nothing is clearable, so a board that is still completely
     //    full at that fixed point can never change again on its own: every
@@ -543,9 +549,10 @@ export class GameEngine {
     //    resolution above, so a board that momentarily fills mid-turn and then
     //    clears is NOT terminal, and a level bonus awarded on a level-completing
     //    turn (pushed into `steps` above) still counts — both intended.
-    const gameOverReason: GameOverReason | undefined = pushOverflow
-      ? 'push-overflow'
-      : isBoardFull(this.state.board) ? 'board-full' : undefined;
+    const gameOverReason: GameOverReason | undefined = this.rules.failure.gameOverReason(
+      pushOverflow,
+      this.state.board,
+    );
     const gameOver = gameOverReason !== undefined;
     this.state.phase = gameOver ? GamePhase.GameOver : GamePhase.WaitingForDrop;
 
@@ -553,7 +560,7 @@ export class GameEngine {
     // over so the level/budget freeze at the state the player died in.
     if (!gameOver && levelComplete) {
       this.state.level++;
-      this.state.turnsPerLevel = turnsForLevel(this.mode, this.state.level);
+      this.state.turnsPerLevel = turnsForLevel(this.rules.progression, this.state.level);
       this.state.turnsRemaining = this.state.turnsPerLevel;
     }
 
@@ -583,16 +590,16 @@ export class GameEngine {
   // means adopting that mode's own generation rules — and resets gameplay
   // state in place. state itself is never replaced — DebugPanel and Game hold
   // a reference to it that must stay valid across mode switches.
-  reconfigure(mode: GameModeConfig, seedOverride?: number): void {
-    this.mode = mode;
-    this.paradoxSystem.reconfigure(mode);
-    this.gravitySystem.reconfigure(mode);
+  reconfigure(rules: GameRulesConfig, seedOverride?: number): void {
+    this.rules = rules;
+    this.paradoxSystem.reconfigure(rules);
+    this.gravitySystem.reconfigure(rules);
     this.customDiscFactory = undefined;
     this.customCrackedDiscFactory = undefined;
     const seed = seedOverride === undefined ? createGameSeed() : seedOverride >>> 0;
     const factories = this.createSeededFactories(seed);
     this.retainSeededGeneration(factories);
-    const board = makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
+    const board = makeEmptyBoard(this.rules.board.cols, this.rules.board.rows);
     this.state.board = board;
     this.queue = new DiscQueue(factories.discFactory, 1, board);
     this.crackedDiscFactory = factories.crackedDiscFactory;
@@ -611,7 +618,7 @@ export class GameEngine {
     this.state.generationSource = this.customDiscFactory || this.customCrackedDiscFactory ? 'injected' : 'seeded';
     const factories = this.createSeededFactories(seed);
     this.retainSeededGeneration(factories);
-    const board = makeEmptyBoard(this.mode.board.cols, this.mode.board.rows);
+    const board = makeEmptyBoard(this.rules.board.cols, this.rules.board.rows);
     this.state.board = board;
     if (this.customDiscFactory) {
       this.queue.reset(1, board);
@@ -626,9 +633,9 @@ export class GameEngine {
   // existing GameState object alive for UI/debug references while replacing the
   // board and incoming queue with scripted values.
   loadScriptedState(options: ScriptedGameStateOptions): void {
-    this.mode = options.mode ?? this.mode;
-    this.paradoxSystem.reconfigure(this.mode);
-    this.gravitySystem.reconfigure(this.mode);
+    this.rules = options.rules ?? this.rules;
+    this.paradoxSystem.reconfigure(this.rules);
+    this.gravitySystem.reconfigure(this.rules);
     this.customDiscFactory = undefined;
     this.customCrackedDiscFactory = options.crackedDiscFactory;
     this.playableRandom = undefined;
@@ -648,15 +655,17 @@ export class GameEngine {
     this.crackedDiscFactory = options.crackedDiscFactory ?? (() => ({ ...options.currentDisc }));
     this.state.generationSeed = 0;
     this.state.generationSource = 'injected';
-    this.state.phase = isBoardFull(board) ? GamePhase.GameOver : GamePhase.WaitingForDrop;
+    this.state.phase = this.rules.failure.isTerminalBoard(board)
+      ? GamePhase.GameOver
+      : GamePhase.WaitingForDrop;
     this.state.board = board;
     this.state.currentDisc = this.queue.peek();
     this.state.nextDisc = this.queue.peekNext();
-    this.state.cursorCol = Math.floor(this.mode.board.cols / 2);
+    this.state.cursorCol = Math.floor(this.rules.board.cols / 2);
     this.state.score = options.score ?? 0;
     this.state.dropCount = options.dropCount ?? 0;
     this.state.level = level;
-    this.state.turnsPerLevel = turnsForLevel(this.mode, level);
+    this.state.turnsPerLevel = turnsForLevel(this.rules.progression, level);
     this.state.turnsRemaining = options.turnsRemaining ?? this.state.turnsPerLevel;
     // Re-derive gravity state for whichever mode is now active — a scripted
     // scenario can switch modes (e.g. a tutorial), and the previous mode's
@@ -692,7 +701,7 @@ export class GameEngine {
     const pushRandom = createSeededRandom(deriveSeed(seed, 0x50555348));
     const echoRandom = createSeededRandom(deriveSeed(seed, 0x4543484f));
     return {
-      ...createDiscFactories(this.mode, playableRandom, pushRandom),
+      ...createDiscFactories(this.rules, playableRandom, pushRandom),
       playableRandom,
       pushRandom,
       echoRandom,
@@ -831,11 +840,11 @@ export class GameEngine {
     this.state.board = board;
     this.state.currentDisc = this.queue.peek();
     this.state.nextDisc = this.queue.peekNext();
-    this.state.cursorCol = Math.floor(this.mode.board.cols / 2);
+    this.state.cursorCol = Math.floor(this.rules.board.cols / 2);
     this.state.score = 0;
     this.state.dropCount = 0;
     this.state.level = 1;
-    this.state.turnsPerLevel = turnsForLevel(this.mode, 1);
+    this.state.turnsPerLevel = turnsForLevel(this.rules.progression, 1);
     this.state.turnsRemaining = this.state.turnsPerLevel;
     this.state.gravity = this.gravitySystem.initialState();
     this.state.paradox = this.paradoxSystem.initialState();
