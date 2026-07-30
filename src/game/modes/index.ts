@@ -6,11 +6,13 @@ import type {
 import { CLASSIC_MODE, CLASSIC_RULES } from './classic.js';
 import { GRAVITY_MODE, GRAVITY_RULES } from './gravity.js';
 import { PARADOX_MODE, PARADOX_RULES } from './paradox.js';
+import { SCORE_RACE_MODE, SCORE_RACE_RULES } from './score-race.js';
 import { STACK_MODE, STACK_RULES } from './stack.js';
 
 export { CLASSIC_MODE, CLASSIC_RULES } from './classic.js';
 export { GRAVITY_MODE, GRAVITY_RULES } from './gravity.js';
 export { PARADOX_MODE, PARADOX_RULES } from './paradox.js';
+export { SCORE_RACE_MODE, SCORE_RACE_RULES } from './score-race.js';
 export { STACK_MODE, STACK_RULES } from './stack.js';
 export type {
   BoardRules,
@@ -36,13 +38,16 @@ export const SOLO_MODES: readonly SoloModeDefinition[] = [
   PARADOX_MODE,
 ];
 
-export const MULTIPLAYER_MODES: readonly MultiplayerModeDefinition[] = [];
+export const MULTIPLAYER_MODES: readonly MultiplayerModeDefinition[] = [
+  SCORE_RACE_MODE,
+];
 
 export const GAME_RULESETS: readonly GameRulesConfig[] = [
   CLASSIC_RULES,
   GRAVITY_RULES,
   STACK_RULES,
   PARADOX_RULES,
+  SCORE_RACE_RULES,
 ];
 
 export function validateModeRegistries(
@@ -76,6 +81,12 @@ validateModeRegistries(SOLO_MODES, MULTIPLAYER_MODES, GAME_RULESETS);
 export function getSoloMode(modeId: string): SoloModeDefinition {
   const mode = SOLO_MODES.find(candidate => candidate.id === modeId);
   if (!mode) throw new Error(`Unsupported solo mode: ${modeId}`);
+  return mode;
+}
+
+export function getMultiplayerMode(modeId: string): MultiplayerModeDefinition {
+  const mode = MULTIPLAYER_MODES.find(candidate => candidate.id === modeId);
+  if (!mode) throw new Error(`Unsupported multiplayer mode: ${modeId}`);
   return mode;
 }
 

@@ -12,13 +12,14 @@ FAKE_BIN="$TMP_DIR/bin"
 STATE="$TMP_DIR/state"
 ENV_FILE="$TMP_DIR/api.env"
 
-mkdir -p "$SEED/api/deploy" "$FAKE_BIN" "$STATE"
+mkdir -p "$SEED/api/deploy" "$SEED/src/shared" "$FAKE_BIN" "$STATE"
 
 cp "$SOURCE_DIR/auto-deploy.sh" "$SEED/api/deploy/auto-deploy.sh"
 cp "$SOURCE_DIR/backup-sqlite.sh" "$SEED/api/deploy/backup-sqlite.sh"
 cp "$SOURCE_DIR/smoke-test.sh" "$SEED/api/deploy/smoke-test.sh"
 chmod +x "$SEED/api/deploy/"*.sh
 printf '{"name":"deploy-fixture","private":true}\n' > "$SEED/api/package.json"
+printf 'export const protocolVersion = 1;\n' > "$SEED/src/shared/multiplayer-contracts.ts"
 
 cat > "$FAKE_BIN/yarn" <<'EOF'
 #!/usr/bin/env bash
@@ -185,5 +186,26 @@ sha4="$(git -C "$SEED" rev-parse HEAD)"
 run_deploy
 assert_equal "$sha4" "$(cat "$STATE/success.sha")" "frontend-only marker"
 assert_equal "$active_release" "$(readlink -f "$STATE/current")" "frontend-only commit must not activate a release"
+
+printf 'export const protocolVersion = 2;\n' > "$SEED/src/shared/multiplayer-contracts.ts"
+git -C "$SEED" add src/shared/multiplayer-contracts.ts
+git -C "$SEED" commit --quiet -m "shared multiplayer contract change"
+git -C "$SEED" push --quiet
+sha5="$(git -C "$SEED" rev-parse HEAD)"
+
+run_deploy
+assert_equal "$sha5" "$(cat "$STATE/success.sha")" "shared-contract marker"
+shared_release="$(readlink -f "$STATE/current")"
+if [[ "$shared_release" == "$active_release" ]]; then
+  echo "FAIL: shared-contract commit did not activate a release" >&2
+  exit 1
+fi
+case "$(basename "$shared_release")" in
+  "$sha5-"*) ;;
+  *)
+    echo "FAIL: shared-contract release does not match target commit: $shared_release" >&2
+    exit 1
+    ;;
+esac
 
 echo "auto-deploy integration test passed"

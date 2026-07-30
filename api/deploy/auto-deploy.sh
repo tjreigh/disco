@@ -106,17 +106,18 @@ fi
 
 api_changed=1
 if [[ -n "$successful_sha" ]]; then
-  git diff --quiet "$successful_sha" "$target_sha" -- api/ && api_changed=0 || true
+  git diff --quiet "$successful_sha" "$target_sha" -- api/ src/shared/ \
+    && api_changed=0 || true
 fi
 
-# Move the checkout regardless of whether api/ changed, so the next run's
-# scripts and documentation match origin. Deployment retry state is tracked by
-# STATE_FILE, not by this mutable checkout's HEAD.
+# Move the checkout regardless of whether the API's inputs changed, so the next
+# run's scripts and documentation match origin. Deployment retry state is
+# tracked by STATE_FILE, not by this mutable checkout's HEAD.
 git reset --hard "$target_sha"
 
 if [[ "$api_changed" -eq 0 ]]; then
   write_success_sha "$target_sha"
-  log "api/ unchanged; advanced successful-run marker without restarting"
+  log "API inputs unchanged; advanced successful-run marker without restarting"
   exit 0
 fi
 

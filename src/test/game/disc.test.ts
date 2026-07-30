@@ -2,7 +2,11 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import { createDiscFactories, DiscQueue, makeCrackedDisc, makeDisc, makeRandomDisc, PlayableDiscGenerator } from '../../game/disc.js';
 import type { Board } from '../../game/model.js';
 import { DiscKind } from '../../game/model.js';
-import { CLASSIC_RULES, STACK_RULES } from '../../game/modes/index.js';
+import {
+  CLASSIC_RULES,
+  SCORE_RACE_RULES,
+  STACK_RULES,
+} from '../../game/modes/index.js';
 import { createGameSeed, createSeededRandom } from '../../game/random.js';
 import { makeEmptyBoard } from '../../game/board.js';
 
@@ -56,6 +60,51 @@ describe('makeRandomDisc', () => {
 });
 
 describe('PlayableDiscGenerator', () => {
+  test('Score Race deals the same seeded sequence to divergent boards', () => {
+    const lowBoard = makeEmptyBoard();
+    const pressuredBoard = makeEmptyBoard();
+    for (let row = 1; row < pressuredBoard.length; row++) {
+      pressuredBoard[row]![6] = makeDisc(7, DiscKind.DoubleCracked);
+    }
+    pressuredBoard[6]![0] = makeDisc(1, DiscKind.Numbered);
+    pressuredBoard[6]![1] = makeDisc(2, DiscKind.Numbered);
+
+    const first = new PlayableDiscGenerator(
+      SCORE_RACE_RULES,
+      createSeededRandom(0x1234_5678),
+    );
+    const second = new PlayableDiscGenerator(
+      SCORE_RACE_RULES,
+      createSeededRandom(0x1234_5678),
+    );
+    const signature = (generator: PlayableDiscGenerator, board: Board) =>
+      Array.from({ length: 100 }, (_, index) => {
+        const disc = generator.generate(index < 8 ? 1 : 5, board);
+        return `${disc.value}:${disc.kind}`;
+      });
+
+    const firstSequence = signature(first, lowBoard);
+    expect(firstSequence.slice(0, 16)).toEqual([
+      '1:double-cracked',
+      '7:numbered',
+      '6:numbered',
+      '3:numbered',
+      '2:numbered',
+      '4:numbered',
+      '5:double-cracked',
+      '2:numbered',
+      '4:numbered',
+      '3:numbered',
+      '5:numbered',
+      '7:double-cracked',
+      '6:numbered',
+      '4:numbered',
+      '6:numbered',
+      '1:numbered',
+    ]);
+    expect(firstSequence).toEqual(signature(second, pressuredBoard));
+  });
+
   test('restores history for an identical continuation and snapshots defensively', () => {
     const first = new PlayableDiscGenerator(CLASSIC_RULES, createSeededRandom(111));
     const secondRandom = createSeededRandom(111);

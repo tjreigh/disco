@@ -45,7 +45,7 @@ export interface RevealRules {
 }
 
 export interface GenerationRules {
-  readonly kind: 'adaptive-history@1';
+  readonly kind: 'adaptive-history@1' | 'history-balanced@1';
   readonly discValueMin: number;
   readonly discValueMax: number;
   readonly initialUnnumberedProbability: number;
@@ -171,6 +171,10 @@ export interface MultiplayerSessionRules {
   readonly kind: 'timed-score-race@1';
   readonly durationMs: number;
   readonly fairness: MultiplayerFairnessRules;
+  readonly result: {
+    readonly kind: 'highest-score-wins@1';
+    readonly tie: 'tie';
+  };
 }
 
 export interface MultiplayerModeDefinition {
@@ -241,6 +245,13 @@ export function defineGameRules(config: GameRulesConfig): GameRulesConfig {
   }
 
   const generation = config.generation;
+  if (
+    (generation.kind === 'adaptive-history@1') !== generation.boardAdaptive
+  ) {
+    throw new Error(
+      `Generation kind ${generation.kind} for ${config.id} does not match its board-adaptive behavior`,
+    );
+  }
   assertPositiveInteger(generation.discValueMin, `Minimum disc value for ${config.id}`);
   assertPositiveInteger(generation.discValueMax, `Maximum disc value for ${config.id}`);
   if (generation.discValueMin > generation.discValueMax) {
@@ -327,6 +338,10 @@ export function defineMultiplayerMode(
       `Multiplayer mode ${definition.id} promises identical sequences with a board-adaptive generator`,
     );
   }
+  assertPositiveInteger(
+    definition.session.durationMs,
+    `Match duration for ${definition.id}`,
+  );
   return deepFreeze(definition);
 }
 

@@ -172,7 +172,8 @@ export class PlayableDiscGenerator {
   private chooseValue(level: number, board: Board): number {
     const config = this.rules.generation;
     const valueCount = config.discValueMax - config.discValueMin + 1;
-    const guardActive = level < config.minLevelForBoardClearBonus;
+    const guardActive = config.boardAdaptive
+      && level < config.minLevelForBoardClearBonus;
     let candidates = Array.from(
       { length: valueCount },
       (_, index) => config.discValueMin + index,
@@ -183,8 +184,10 @@ export class PlayableDiscGenerator {
     }
     const recent = this.values.slice(-config.valueBalanceWindow);
     const expected = recent.length / valueCount;
-    const pressure = this.boardPressure(board);
-    const relevanceRates = this.relevanceRates(board, candidates);
+    const pressure = config.boardAdaptive ? this.boardPressure(board) : 0;
+    const relevanceRates = config.boardAdaptive
+      ? this.relevanceRates(board, candidates)
+      : new Map(candidates.map(value => [value, 0]));
     const valueRange = config.discValueMax - config.discValueMin;
     const weights = candidates.map(value => {
       const count = recent.filter(item => item === value).length;

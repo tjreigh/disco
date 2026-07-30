@@ -11,10 +11,13 @@ import {
   MULTIPLAYER_MODES,
   PARADOX_MODE,
   PARADOX_RULES,
+  SCORE_RACE_MODE,
+  SCORE_RACE_RULES,
   SOLO_MODES,
   STACK_MODE,
   STACK_RULES,
   getGameRules,
+  getMultiplayerMode,
   getSoloMode,
   validateModeRegistries,
 } from '../../game/modes/index.js';
@@ -106,6 +109,33 @@ describe('composed solo rules', () => {
     expect(temporalEchoProbability(PARADOX_RULES, 9)).toBe(0.3);
   });
 
+  test('Score Race composes familiar play with board-independent generation', () => {
+    expect(SCORE_RACE_RULES).toMatchObject({
+      id: 'score-race',
+      version: 1,
+      generation: {
+        kind: 'history-balanced@1',
+        boardAdaptive: false,
+        boardPressureStrength: 0,
+        boardRelevanceStrength: 0,
+      },
+      modifiers: [],
+    });
+    expect(SCORE_RACE_RULES.board).toBe(CLASSIC_RULES.board);
+    expect(SCORE_RACE_RULES.placement).toBe(CLASSIC_RULES.placement);
+    expect(SCORE_RACE_RULES.clearing).toBe(CLASSIC_RULES.clearing);
+    expect(SCORE_RACE_RULES.revealing).toBe(CLASSIC_RULES.revealing);
+    expect(SCORE_RACE_RULES.scoring).toBe(CLASSIC_RULES.scoring);
+    expect(SCORE_RACE_RULES.progression).toBe(CLASSIC_RULES.progression);
+    expect(SCORE_RACE_RULES.failure).toBe(CLASSIC_RULES.failure);
+    expect(SCORE_RACE_MODE.session).toEqual({
+      kind: 'timed-score-race@1',
+      durationMs: 180_000,
+      fairness: { kind: 'identical-sequence' },
+      result: { kind: 'highest-score-wins@1', tie: 'tie' },
+    });
+  });
+
   test('shared clear/reveal/failure behavior remains intact', () => {
     const board = makeEmptyBoard();
     placeDisc(board, 6, 0, makeDisc(1, DiscKind.Numbered));
@@ -152,19 +182,22 @@ describe('mode definitions and registries', () => {
       STACK_MODE,
       PARADOX_MODE,
     ]);
-    expect(MULTIPLAYER_MODES).toEqual([]);
+    expect(MULTIPLAYER_MODES).toEqual([SCORE_RACE_MODE]);
     expect(GAME_RULESETS).toEqual([
       CLASSIC_RULES,
       GRAVITY_RULES,
       STACK_RULES,
       PARADOX_RULES,
+      SCORE_RACE_RULES,
     ]);
   });
 
   test('lookups reject unsupported identities explicitly', () => {
     expect(getSoloMode('classic')).toBe(CLASSIC_MODE);
+    expect(getMultiplayerMode('score-race')).toBe(SCORE_RACE_MODE);
     expect(getGameRules('classic', 1)).toBe(CLASSIC_RULES);
     expect(() => getSoloMode('unknown')).toThrow(/unsupported solo mode/i);
+    expect(() => getMultiplayerMode('unknown')).toThrow(/unsupported multiplayer mode/i);
     expect(() => getGameRules('classic', 99)).toThrow(/unsupported game rules/i);
   });
 
@@ -220,7 +253,18 @@ describe('rule definition validation', () => {
         kind: 'timed-score-race@1',
         durationMs: 60_000,
         fairness: { kind: 'identical-sequence' },
+        result: { kind: 'highest-score-wins@1', tie: 'tie' },
       },
     })).toThrow(/board-adaptive generator/i);
+  });
+
+  test('generation identity must describe whether the board affects deals', () => {
+    expect(() => defineGameRules(testMode({
+      id: 'misidentified-generation',
+      generation: {
+        kind: 'history-balanced@1',
+        boardAdaptive: true,
+      },
+    }))).toThrow(/does not match its board-adaptive behavior/i);
   });
 });

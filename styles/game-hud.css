@@ -140,6 +140,39 @@
   letter-spacing: .1em;
 }
 .game-hud__instability[hidden] { display: none; }
+.multiplayer-hud {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  left: 50%;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 3px 14px;
+  min-width: 220px;
+  padding: 7px 10px;
+  border: 1px solid #486581;
+  border-radius: 6px;
+  background: rgba(16, 42, 67, .94);
+  color: #d9e2ec;
+  font: 700 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .06em;
+  transform: translateX(-50%);
+}
+.multiplayer-hud__timer {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  align-self: center;
+  color: #f0f4f8;
+  font-size: 18px;
+  letter-spacing: .03em;
+}
+.multiplayer-hud__opponent { color: #9fb3c8; }
+.multiplayer-hud__result {
+  grid-column: 1 / -1;
+  color: #81e6b3;
+  text-align: center;
+}
+.multiplayer-hud__result[hidden] { display: none; }
 .game-hud__instability--pressured {
   border-color: #d8b4fe;
   box-shadow: 0 0 12px rgba(168, 85, 247, .28);

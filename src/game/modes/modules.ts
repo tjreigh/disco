@@ -162,6 +162,31 @@ export const STACK_ADAPTIVE_GENERATION: GenerationRules = {
   boardRelevanceStrength: 0.75,
 };
 
+/**
+ * Seed/history/level are the complete playable-deal inputs. Live board state
+ * is deliberately excluded so equal seeds and turn counts receive equal deals.
+ */
+export const SCORE_RACE_HISTORY_GENERATION: GenerationRules = {
+  kind: 'history-balanced@1',
+  discValueMin: 1,
+  discValueMax: 7,
+  initialUnnumberedProbability: 0.20,
+  unnumberedProbabilityLevelStep: 0.01,
+  maxUnnumberedProbability: 0.40,
+  minLevelForBoardClearBonus: 2,
+  boardAdaptive: false,
+  maxSameValueRun: 3,
+  maxNumberedRun: 6,
+  maxCrackedRun: 2,
+  valueBalanceWindow: 14,
+  valueBalanceStrength: 0.75,
+  kindBalanceWindow: 50,
+  kindBalanceStrength: 1,
+  boardPressureStartHeight: 2,
+  boardPressureStrength: 0,
+  boardRelevanceStrength: 0,
+};
+
 export const CLASSIC_CHAIN_SCORING: ScoringRules = {
   kind: 'chain-score@1',
   pointsPerDisc: 7,
