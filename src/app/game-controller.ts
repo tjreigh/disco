@@ -1,21 +1,12 @@
-import type { Board } from '../game/model.js';
 import type { SoloModeDefinition } from '../game/modes/mode.js';
 import { rewindModifier, turnCostForInstability } from '../game/modes/mode.js';
 import type { GameState } from '../game/state.js';
 import { GamePhase } from '../game/state.js';
 import type { PhysicsStep } from '../game/events.js';
 import { StepKind } from '../game/events.js';
-import type { GravityShiftCue, ScoreIndicator, ScorePopup } from '../ui/rendering/animation-types.js';
-import { deepCloneBoard, makeEmptyBoard } from '../game/board.js';
-import { entryEdgeForAngle, snapAngleToEightDirections } from '../game/gravity/settling.js';
-import { GameEngine } from '../game/engine.js';
-import type { GameOverReason, RewindPreview, TurnResult } from '../game/engine.js';
+import type { GameOverReason, TurnResult } from '../game/engine.js';
 import { CLASSIC_MODE, SOLO_MODES } from '../game/modes/index.js';
 import { DebugPanel } from '../ui/debug/debug-panel.js';
-import {
-  AnimationQueue, spawnGravityShiftCue, spawnScoreIndicator, spawnScorePopups,
-  tickGravityShiftCue, tickScoreIndicators, tickScorePopups,
-} from '../ui/rendering/animation-queue.js';
 import { Renderer } from '../ui/rendering/renderer.js';
 import { InputHandler } from '../platform/input-handler.js';
 import type { InputIntent } from '../platform/input-handler.js';
@@ -25,7 +16,6 @@ import { GameOverScreen } from '../ui/game-over-screen.js';
 import type { GameStats } from '../game/stats.js';
 import { recordCompletedGame, updateRecords } from '../game/stats.js';
 import { AccountStatsStore } from '../platform/account-stats-store.js';
-import { applyStepToVisualBoard } from './visual-board.js';
 import { setGridSize } from '../ui/rendering/layout.js';
 import { TUTORIALS } from './tutorial.js';
 import type { TutorialDefinition, TutorialStep } from './tutorial.js';
@@ -38,21 +28,16 @@ import { SavedGameDialog } from '../ui/saved-game-dialog.js';
 import { RewindDialog } from '../ui/rewind-dialog.js';
 import type { SaveGameV1 } from '../game/save.js';
 import type { UiMounts } from '../ui/ui-root.js';
-
-interface LevelProgressDisplay {
-  level: number;
-  turnsPerLevel: number;
-  turnsRemaining: number;
-}
+import { LocalBoardSession } from './local-board-session.js';
 
 const TURN_PIP_CAPACITY = Math.max(
   ...SOLO_MODES.map(mode => mode.rules.progression.initialTurnsPerLevel),
 );
 const SAVE_EXIT_SYNC_WAIT_MS = 5_000;
 
-export class Game {
-  private state: GameState;
-  private engine: GameEngine;
+export class SoloSessionController {
+  private readonly state: GameState;
+  private readonly session: LocalBoardSession;
   private mode: SoloModeDefinition;
   private renderer: Renderer;
   private input: InputHandler;
@@ -67,50 +52,15 @@ export class Game {
   private readonly savedGameDialog: SavedGameDialog;
   private readonly rewindDialog: RewindDialog;
   private saveDialogMode: SoloModeDefinition | null = null;
-  private animQueue: AnimationQueue | null = null;
   private rafId = 0;
-  // Tracks the board as it should look right now, advanced one physics step at a
-  // time as each animation completes. This is what the renderer draws static discs
-  // from. state.board is already in the final post-physics state, so drawing from
-  // it would show discs at their final positions before the animations reach them.
-  private visualBoard: Board;
-  // Presentation-only score that lags behind the authoritative state.score,
-  // catching up incrementally as each clear step's animation begins — mirrors
-  // how visualBoard lags behind state.board.
-  private displayedScore = 0;
-  private scorePopups: ScorePopup[] = [];
-  private scoreIndicators: ScoreIndicator[] = [];
-  // One-shot visual sweeping the ambient gravity wash from the old direction
-  // to the new one the instant a tilt commits — see spawnGravityShiftCue.
-  private gravityShiftCue: GravityShiftCue | null = null;
   private stats: GameStats;
   private statsStore: AccountStatsStore;
   private unsubscribeStatsStore: (() => void) | null = null;
   private unsubscribeSaveStore: (() => void) | null = null;
-  private longestStreakThisGame = 0;
-  /** Controller-owned streak snapshots aligned oldest-to-newest with engine rewind history. */
-  private rewindLongestStreaks: number[] = [];
-  private rewindPreview: RewindPreview | null = null;
   private pendingRewind = false;
-  private lastGameOverReason: GameOverReason | undefined;
   private highScoreAtGameStart = 0;
   private bestRecordAtGameStart = 0;
-  // Stack mode's current player-triggered cascade. This is presentation-only;
-  // the engine owns both the final stack size and score award.
-  private activeStack = 0;
-  private stackInitialClearSize = 0;
-  private stackChainBatches: Array<{ level: number; cleared: number }> = [];
-  private lastStackScore: {
-    initial: number;
-    chains: Array<{ level: number; cleared: number }>;
-    stack: number;
-    points: number;
-  } | null = null;
-  private stackCascadeActive = false;
   private gameRecorded = false;
-  private displayedLevelProgress: LevelProgressDisplay;
-  private isPaused = false;
-  private pauseStartedAt = 0;
   private activeTutorial: TutorialDefinition | null = null;
   private tutorialStepIndex = 0;
   private saveExitPending = false;
@@ -131,17 +81,26 @@ export class Game {
     this.renderer = new Renderer(canvas);
     this.audio    = new AudioManager();
     this.mode     = CLASSIC_MODE; // placeholder until a mode is chosen on the home screen
-    this.engine   = new GameEngine({ rules: this.mode.rules });
-    this.state    = this.engine.state;
-    this.state.phase = GamePhase.Menu; // suppress gameplay until a mode is selected
-    this.displayedLevelProgress = this.snapshotLevelProgress();
+    this.session = new LocalBoardSession({
+      rules: this.mode.rules,
+      events: {
+        onStableTurn: result => this.handleStableSessionTurn(result),
+        onTurn: result => this.handleSessionTurn(result),
+        onStepStart: step => this.handleSessionStepStart(step),
+        onStepComplete: step => {
+          if (step.kind !== StepKind.Bonus) this.debug.advancePlayback();
+        },
+        onPlaybackComplete: result => this.handleSessionPlaybackComplete(result),
+      },
+    });
+    this.state = this.session.state;
+    this.session.enterMenu(); // suppress gameplay until a mode is selected
     this.debug    = new DebugPanel(this.state, undefined, overlayMount);
     this.tutorialOverlay = new TutorialOverlay(overlayMount);
     this.gameControls = new GameControls(intent => this.handleIntent(intent), controlsMount);
     this.gameHud = new GameHud(stageMount);
     this.savedGameDialog = new SavedGameDialog(overlayMount, modalBackground);
     this.rewindDialog = new RewindDialog(overlayMount, modalBackground);
-    this.visualBoard = makeEmptyBoard(this.mode.rules.board.cols, this.mode.rules.board.rows);
     this.statsStore = new AccountStatsStore(SOLO_MODES);
     this.saveStore = new SyncedSaveStore(SOLO_MODES);
     this.stats = this.statsStore.loadStats(this.mode.id);
@@ -283,30 +242,14 @@ export class Game {
     this.activeTutorial = null;
     this.tutorialOverlay.hide();
     this.mode = mode;
-    this.engine.reconfigure(mode.rules, this.debugSeedOverride());
+    this.session.configure(mode.rules, this.debugSeedOverride());
     this.stats = this.statsStore.loadStats(mode.id);
     this.captureGameStartRecords();
     setGridSize(mode.rules.board.cols, mode.rules.board.rows);
     this.renderer.resize();
-    this.visualBoard = makeEmptyBoard(mode.rules.board.cols, mode.rules.board.rows);
-    this.displayedScore = this.state.score;
-    this.syncLevelProgressDisplay();
-    this.scorePopups = [];
-    this.scoreIndicators = [];
-    this.gravityShiftCue = null;
-    this.longestStreakThisGame = 0;
-    this.rewindLongestStreaks = [];
-    this.rewindPreview = null;
     this.pendingRewind = false;
-    this.lastGameOverReason = undefined;
-    this.activeStack = 0;
-    this.stackInitialClearSize = 0;
-    this.stackChainBatches = [];
-    this.lastStackScore = null;
-    this.stackCascadeActive = false;
     this.gameRecorded = false;
     this.debug.reset();
-    this.isPaused = false;
     this.homeScreen.close();
     this.releaseGameplayFocus();
   }
@@ -323,19 +266,8 @@ export class Game {
     this.renderer.resize();
     this.activeTutorial = tutorial;
     this.tutorialStepIndex = 0;
-    this.longestStreakThisGame = 0;
-    this.activeStack = 0;
-    this.stackInitialClearSize = 0;
-    this.stackChainBatches = [];
-    this.lastStackScore = null;
-    this.stackCascadeActive = false;
     this.gameRecorded = true; // tutorials never count as completed games
     this.debug.reset();
-    this.isPaused = false;
-    this.scorePopups = [];
-    this.scoreIndicators = [];
-    this.gravityShiftCue = null;
-    this.animQueue = null;
     this.loadTutorialStep();
     this.homeScreen.close();
     this.releaseGameplayFocus();
@@ -343,19 +275,12 @@ export class Game {
 
   private returnToMenu(): void {
     this.finalizeCurrentGame();
-    this.isPaused = false;
     this.gameOverScreen.close();
     this.rewindDialog.hide();
     this.homeScreen.closeGameMenu();
     this.activeTutorial = null;
     this.tutorialOverlay.hide();
-    this.animQueue = null;
-    this.scorePopups = [];
-    this.scoreIndicators = [];
-    this.gravityShiftCue = null;
-    this.displayedScore = this.state.score;
-    this.state.phase = GamePhase.Menu;
-    this.rewindPreview = null;
+    this.session.enterMenu();
     this.pendingRewind = false;
     this.homeScreen.open();
   }
@@ -407,19 +332,11 @@ export class Game {
   // state.gravity, which loadScriptedState now always keeps in sync with the
   // active mode/step.
   private currentLaneCount(): number {
-    if (this.state.gravity) {
-      const entryEdge = entryEdgeForAngle(this.state.gravity.angle);
-      if (entryEdge === 'left' || entryEdge === 'right') return this.state.board.length;
-    }
-    return this.state.board[0]!.length;
+    return this.session.view.laneCount;
   }
 
   private currentAxis(): 'col' | 'row' {
-    if (this.state.gravity) {
-      const entryEdge = entryEdgeForAngle(this.state.gravity.angle);
-      if (entryEdge === 'left' || entryEdge === 'right') return 'row';
-    }
-    return 'col';
+    return this.session.view.axis;
   }
 
   private handleIntent(intent: InputIntent): void {
@@ -444,7 +361,7 @@ export class Game {
     // there is no standalone tilt action outside Aiming.
     if (intent.kind === 'tilt') {
       if (this.state.phase === GamePhase.Aiming) {
-        this.engine.tiltGravity(intent.delta);
+        this.session.tilt(intent.delta);
         this.debug.refresh();
       }
       return;
@@ -453,7 +370,7 @@ export class Game {
     // Backs out of a staged gravity drop for free — nothing was committed yet.
     if (intent.kind === 'cancel') {
       if (this.state.phase === GamePhase.Aiming) {
-        this.engine.cancelTilt();
+        this.session.cancelTilt();
         // No-op when hidden or outside a tutorial — restores the step's own prompt.
         this.tutorialOverlay.setAimingPrompt(null);
         this.debug.refresh();
@@ -465,7 +382,7 @@ export class Game {
       if (this.state.phase !== GamePhase.WaitingForDrop) return;
       const lastLane = this.currentLaneCount() - 1;
       const col = Math.max(0, Math.min(lastLane, intent.col));
-      this.engine.moveCursor(col);
+      this.session.moveCursor(col);
       return;
     }
 
@@ -481,12 +398,12 @@ export class Game {
       const col = Math.max(0, Math.min(lastLane, intent.col));
       const tutorialStep = this.currentTutorialStep();
       if (tutorialStep && !tutorialStep.allowedCols.includes(col)) {
-        this.engine.moveCursor(tutorialStep.allowedCols[0] ?? col);
+        this.session.moveCursor(tutorialStep.allowedCols[0] ?? col);
         return;
       }
-      this.state.cursorCol = col;
+      this.session.moveCursor(col);
       if (this.mode.rules.placement.kind === 'stage-and-tilt@1') {
-        const rejected = this.engine.stageGravityDrop(col);
+        const rejected = this.session.stageDrop(col);
         if (rejected === undefined && tutorialStep?.tiltPrompt) {
           this.tutorialOverlay.setAimingPrompt(tutorialStep.tiltPrompt);
         }
@@ -498,31 +415,14 @@ export class Game {
   }
 
   private handleDrop(col: number): void {
-    const previousLevelProgress = this.snapshotLevelProgress();
-    const previousLongestStreak = this.longestStreakThisGame;
-    const result = this.engine.drop(col);
-    this.processTurnResult(result, previousLevelProgress, previousLongestStreak);
+    this.session.drop(col);
   }
 
   private handleCommitTilt(): void {
-    const previousLevelProgress = this.snapshotLevelProgress();
-    // Capture the pre-tilt direction before commitTilt overwrites the angle;
-    // the cue sweeps from here to the committed angle so the rotation reads as
-    // a distinct event instead of snapping on the first post-commit frame.
-    const gravity = this.state.gravity;
-    const fromAngle = gravity?.turnStartAngle ?? 0;
-    const result = this.engine.commitTilt();
-    if (result.accepted && gravity) {
-      this.gravityShiftCue = spawnGravityShiftCue(fromAngle, gravity.angle, performance.now());
-    }
-    this.processTurnResult(result, previousLevelProgress, this.longestStreakThisGame);
+    this.session.commitTilt();
   }
 
-  private processTurnResult(
-    result: TurnResult,
-    previousLevelProgress: LevelProgressDisplay,
-    previousLongestStreak: number,
-  ): void {
+  private handleSessionTurn(result: TurnResult): void {
     if (!result.accepted) {
       this.debug.recordTurn(result);
       if (result.gameOver) {
@@ -531,88 +431,44 @@ export class Game {
       }
       return;
     }
+    this.debug.recordTurn(result);
+  }
 
-    const { steps } = result;
-    const longestStreakThisTurn = steps.reduce(
-      (longest, step) => step.kind === StepKind.Clear
-        ? Math.max(longest, step.chainLevel + 1)
-        : longest,
-      0,
-    );
-    const recordForTurn = this.isStackMode() ? result.stackSize : longestStreakThisTurn;
-    this.longestStreakThisGame = Math.max(this.longestStreakThisGame, recordForTurn);
-    const rewind = rewindModifier(this.mode.rules);
-    if (rewind) {
-      this.rewindLongestStreaks.push(previousLongestStreak);
-      if (this.rewindLongestStreaks.length > rewind.historyDepth) {
-        this.rewindLongestStreaks.splice(
-          0, this.rewindLongestStreaks.length - rewind.historyDepth,
-        );
-      }
-    }
-    this.activeStack = 0;
-    this.stackInitialClearSize = 0;
-    this.stackChainBatches = [];
-    this.stackCascadeActive = this.isStackMode();
+  private handleStableSessionTurn(result: TurnResult): void {
     if (!this.activeTutorial) {
       if (!rewindModifier(this.mode.rules)) {
-        const recordsImproved = updateRecords(this.stats, this.state.score, this.longestStreakThisGame);
+        const recordsImproved = updateRecords(
+          this.stats,
+          this.state.score,
+          this.session.view.longestStreak,
+        );
         if (recordsImproved && !result.gameOver) this.statsStore.saveStats(this.mode.id, this.stats);
       }
       if (result.gameOver && !rewindModifier(this.mode.rules)) this.saveStore.remove(this.mode.id);
       else this.writeCurrentSave();
     }
-    this.visualBoard = result.boardBefore;
-    this.setAnimatedLevelProgress(previousLevelProgress);
-    if (result.gameOver && !this.activeTutorial && !this.engine.canRewind()) this.recordGameEnd();
-
-    // The engine has already completed the turn synchronously. The browser
-    // temporarily overrides its final phase while replaying the returned steps.
-    this.state.phase = GamePhase.Animating;
-    this.debug.recordTurn(result);
-
-    // Baseline for this turn's contribution — displayedScore ticks up to
-    // this.state.score (already final) as each ClearStep's animation begins.
-    this.displayedScore = this.state.score - result.scoreAwarded;
-
-    this.animQueue = new AnimationQueue(
-      steps,
-      (step, now) => this.handleStepStart(step, now),
-      step => {
-        applyStepToVisualBoard(this.visualBoard, step);
-        if (step.kind !== StepKind.Bonus) this.debug.advancePlayback();
-      },
-      () => {
-        this.displayedScore = this.state.score; // convergence safety net
-        this.syncLevelProgressDisplay();
-        if (result.gameOver) {
-          this.setGameOver(result.gameOverReason, false);
-        } else if (this.activeTutorial) {
-          this.completeTutorialTurn(result);
-        } else {
-          this.state.phase = GamePhase.WaitingForDrop;
-          this.debug.refresh();
-        }
-        if (this.pendingRewind) {
-          this.pendingRewind = false;
-          this.requestRewind();
-        }
-      },
-    );
+    if (result.gameOver && !this.activeTutorial && !this.session.canRewind()) {
+      this.recordGameEnd();
+    }
   }
 
-  // Fires the instant a step's animation begins, keeping score and its visual
-  // explanation synchronized with physics playback.
-  private handleStepStart(step: PhysicsStep, now: DOMHighResTimeStamp): void {
+  private handleSessionPlaybackComplete(result: TurnResult): void {
+    if (result.gameOver) {
+      this.setGameOver(result.gameOverReason, false);
+    } else if (this.activeTutorial) {
+      this.completeTutorialTurn(result);
+    } else {
+      this.debug.refresh();
+    }
+    if (this.pendingRewind) {
+      this.pendingRewind = false;
+      this.requestRewind();
+    }
+  }
+
+  private handleSessionStepStart(step: PhysicsStep): void {
     if (step.kind === StepKind.Drop) {
       this.audio.playDrop();
-      if (step.temporalEcho) {
-        this.scoreIndicators.push(spawnScoreIndicator(
-          'TEMPORAL ECHO',
-          'THE TIMELINE REPEATS',
-          now,
-        ));
-      }
     } else if (step.kind === StepKind.Push) {
       this.audio.playPush();
     } else if (step.kind === StepKind.Clear) {
@@ -620,112 +476,40 @@ export class Game {
     } else if (step.kind === StepKind.Reveal) {
       this.audio.playReveal();
     }
-
-    if (step.kind === StepKind.Clear) {
-      if (this.stackCascadeActive) {
-        const previousStack = this.activeStack;
-        this.activeStack += step.cleared.length;
-        if (step.chainLevel === 0) {
-          this.stackInitialClearSize += step.cleared.length;
-        } else {
-          const level = step.chainLevel + 1; // Classic labels the initial clear CHAIN 1.
-          const existing = this.stackChainBatches.find(batch => batch.level === level);
-          if (existing) existing.cleared += step.cleared.length;
-          else this.stackChainBatches.push({ level, cleared: step.cleared.length });
-        }
-        const stackUnit = this.mode.rules.scoring.kind === 'stack-score@1'
-          ? this.mode.rules.scoring.pointsPerStackUnit
-          : 0;
-        const batchAward = stackUnit * (this.activeStack ** 2 - previousStack ** 2);
-        this.displayedScore += batchAward;
-        this.scorePopups.push(...spawnScorePopups(
-          step.cleared,
-          batchAward / step.cleared.length,
-          now,
-        ));
-        return;
-      }
-      this.displayedScore += step.pointsAwarded;
-      const perDiscPoints = step.pointsAwarded / step.cleared.length;
-      this.scorePopups.push(...spawnScorePopups(step.cleared, perDiscPoints, now));
-      const chainLength = step.chainLevel + 1;
-      if (chainLength >= 2) {
-        const multiplier = Math.pow(
-          chainLength,
-          this.mode.rules.scoring.kind === 'chain-score@1'
-            ? this.mode.rules.scoring.chainExponent
-            : 1,
-        );
-        this.scoreIndicators.push(spawnScoreIndicator(
-          `CHAIN ${chainLength}`,
-          `×${formatMultiplier(multiplier)}  +${step.pointsAwarded}`,
-          now,
-        ));
-      }
-    } else if (step.kind === StepKind.Bonus && !this.activeTutorial) {
-      if (step.bonusKind === 'stack') {
-        this.stackCascadeActive = false;
-        const stackUnit = this.mode.rules.scoring.kind === 'stack-score@1'
-          ? this.mode.rules.scoring.pointsPerStackUnit
-          : 0;
-        this.lastStackScore = {
-          initial: this.stackInitialClearSize,
-          chains: this.stackChainBatches.map(batch => ({ ...batch })),
-          stack: this.activeStack,
-          points: step.pointsAwarded,
-        };
-        this.scoreIndicators.push(spawnScoreIndicator(
-          `TURN TOTAL ${this.activeStack}`,
-          `${stackUnit} × ${this.activeStack}² · +${step.pointsAwarded.toLocaleString('en-US')}`,
-          now,
-        ));
-        return;
-      }
-      this.displayedScore += step.pointsAwarded;
-      this.scoreIndicators.push(spawnScoreIndicator(
-        step.bonusKind === 'level' ? 'LEVEL BONUS' : 'BOARD CLEAR',
-        `+${step.pointsAwarded.toLocaleString('en-US')}`,
-        now,
-      ));
-    }
   }
 
   private setGameOver(reason?: GameOverReason, clearSave = true): void {
-    this.state.phase = GamePhase.GameOver;
-    this.lastGameOverReason = reason;
-    const canRewind = this.engine.canRewind();
+    this.session.setGameOver(reason);
+    const canRewind = this.session.canRewind();
     if (canRewind) {
       this.writeCurrentSave();
     } else if (clearSave) {
       this.saveStore.remove(this.mode.id);
     }
-    this.syncLevelProgressDisplay();
     if (!canRewind) this.recordGameEnd();
     this.debug.refresh();
     this.audio.playGameOver();
     this.openGameOverSummary(canRewind);
-    // Drop any in-progress animation — the game-over overlay renders on top,
-    // so partial animation state is invisible and we can discard it safely.
-    this.animQueue = null;
   }
 
-  private openGameOverSummary(canRewind = this.engine.canRewind()): void {
+  private openGameOverSummary(canRewind = this.session.canRewind()): void {
+    const view = this.session.view;
     const displayedStats = canRewind ? this.projectedFinalStats() : this.stats;
     this.gameOverScreen.open({
       score: this.state.score,
       stats: displayedStats,
       isStackMode: this.isStackMode(),
-      bestRunRecord: this.longestStreakThisGame,
+      bestRunRecord: view.longestStreak,
       previousHighScore: this.highScoreAtGameStart,
       previousBestRecord: this.bestRecordAtGameStart,
       canRewind,
-      ...(this.lastGameOverReason ? { reason: this.lastGameOverReason } : {}),
+      ...(view.lastGameOverReason ? { reason: view.lastGameOverReason } : {}),
     });
   }
 
   private projectedFinalStats(): GameStats {
     const projected = { ...this.stats };
-    updateRecords(projected, this.state.score, this.longestStreakThisGame);
+    updateRecords(projected, this.state.score, this.session.view.longestStreak);
     recordCompletedGame(projected, this.state.score);
     return projected;
   }
@@ -733,13 +517,13 @@ export class Game {
   private recordGameEnd(): void {
     if (this.activeTutorial) return;
     if (!this.gameRecorded) {
-      updateRecords(this.stats, this.state.score, this.longestStreakThisGame);
+      updateRecords(this.stats, this.state.score, this.session.view.longestStreak);
       recordCompletedGame(this.stats, this.state.score);
       this.statsStore.recordCompletedGame(
         this.mode.id,
         this.stats,
         this.state.score,
-        this.longestStreakThisGame,
+        this.session.view.longestStreak,
       );
       this.gameRecorded = true;
     }
@@ -752,15 +536,7 @@ export class Game {
   }
 
   private writeCurrentSave(): void {
-    this.saveStore.write(
-      this.mode.id,
-      this.engine.exportSave({
-        longestStreak: this.longestStreakThisGame,
-        ...(this.rewindLongestStreaks.length > 0
-          ? { rewindLongestStreaks: this.rewindLongestStreaks }
-          : {}),
-      }),
-    );
+    this.saveStore.write(this.mode.id, this.session.exportSave());
   }
 
   private handleStatsStoreUpdate(): void {
@@ -781,9 +557,8 @@ export class Game {
       this.pendingRewind = true;
       return;
     }
-    const preview = this.engine.previewRewind();
+    const preview = this.session.previewRewind();
     if (!preview) return;
-    this.rewindPreview = preview;
     this.pausePlayback();
     this.gameOverScreen.close();
     this.rewindDialog.show(preview);
@@ -791,47 +566,28 @@ export class Game {
 
   private selectRewindDepth(turns: number): void {
     if (!this.rewindDialog.isOpen()) return;
-    const preview = this.engine.previewRewind(turns);
+    const preview = this.session.previewRewind(turns);
     if (!preview) return;
-    this.rewindPreview = preview;
     this.rewindDialog.update(preview);
   }
 
   private cancelRewind(): void {
     if (!this.rewindDialog.isOpen()) return;
     this.rewindDialog.hide();
-    this.rewindPreview = null;
+    this.session.clearRewindPreview();
     this.pendingRewind = false;
     if (this.state.phase === GamePhase.GameOver) this.openGameOverSummary(true);
     else this.resumePlayback();
   }
 
   private confirmRewind(): void {
-    const turns = this.rewindPreview?.turnsRewound ?? 1;
-    const restoredLongestStreak = this.rewindLongestStreaks[
-      this.rewindLongestStreaks.length - turns
-    ];
-    const rewind = this.engine.commitRewind(turns);
-    if (!rewind) {
+    if (!this.session.commitRewind()) {
       this.cancelRewind();
       return;
     }
     this.rewindDialog.hide();
     this.gameOverScreen.close();
-    this.rewindPreview = null;
     this.pendingRewind = false;
-    this.lastGameOverReason = undefined;
-    this.longestStreakThisGame = restoredLongestStreak ?? this.longestStreakThisGame;
-    this.rewindLongestStreaks = [];
-    this.visualBoard = deepCloneBoard(this.state.board);
-    this.displayedScore = this.state.score;
-    this.syncLevelProgressDisplay();
-    this.animQueue = null;
-    this.scorePopups = [];
-    this.scoreIndicators = [];
-    this.gravityShiftCue = null;
-    this.isPaused = false;
-    this.pauseStartedAt = 0;
     this.writeCurrentSave();
     this.debug.refresh();
     this.releaseGameplayFocus();
@@ -844,35 +600,17 @@ export class Game {
 
   private restart(): void {
     this.finalizeCurrentGame();
-    this.isPaused = false;
     this.gameOverScreen.close();
     this.rewindDialog.hide();
     this.homeScreen.closeGameMenu();
-    this.animQueue = null;
     if (this.activeTutorial) {
-      this.isPaused = false;
       this.retryTutorialStep();
       return;
     }
     this.saveStore.remove(this.mode.id);
-    this.engine.restart();
+    this.session.restart();
     this.debug.reset();
-    this.visualBoard = makeEmptyBoard(this.mode.rules.board.cols, this.mode.rules.board.rows);
-    this.displayedScore = this.state.score;
-    this.syncLevelProgressDisplay();
-    this.scorePopups = [];
-    this.scoreIndicators = [];
-    this.gravityShiftCue = null;
-    this.longestStreakThisGame = 0;
-    this.rewindLongestStreaks = [];
-    this.rewindPreview = null;
-    this.lastGameOverReason = undefined;
     this.captureGameStartRecords();
-    this.activeStack = 0;
-    this.stackInitialClearSize = 0;
-    this.stackChainBatches = [];
-    this.lastStackScore = null;
-    this.stackCascadeActive = false;
     this.gameRecorded = false;
   }
 
@@ -883,10 +621,6 @@ export class Game {
   private retryTutorialStep(): void {
     if (!this.activeTutorial) return;
     this.homeScreen.closeGameMenu();
-    this.animQueue = null;
-    this.scorePopups = [];
-    this.scoreIndicators = [];
-    this.gravityShiftCue = null;
     this.loadTutorialStep();
   }
 
@@ -895,17 +629,14 @@ export class Game {
     const step = this.currentTutorialStep();
     if (!tutorial || !step) return;
 
-    this.engine.loadScriptedState({
+    this.session.loadScriptedState({
       rules: this.mode.rules,
       board: step.board,
       currentDisc: step.currentDisc,
       nextDisc: step.nextDisc,
       ...(step.gravityAngleDeg !== undefined ? { gravityAngleDeg: step.gravityAngleDeg } : {}),
     });
-    this.visualBoard = deepCloneBoard(step.board);
-    this.displayedScore = this.state.score;
-    this.syncLevelProgressDisplay();
-    this.state.cursorCol = step.allowedCols[0] ?? this.state.cursorCol;
+    this.session.moveCursor(step.allowedCols[0] ?? this.state.cursorCol);
     this.tutorialOverlay.show(tutorial, this.tutorialStepIndex);
     this.debug.refresh();
   }
@@ -921,15 +652,11 @@ export class Game {
     this.tutorialStepIndex++;
     if (this.tutorialStepIndex >= this.activeTutorial.steps.length) {
       const completedTutorial = this.activeTutorial;
-      this.engine.resumeSeededGeneration();
-      this.state.score = 0;
+      this.session.continueFromTutorial();
       this.activeTutorial = null;
-      this.longestStreakThisGame = 0;
       this.gameRecorded = false;
       this.stats = this.statsStore.loadStats(this.mode.id);
       this.captureGameStartRecords();
-      this.displayedScore = this.state.score;
-      this.state.phase = GamePhase.WaitingForDrop;
       this.tutorialOverlay.showComplete(completedTutorial, this.mode.name);
       this.debug.refresh();
       return;
@@ -958,7 +685,7 @@ export class Game {
 
     try {
       this.gameOverScreen.close();
-      const loaded = this.engine.loadSave(save, mode.rules);
+      this.session.loadSave(save, mode.rules);
       this.mode = mode;
       this.stats = this.statsStore.loadStats(mode.id);
       this.captureGameStartRecords();
@@ -966,29 +693,8 @@ export class Game {
       this.renderer.resize();
       this.activeTutorial = null;
       this.tutorialOverlay.hide();
-      this.visualBoard = deepCloneBoard(this.state.board);
-      this.displayedScore = this.state.score;
-      this.syncLevelProgressDisplay();
-      this.scorePopups = [];
-      this.scoreIndicators = [];
-      this.gravityShiftCue = null;
-      this.animQueue = null;
-      this.longestStreakThisGame = loaded.session.longestStreak;
-      this.rewindLongestStreaks = (
-        loaded.paradox?.rewinds
-        ?? (loaded.paradox?.rewind ? [loaded.paradox.rewind] : [])
-      ).map(rewind => rewind.session.longestStreak);
-      this.rewindPreview = null;
-      this.lastGameOverReason = undefined;
-      this.activeStack = 0;
-      this.stackInitialClearSize = 0;
-      this.stackChainBatches = [];
-      this.lastStackScore = null;
-      this.stackCascadeActive = false;
       this.gameRecorded = false;
       this.debug.reset();
-      this.isPaused = false;
-      this.pauseStartedAt = 0;
       this.saveDialogMode = null;
       this.homeScreen.closeGameMenu();
       this.homeScreen.close();
@@ -1020,47 +726,11 @@ export class Game {
   }
 
   private pausePlayback(): void {
-    if (this.isPaused) return;
-    if (this.state.phase !== GamePhase.WaitingForDrop && this.state.phase !== GamePhase.Animating) return;
-    this.isPaused = true;
-    this.pauseStartedAt = performance.now();
+    this.session.pause();
   }
 
   private resumePlayback(): void {
-    if (!this.isPaused) return;
-    const deltaMs = performance.now() - this.pauseStartedAt;
-    this.animQueue?.shiftTime(deltaMs);
-    this.scorePopups = this.scorePopups.map(popup => ({ ...popup, startTime: popup.startTime + deltaMs }));
-    this.scoreIndicators = this.scoreIndicators.map(indicator => ({ ...indicator, startTime: indicator.startTime + deltaMs }));
-    if (this.gravityShiftCue) {
-      this.gravityShiftCue = { ...this.gravityShiftCue, startTime: this.gravityShiftCue.startTime + deltaMs };
-    }
-    this.isPaused = false;
-    this.pauseStartedAt = 0;
-  }
-
-  private snapshotLevelProgress(): LevelProgressDisplay {
-    return {
-      level: this.state.level,
-      turnsPerLevel: this.state.turnsPerLevel,
-      turnsRemaining: this.state.turnsRemaining,
-    };
-  }
-
-  private syncLevelProgressDisplay(): void {
-    this.displayedLevelProgress = this.snapshotLevelProgress();
-  }
-
-  private setAnimatedLevelProgress(previous: LevelProgressDisplay): void {
-    if (this.state.level > previous.level) {
-      this.displayedLevelProgress = {
-        level: previous.level,
-        turnsPerLevel: previous.turnsPerLevel,
-        turnsRemaining: 0,
-      };
-    } else {
-      this.syncLevelProgressDisplay();
-    }
+    this.session.resume();
   }
 
   destroy(): void {
@@ -1078,61 +748,33 @@ export class Game {
 
   private loop(now: DOMHighResTimeStamp): void {
     this.rafId = requestAnimationFrame(this.loop);
-
-    if (!this.isPaused) {
-      this.scorePopups = tickScorePopups(this.scorePopups, now);
-      this.scoreIndicators = tickScoreIndicators(this.scoreIndicators, now);
-      this.gravityShiftCue = tickGravityShiftCue(this.gravityShiftCue, now);
-    }
-    if (!this.isPaused && this.animQueue) {
-      // When a gravity-shift cue is still in its head-start phase (the first
-      // ~15 % of its lifespan), skip the physics animation so the ambient
-      // wash sweep and edge-glow bar play first as a distinct visual event.
-      // Once the cue reaches the threshold the animation begins, and the cue
-      // continues playing over it — first the direction change, then the drop.
-      if (!this.gravityShiftCue || this.gravityShiftCue.progress >= 0.15) {
-        this.animQueue.tick(now);
-      }
-      if (this.animQueue?.isDone()) this.animQueue = null;
-    }
-
-    const anims = this.animQueue?.getActiveAnimations() ?? [];
-    // "A tilt is owed" = no committable tilt exists yet, using the SAME
-    // snapped comparison commitTilt rejects on ('tilt-required') — a player
-    // who tilts +45° and returns to the start angle owes a tilt again. This
-    // single value drives every attention cue (tilt buttons, HUD hint,
-    // compass ring, tutorial lane pulse/arrows) so they can never disagree
-    // with each other or with the engine.
-    const gravity = this.state.gravity;
-    const needsTilt = this.state.phase === GamePhase.Aiming
-      && gravity !== undefined
-      && snapAngleToEightDirections(gravity.angle) === snapAngleToEightDirections(gravity.turnStartAngle);
-    const canConfirmTilt = this.state.phase === GamePhase.Aiming && !needsTilt;
-    const rewindPreview = this.rewindPreview;
+    this.session.tick(now);
+    const view = this.session.view;
+    const rewindPreview = view.rewindPreview;
     this.gameControls.render({
       phase: this.state.phase,
       hasGravity: this.mode.rules.placement.kind === 'stage-and-tilt@1',
       hasRewind: rewindModifier(this.mode.rules) !== undefined,
-      canRewind: this.engine.canRewind(),
+      canRewind: this.session.canRewind(),
       cursorLane: this.state.cursorCol,
-      laneCount: this.currentLaneCount(),
-      axis: this.currentAxis(),
-      canConfirmTilt,
-      needsTilt,
-      disabled: this.homeScreen.isGameMenuOpen() || this.isPaused,
+      laneCount: view.laneCount,
+      axis: view.axis,
+      canConfirmTilt: view.canConfirmTilt,
+      needsTilt: view.needsTilt,
+      disabled: this.homeScreen.isGameMenuOpen() || view.paused,
       isRewindPreview: Boolean(rewindPreview),
     });
     this.gameHud.render({
       phase: this.state.phase,
-      score: rewindPreview?.score ?? this.displayedScore,
+      score: rewindPreview?.score ?? view.displayedScore,
       highScore: Math.max(this.stats.highScore, rewindPreview?.score ?? this.state.score),
       bestRecord: Math.max(
         this.stats.longestStreak,
         rewindPreview
-          ? (this.rewindLongestStreaks[
-            this.rewindLongestStreaks.length - rewindPreview.turnsRewound
-          ] ?? this.longestStreakThisGame)
-          : this.longestStreakThisGame,
+          ? (view.rewindLongestStreaks[
+            view.rewindLongestStreaks.length - rewindPreview.turnsRewound
+          ] ?? view.longestStreak)
+          : view.longestStreak,
       ),
       currentDisc: rewindPreview
         ? { ...this.state.currentDisc, ...rewindPreview.currentDisc }
@@ -1140,10 +782,10 @@ export class Game {
       nextDisc: rewindPreview
         ? { ...this.state.nextDisc, ...rewindPreview.nextDisc }
         : this.state.nextDisc,
-      level: rewindPreview?.level ?? this.displayedLevelProgress.level,
+      level: rewindPreview?.level ?? view.displayedLevelProgress.level,
       initialTurnsPerLevel: this.mode.rules.progression.initialTurnsPerLevel,
-      turnsPerLevel: rewindPreview?.turnsPerLevel ?? this.displayedLevelProgress.turnsPerLevel,
-      turnsRemaining: rewindPreview?.turnsRemaining ?? this.displayedLevelProgress.turnsRemaining,
+      turnsPerLevel: rewindPreview?.turnsPerLevel ?? view.displayedLevelProgress.turnsPerLevel,
+      turnsRemaining: rewindPreview?.turnsRemaining ?? view.displayedLevelProgress.turnsRemaining,
       turnPipCapacity: TURN_PIP_CAPACITY,
       hasGravity: this.mode.rules.placement.kind === 'stage-and-tilt@1',
       hasRewind: rewindModifier(this.mode.rules) !== undefined,
@@ -1157,46 +799,50 @@ export class Game {
       gravityAngle: this.state.gravity?.angle,
       gravityTurnStartAngle: this.state.gravity?.turnStartAngle,
       gravityMaxTiltDelta: this.state.gravity?.maxTiltDelta,
-      needsTilt,
-      canConfirmTilt,
+      needsTilt: view.needsTilt,
+      canConfirmTilt: view.canConfirmTilt,
       isStackMode: this.isStackMode(),
-      currentStack: this.activeStack,
-      stackCascadeActive: this.stackCascadeActive,
-      lastStackScore: this.lastStackScore,
+      currentStack: view.activeStack,
+      stackCascadeActive: view.stackCascadeActive,
+      lastStackScore: view.lastStackScore,
     });
     const tutorialStep = this.currentTutorialStep();
     // While a tilt is in progress, show how the board WOULD land at the
     // current angle rather than its actual (untouched) committed state —
     // this is a pure preview, recomputed every frame, nothing is mutated
     // until the tilt is confirmed.
-    const boardToDraw = this.rewindPreview?.board
+    const boardToDraw = rewindPreview?.board
       ?? (this.state.phase === GamePhase.Aiming
-        ? this.engine.previewSettledBoard()
-        : this.visualBoard);
+        ? this.session.previewSettledBoard()
+        : view.visualBoard);
     // Gravity mode's ghost preview shows the TRUE predicted landing cell
     // (not just the entry edge) so a drop's outcome is never a surprise —
     // only meaningful while a lane is actually selectable.
     const previewLanding = this.state.phase === GamePhase.WaitingForDrop
       && this.mode.rules.placement.kind === 'stage-and-tilt@1'
-      ? this.engine.previewDropLanding(this.state.cursorCol)
+      ? this.session.previewDropLanding(this.state.cursorCol)
       : null;
-    const renderState = this.rewindPreview
+    const renderState = rewindPreview
       ? { ...this.state, phase: GamePhase.Animating }
       : this.state;
     this.renderer.draw(
       renderState,
       boardToDraw,
-      anims,
+      view.animations,
       this.stats,
-      this.scorePopups,
-      this.scoreIndicators,
+      view.scorePopups,
+      view.scoreIndicators,
       tutorialStep
-        ? { allowedCols: tutorialStep.allowedCols, staged: this.state.phase === GamePhase.Aiming, needsTilt }
+        ? {
+            allowedCols: tutorialStep.allowedCols,
+            staged: this.state.phase === GamePhase.Aiming,
+            needsTilt: view.needsTilt,
+          }
         : null,
       previewLanding,
       this.isStackMode(),
-      this.gravityShiftCue,
-      this.rewindPreview ? { targets: this.rewindPreview.fractures } : null,
+      view.gravityShiftCue,
+      rewindPreview ? { targets: rewindPreview.fractures } : null,
     );
   }
 
@@ -1205,6 +851,19 @@ export class Game {
   }
 }
 
-function formatMultiplier(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+/** Application shell for the currently shipped solo product. */
+export class Game {
+  private readonly solo: SoloSessionController;
+
+  constructor(canvas: HTMLCanvasElement, mounts?: UiMounts) {
+    this.solo = new SoloSessionController(canvas, mounts);
+  }
+
+  handleResize(): void {
+    this.solo.handleResize();
+  }
+
+  destroy(): void {
+    this.solo.destroy();
+  }
 }

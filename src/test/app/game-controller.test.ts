@@ -259,6 +259,10 @@ function createGame(): { game: Game; canvas: HTMLCanvasElement } {
   return { game, canvas };
 }
 
+function boardSession(game: Game): any {
+  return (game as any).solo.session;
+}
+
 // ─── Constructor / home state ───────────────────────────────────────────────
 
 describe('constructor / home state', () => {
@@ -516,12 +520,9 @@ describe('normal drop flow', () => {
 
   test('shows a Temporal Echo callout when the repeated drop begins', () => {
     const { game } = createGame();
-    const controller = game as unknown as {
-      handleStepStart: (step: unknown, now: number) => void;
-      scoreIndicators: Array<{ title: string; detail: string }>;
-    };
+    const session = boardSession(game);
 
-    controller.handleStepStart({
+    session.handleStepStart({
       kind: StepKind.Drop,
       disc: makeDisc(4, DiscKind.Numbered),
       entryPos: { row: -1, col: 2 },
@@ -530,7 +531,7 @@ describe('normal drop flow', () => {
     }, 500);
 
     expect(lastOf(audioInstances).playDrop).toHaveBeenCalledOnce();
-    expect(controller.scoreIndicators).toEqual([
+    expect(session.view.scoreIndicators).toEqual([
       expect.objectContaining({
         title: 'TEMPORAL ECHO',
         detail: 'THE TIMELINE REPEATS',
@@ -543,15 +544,9 @@ describe('normal drop flow', () => {
     const homeScreen = lastOf(homeScreenInstances);
     homeScreen.onSelectMode(STACK_MODE);
 
-    const controller = game as unknown as {
-      handleStepStart: (step: unknown, now: number) => void;
-      stackCascadeActive: boolean;
-      scorePopups: Array<{ value: number; row: number; col: number }>;
-      scoreIndicators: Array<{ title: string; detail: string }>;
-      lastStackScore: unknown;
-    };
-    controller.stackCascadeActive = true;
-    controller.handleStepStart({
+    const session = boardSession(game);
+    session.stackCascadeActive = true;
+    session.handleStepStart({
       kind: StepKind.Clear,
       cleared: [{ row: 6, col: 1 }, { row: 5, col: 1 }, { row: 6, col: 2 }],
       discs: [],
@@ -559,21 +554,21 @@ describe('normal drop flow', () => {
       pointsAwarded: 0,
     }, 100);
 
-    expect(controller.scorePopups).toEqual([
+    expect(session.view.scorePopups).toEqual([
       expect.objectContaining({ value: 30, row: 6, col: 1 }),
       expect.objectContaining({ value: 30, row: 5, col: 1 }),
       expect.objectContaining({ value: 30, row: 6, col: 2 }),
     ]);
 
-    controller.handleStepStart({ kind: StepKind.Bonus, bonusKind: 'stack', pointsAwarded: 90 }, 700);
-    expect(controller.scorePopups).toHaveLength(3);
-    expect(controller.scoreIndicators).toEqual([
+    session.handleStepStart({ kind: StepKind.Bonus, bonusKind: 'stack', pointsAwarded: 90 }, 700);
+    expect(session.view.scorePopups).toHaveLength(3);
+    expect(session.view.scoreIndicators).toEqual([
       expect.objectContaining({
         title: 'TURN TOTAL 3',
         detail: '10 × 3² · +90',
       }),
     ]);
-    expect(controller.lastStackScore).toEqual({
+    expect(session.view.lastStackScore).toEqual({
       initial: 3, chains: [], stack: 3, points: 90,
     });
   });
@@ -583,41 +578,36 @@ describe('normal drop flow', () => {
     const homeScreen = lastOf(homeScreenInstances);
     homeScreen.onSelectMode(STACK_MODE);
 
-    const controller = game as unknown as {
-      handleStepStart: (step: unknown, now: number) => void;
-      stackCascadeActive: boolean;
-      scoreIndicators: Array<{ title: string; detail: string }>;
-      lastStackScore: unknown;
-    };
-    controller.stackCascadeActive = true;
-    controller.handleStepStart({
+    const session = boardSession(game);
+    session.stackCascadeActive = true;
+    session.handleStepStart({
       kind: StepKind.Clear,
       cleared: [{ row: 6, col: 1 }, { row: 5, col: 1 }, { row: 4, col: 1 }],
       discs: [],
       chainLevel: 0,
       pointsAwarded: 0,
     }, 100);
-    controller.handleStepStart({
+    session.handleStepStart({
       kind: StepKind.Push,
       edge: 'bottom',
       newDiscs: [],
     }, 300);
-    controller.handleStepStart({
+    session.handleStepStart({
       kind: StepKind.Clear,
       cleared: [{ row: 6, col: 2 }, { row: 6, col: 3 }],
       discs: [],
       chainLevel: 1,
       pointsAwarded: 0,
     }, 500);
-    controller.handleStepStart({ kind: StepKind.Bonus, bonusKind: 'stack', pointsAwarded: 250 }, 900);
+    session.handleStepStart({ kind: StepKind.Bonus, bonusKind: 'stack', pointsAwarded: 250 }, 900);
 
-    expect(controller.scoreIndicators).toEqual([
+    expect(session.view.scoreIndicators).toEqual([
       expect.objectContaining({
         title: 'TURN TOTAL 5',
         detail: '10 × 5² · +250',
       }),
     ]);
-    expect(controller.lastStackScore).toEqual({
+    expect(session.view.lastStackScore).toEqual({
       initial: 3, chains: [{ level: 2, cleared: 2 }], stack: 5, points: 250,
     });
   });
@@ -627,27 +617,22 @@ describe('normal drop flow', () => {
     const homeScreen = lastOf(homeScreenInstances);
     homeScreen.onSelectMode(STACK_MODE);
 
-    const controller = game as unknown as {
-      handleStepStart: (step: unknown, now: number) => void;
-      stackCascadeActive: boolean;
-      scorePopups: Array<{ value: number }>;
-      lastStackScore: unknown;
-    };
-    controller.stackCascadeActive = true;
-    controller.handleStepStart({ kind: StepKind.Push, edge: 'bottom', newDiscs: [] }, 100);
-    controller.handleStepStart({
+    const session = boardSession(game);
+    session.stackCascadeActive = true;
+    session.handleStepStart({ kind: StepKind.Push, edge: 'bottom', newDiscs: [] }, 100);
+    session.handleStepStart({
       kind: StepKind.Clear,
       cleared: [{ row: 5, col: 6 }],
       discs: [],
       chainLevel: 0,
       pointsAwarded: 0,
     }, 300);
-    controller.handleStepStart({ kind: StepKind.Bonus, bonusKind: 'stack', pointsAwarded: 10 }, 700);
+    session.handleStepStart({ kind: StepKind.Bonus, bonusKind: 'stack', pointsAwarded: 10 }, 700);
 
-    expect(controller.scorePopups).toEqual([
+    expect(session.view.scorePopups).toEqual([
       expect.objectContaining({ value: 10 }),
     ]);
-    expect(controller.lastStackScore).toEqual({
+    expect(session.view.lastStackScore).toEqual({
       initial: 1, chains: [], stack: 1, points: 10,
     });
   });
@@ -687,9 +672,9 @@ describe('Paradox playable rewind flow', () => {
     dialog.querySelector<HTMLButtonElement>('.rewind-panel__button--primary')!.click();
     frame(16);
 
-    const controller = game as unknown as { state: { dropCount: number; paradox?: { instability: number } } };
-    expect(controller.state.dropCount).toBe(0);
-    expect(controller.state.paradox?.instability).toBe(1);
+    const state = boardSession(game).state;
+    expect(state.dropCount).toBe(0);
+    expect(state.paradox?.instability).toBe(1);
     expect(document.querySelector('.rewind-dialog--open')).toBeNull();
     const saved = saveStore.write.mock.calls.at(-1)![1];
     expect(saved.paradox).toEqual({ instability: 1 });
@@ -713,19 +698,17 @@ describe('Paradox playable rewind flow', () => {
     expect(dialog.textContent).toContain('Instability 0 → 3');
     dialog.querySelector<HTMLButtonElement>('.rewind-panel__button--primary')!.click();
 
-    const controller = game as unknown as {
-      state: { dropCount: number; paradox?: { instability: number } };
-    };
-    expect(controller.state.dropCount).toBe(0);
-    expect(controller.state.paradox?.instability).toBe(3);
+    const state = boardSession(game).state;
+    expect(state.dropCount).toBe(0);
+    expect(state.paradox?.instability).toBe(3);
     expect(lastOf(saveStoreInstances).write.mock.calls.at(-1)![1].paradox).toEqual({ instability: 3 });
   });
 
   test('keeps a fatal turn provisional, allows rescue, and records only when the player starts over', () => {
     const { game } = createGame();
     lastOf(homeScreenInstances).onSelectMode(PARADOX_MODE);
-    const controller = game as unknown as { engine: GameEngine; state: { phase: GamePhase } };
-    const engine = controller.engine;
+    const state = boardSession(game).state;
+    const engine = boardSession(game).engine as GameEngine;
     for (let row = 0; row < 7; row++) {
       for (let col = 0; col < 7; col++) {
         if (row !== 0 || col !== 0) engine.state.board[row]![col] = makeDisc(7, DiscKind.DoubleCracked);
@@ -736,7 +719,7 @@ describe('Paradox playable rewind flow', () => {
     input.onIntent({ kind: 'drop', col: 0 });
     drainAnimations();
     const statsStore = lastOf(statsStoreInstances);
-    expect(controller.state.phase).toBe(GamePhase.GameOver);
+    expect(state.phase).toBe(GamePhase.GameOver);
     expect(statsStore.recordCompletedGame).not.toHaveBeenCalled();
 
     const gameOver = document.querySelector<HTMLElement>('.game-over-screen--open')!;
@@ -745,7 +728,7 @@ describe('Paradox playable rewind flow', () => {
     expect(rewind.hidden).toBe(false);
     rewind.click();
     document.querySelector<HTMLButtonElement>('.rewind-panel__button--primary')!.click();
-    expect(controller.state.phase).toBe(GamePhase.WaitingForDrop);
+    expect(state.phase).toBe(GamePhase.WaitingForDrop);
     expect(statsStore.recordCompletedGame).not.toHaveBeenCalled();
 
     input.onIntent({ kind: 'drop', col: 0 });
@@ -754,7 +737,7 @@ describe('Paradox playable rewind flow', () => {
       .find(button => button.textContent === 'NEW GAME')!;
     newGame.click();
     expect(statsStore.recordCompletedGame).toHaveBeenCalledTimes(1);
-    expect(controller.state.phase).toBe(GamePhase.WaitingForDrop);
+    expect(state.phase).toBe(GamePhase.WaitingForDrop);
   });
 });
 
@@ -778,9 +761,9 @@ describe('game over during the final turn\'s animation', () => {
     homeScreen.onSelectMode(CLASSIC_MODE);
     frame(0);
 
-    const engine = (game as unknown as {
-      engine: { state: { board: Board; currentDisc: ReturnType<typeof makeDisc>; score: number } };
-    }).engine;
+    const engine = boardSession(game).engine as {
+      state: { board: Board; currentDisc: ReturnType<typeof makeDisc>; score: number };
+    };
     // Fill every cell except (row 0, col 0) with discs that never auto-clear,
     // so a single drop into column 0 (landing at row 0, since rows 1-6 are
     // already full) is the one thing that completes the board.
@@ -990,7 +973,7 @@ describe('saved game resume', () => {
     expect(call[5]).toEqual([]);
     expect(call[8]).toBe(true);
     expect(call[9]).toBeNull();
-    expect((game as unknown as { longestStreakThisGame: number }).longestStreakThisGame).toBe(7);
+    expect(boardSession(game).view.longestStreak).toBe(7);
     expect(homeScreen.close).toHaveBeenCalled();
   });
 
