@@ -1,12 +1,17 @@
 import { describe, expect, test } from 'vitest';
 import {
   determineScoreRaceResult,
+  localizeMultiplayerResult,
+  multiplayerModeIdentity,
   MULTIPLAYER_PROTOCOL_VERSION,
+  parseMultiplayerClientMessage,
+  parseMultiplayerServerMessage,
   rulesIdentity,
   SCORE_RACE_MODE_ID,
+  SCORE_RACE_MODE_VERSION,
   SCORE_RACE_RULES_VERSION,
   sameRulesIdentity,
-} from '../../src/shared/multiplayer-contracts.js';
+} from '../src/multiplayer/contracts.js';
 
 describe('shared multiplayer contracts', () => {
   test('the API consumes the same protocol and rules identity source as the browser', () => {
@@ -25,17 +30,65 @@ describe('shared multiplayer contracts', () => {
   });
 
   test('highest score wins and exact score equality is a tie', () => {
-    expect(determineScoreRaceResult('local', 700, 'opponent', 500)).toEqual({
-      outcome: 'win',
+    const win = determineScoreRaceResult('local', 700, 'opponent', 500);
+    expect(win).toEqual({
       winnerId: 'local',
-      localScore: 700,
-      opponentScore: 500,
+      scores: [
+        { playerId: 'local', score: 700 },
+        { playerId: 'opponent', score: 500 },
+      ],
     });
     expect(determineScoreRaceResult('local', 500, 'opponent', 500)).toEqual({
-      outcome: 'tie',
       winnerId: null,
-      localScore: 500,
-      opponentScore: 500,
+      scores: [
+        { playerId: 'local', score: 500 },
+        { playerId: 'opponent', score: 500 },
+      ],
     });
+    expect(localizeMultiplayerResult(win, 'opponent')).toEqual({
+      outcome: 'loss',
+      localScore: 500,
+      opponentScore: 700,
+    });
+  });
+
+  test('parses canonical wire messages and rejects malformed or contradictory data', () => {
+    const mode = multiplayerModeIdentity({
+      id: SCORE_RACE_MODE_ID,
+      version: SCORE_RACE_MODE_VERSION,
+      rules: {
+        id: SCORE_RACE_MODE_ID,
+        version: SCORE_RACE_RULES_VERSION,
+      },
+    });
+    expect(parseMultiplayerClientMessage({
+      protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+      roomId: 'ROOM1',
+      playerId: 'player-1',
+      type: 'publish-progress',
+      matchId: 'match-1',
+      progress: { sequence: 1, score: 700, turnsPlayed: 2 },
+    }).ok).toBe(true);
+    expect(parseMultiplayerServerMessage({
+      protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+      roomId: 'ROOM1',
+      mode,
+      type: 'match-finished',
+      matchId: 'match-1',
+      result: {
+        winnerId: 'player-2',
+        scores: [
+          { playerId: 'player-1', score: 700 },
+          { playerId: 'player-2', score: 500 },
+        ],
+      },
+    })).toEqual({ ok: false, error: 'invalid-message' });
+    expect(parseMultiplayerClientMessage({
+      protocolVersion: 99,
+      roomId: 'ROOM1',
+      playerId: 'player-1',
+      type: 'set-ready',
+      ready: true,
+    })).toEqual({ ok: false, error: 'protocol-mismatch' });
   });
 });

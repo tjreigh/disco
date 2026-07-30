@@ -1,6 +1,6 @@
 import type { Board, Disc, GridPos } from './model.js';
 import { DiscKind } from './model.js';
-import type { GameRulesConfig } from './modes/mode.js';
+import type { GameRulesConfig, GenerationRules } from './modes/mode.js';
 import { unnumberedProbabilityForLevel } from './modes/mode.js';
 import type { RandomSource } from './random.js';
 import { cloneBoard, landingRow, placeDisc, removeDisc, applyGravity } from './board.js';
@@ -171,8 +171,9 @@ export class PlayableDiscGenerator {
 
   private chooseValue(level: number, board: Board): number {
     const config = this.rules.generation;
+    const boardAdaptive = config.kind === 'adaptive-history@1';
     const valueCount = config.discValueMax - config.discValueMin + 1;
-    const guardActive = config.boardAdaptive
+    const guardActive = boardAdaptive
       && level < config.minLevelForBoardClearBonus;
     let candidates = Array.from(
       { length: valueCount },
@@ -184,8 +185,8 @@ export class PlayableDiscGenerator {
     }
     const recent = this.values.slice(-config.valueBalanceWindow);
     const expected = recent.length / valueCount;
-    const pressure = config.boardAdaptive ? this.boardPressure(board) : 0;
-    const relevanceRates = config.boardAdaptive
+    const pressure = boardAdaptive ? this.boardPressure(board, config) : 0;
+    const relevanceRates = boardAdaptive
       ? this.relevanceRates(board, candidates)
       : new Map(candidates.map(value => [value, 0]));
     const valueRange = config.discValueMax - config.discValueMin;
@@ -193,15 +194,21 @@ export class PlayableDiscGenerator {
       const count = recent.filter(item => item === value).length;
       const historyWeight = Math.max(0.1, 1 + config.valueBalanceStrength * (expected - count));
       const normalizedValue = valueRange === 0 ? 0 : (value - config.discValueMin) / valueRange;
-      const pressureWeight = Math.exp(-config.boardPressureStrength * pressure * normalizedValue);
-      const relevanceWeight = 1 + config.boardRelevanceStrength * pressure * relevanceRates.get(value)!;
+      const pressureWeight = boardAdaptive
+        ? Math.exp(-config.boardPressureStrength * pressure * normalizedValue)
+        : 1;
+      const relevanceWeight = boardAdaptive
+        ? 1 + config.boardRelevanceStrength * pressure * relevanceRates.get(value)!
+        : 1;
       return historyWeight * pressureWeight * relevanceWeight;
     });
     return weightedChoice(candidates, weights, this.random);
   }
 
-  private boardPressure(board: Board): number {
-    const config = this.rules.generation;
+  private boardPressure(
+    board: Board,
+    config: Extract<GenerationRules, { kind: 'adaptive-history@1' }>,
+  ): number {
     const cols = board[0]?.length ?? 0;
     let maxColumnHeight = 0;
     for (let col = 0; col < cols; col++) {

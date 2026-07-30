@@ -1,23 +1,24 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, test } from 'vitest';
-import {
-  FakeMultiplayerTransport,
-  MultiplayerSessionController,
-} from '../../app/multiplayer-session-controller.js';
+import { MultiplayerSessionController } from '../../app/multiplayer-session-controller.js';
 import {
   SCORE_RACE_MODE,
-  SCORE_RACE_RULES,
 } from '../../game/modes/index.js';
 import {
+  defineMultiplayerMode,
+} from '../../game/modes/mode.js';
+import type { MultiplayerModeDefinition } from '../../game/modes/mode.js';
+import {
+  determineScoreRaceResult,
+  multiplayerModeIdentity,
   MULTIPLAYER_PROTOCOL_VERSION,
-  rulesIdentity,
 } from '../../shared/multiplayer-contracts.js';
 import type {
   MultiplayerModeIdentity,
   MultiplayerServerMessage,
 } from '../../shared/multiplayer-contracts.js';
-import type { GameRulesConfig } from '../../game/modes/mode.js';
+import { FakeMultiplayerTransport } from '../fakes/multiplayer-transport.js';
 import { testMode } from '../helpers.js';
 
 class FakeClock {
@@ -27,31 +28,24 @@ class FakeClock {
   }
 }
 
-const mode: MultiplayerModeIdentity = {
-  modeId: SCORE_RACE_MODE.id,
-  rules: rulesIdentity(SCORE_RACE_RULES),
-};
+type WithoutServerEnvelope<T> = T extends MultiplayerServerMessage
+  ? Omit<T, 'protocolVersion' | 'roomId' | 'mode'>
+  : never;
+type ServerPayload = WithoutServerEnvelope<MultiplayerServerMessage>;
 
-function serverMessage<T extends Omit<
-  MultiplayerServerMessage,
-  'protocolVersion' | 'roomId' | 'mode'
->>(message: T, messageMode = mode): T & {
-  protocolVersion: typeof MULTIPLAYER_PROTOCOL_VERSION;
-  roomId: string;
-  mode: MultiplayerModeIdentity;
-} {
+function serverMessage(
+  message: ServerPayload,
+  mode: MultiplayerModeIdentity = multiplayerModeIdentity(SCORE_RACE_MODE),
+): MultiplayerServerMessage {
   return {
     protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
     roomId: 'ROOM1',
-    mode: messageMode,
+    mode,
     ...message,
-  };
+  } as MultiplayerServerMessage;
 }
 
-function createSession(
-  rules: GameRulesConfig = SCORE_RACE_RULES,
-  modeId = SCORE_RACE_MODE.id,
-): {
+function createSession(mode: MultiplayerModeDefinition = SCORE_RACE_MODE): {
   clock: FakeClock;
   transport: FakeMultiplayerTransport;
   controller: MultiplayerSessionController;
@@ -61,15 +55,29 @@ function createSession(
   const controller = new MultiplayerSessionController({
     roomId: 'ROOM1',
     playerId: 'local-player',
-    modeId,
-    rules,
+    mode,
     clock,
     transport,
   });
   return { clock, transport, controller };
 }
 
-describe('MultiplayerSessionController', () => {
+function startMatch(
+  transport: FakeMultiplayerTransport,
+  startsAt = 0,
+  mode: MultiplayerModeDefinition = SCORE_RACE_MODE,
+  matchId = 'match-1',
+): void {
+  transport.receive(serverMessage({
+    type: 'match-countdown',
+    matchId,
+    startsAt,
+    deadline: startsAt + mode.session.durationMs,
+    seed: 1,
+  }, multiplayerModeIdentity(mode)));
+}
+
+describe('MultiplayerSessionController lifecycle', () => {
   test('runs a deterministic timed match without solo persistence or real timers', () => {
     const { clock, transport, controller } = createSession();
     expect(controller.view.phase).toBe('lobby');
@@ -78,13 +86,7 @@ describe('MultiplayerSessionController', () => {
     expect(controller.view.phase).toBe('ready');
     expect(transport.sent.at(-1)).toMatchObject({ type: 'set-ready', ready: true });
 
-    transport.receive(serverMessage({
-      type: 'match-countdown',
-      matchId: 'match-1',
-      startsAt: 1_000,
-      deadline: 1_000 + SCORE_RACE_MODE.session.durationMs,
-      seed: 1,
-    }));
+    startMatch(transport, 1_000);
     expect(controller.view.phase).toBe('countdown');
     expect(controller.view.remainingMs).toBe(1_000);
     expect(controller.drop(3)).toBeNull();
@@ -98,11 +100,10 @@ describe('MultiplayerSessionController', () => {
     expect(transport.sent.at(-1)).toMatchObject({
       type: 'publish-progress',
       matchId: 'match-1',
+      playerId: 'local-player',
       progress: {
-        playerId: 'local-player',
         sequence: 1,
         turnsPlayed: 1,
-        finished: false,
       },
     });
 
@@ -140,44 +141,88 @@ describe('MultiplayerSessionController', () => {
     expect(transport.sent.at(-1)).toMatchObject({
       type: 'finish-match',
       matchId: 'match-1',
-      progress: { turnsPlayed: 1, finished: true },
+      progress: { sequence: 1, turnsPlayed: 1 },
     });
 
     transport.receive(serverMessage({
       type: 'match-finished',
       matchId: 'match-1',
-      result: {
-        outcome: 'win',
-        winnerId: 'local-player',
-        localScore: 500,
-        opponentScore: 250,
-      },
+      result: determineScoreRaceResult(
+        'local-player',
+        500,
+        'opponent-player',
+        250,
+      ),
     }));
     expect(controller.view.result).toEqual({
       outcome: 'win',
-      winnerId: 'local-player',
       localScore: 500,
       opponentScore: 250,
     });
   });
 
-  test('rejects a server rules identity that differs from the local board', () => {
+  test('keeps an authoritative result terminal across disconnect and reconnect', () => {
     const { transport, controller } = createSession();
+    startMatch(transport);
+    transport.receive(serverMessage({
+      type: 'match-finished',
+      matchId: 'match-1',
+      result: determineScoreRaceResult(
+        'local-player',
+        100,
+        'opponent-player',
+        100,
+      ),
+    }));
 
-    transport.receive({
-      ...serverMessage({
-        type: 'room-state',
-        localReady: false,
-        opponentReady: false,
-      }),
-      mode: {
-        ...mode,
-        rules: { ...mode.rules, version: mode.rules.version + 1 },
-      },
-    });
+    transport.setConnection('disconnected');
+    transport.setConnection('reconnecting');
+    transport.setConnection('connected');
+
+    expect(controller.view.phase).toBe('finished');
+    expect(controller.view.result?.outcome).toBe('tie');
+  });
+
+  test('keeps compatibility failures terminal when later messages arrive', () => {
+    const { transport, controller } = createSession();
+    const identity = multiplayerModeIdentity(SCORE_RACE_MODE);
+
+    transport.receive(serverMessage({
+      type: 'room-state',
+      localReady: false,
+      opponentReady: false,
+    }, {
+      ...identity,
+      rules: { ...identity.rules, version: identity.rules.version + 1 },
+    }));
+    transport.receive(serverMessage({
+      type: 'room-state',
+      localReady: false,
+      opponentReady: false,
+    }));
 
     expect(controller.view.phase).toBe('finished');
     expect(controller.view.compatibilityError).toBe('rules-mismatch');
+  });
+
+  test('rejects malformed messages and a duration outside the versioned session contract', () => {
+    const malformed = createSession();
+    malformed.transport.receive({
+      protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+      roomId: 'ROOM1',
+      type: 'match-countdown',
+    });
+    expect(malformed.controller.view.compatibilityError).toBe('invalid-message');
+
+    const wrongDuration = createSession();
+    wrongDuration.transport.receive(serverMessage({
+      type: 'match-countdown',
+      matchId: 'short-match',
+      startsAt: 0,
+      deadline: 30_000,
+      seed: 1,
+    }));
+    expect(wrongDuration.controller.view.compatibilityError).toBe('session-mismatch');
   });
 
   test('finishes immediately when overflow or a full board ends the local run', () => {
@@ -188,24 +233,25 @@ describe('MultiplayerSessionController', () => {
         kind: 'history-balanced@1',
         discValueMin: 2,
         discValueMax: 2,
-        boardAdaptive: false,
-        boardPressureStrength: 0,
-        boardRelevanceStrength: 0,
       },
     });
-    const terminalMode: MultiplayerModeIdentity = {
-      modeId: terminalRules.id,
-      rules: rulesIdentity(terminalRules),
-    };
-    const { transport, controller } = createSession(terminalRules, terminalRules.id);
+    const terminalMode = defineMultiplayerMode({
+      kind: 'multiplayer',
+      id: terminalRules.id,
+      version: 1,
+      name: 'Terminal fixture',
+      tagline: 'One turn fixture.',
+      rules: terminalRules,
+      session: {
+        kind: 'timed-score-race@1',
+        durationMs: 60_000,
+        fairness: { kind: 'identical-sequence' },
+        result: { kind: 'highest-score-wins@1', tie: 'tie' },
+      },
+    });
+    const { transport, controller } = createSession(terminalMode);
 
-    transport.receive(serverMessage({
-      type: 'match-countdown',
-      matchId: 'terminal-match',
-      startsAt: 0,
-      deadline: 60_000,
-      seed: 42,
-    }, terminalMode));
+    startMatch(transport, 0, terminalMode, 'terminal-match');
     const turn = controller.drop(0);
 
     expect(turn).toMatchObject({ accepted: true, gameOver: true });
@@ -216,7 +262,6 @@ describe('MultiplayerSessionController', () => {
       progress: {
         sequence: 1,
         turnsPlayed: 1,
-        finished: true,
       },
     });
   });

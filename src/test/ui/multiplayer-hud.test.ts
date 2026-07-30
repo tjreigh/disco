@@ -43,7 +43,6 @@ describe('MultiplayerHud', () => {
       opponent: null,
       result: {
         outcome: 'win',
-        winnerId: 'local',
         localScore: 2_000,
         opponentScore: 1_250,
       },

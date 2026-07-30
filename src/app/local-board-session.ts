@@ -199,10 +199,6 @@ export class LocalBoardSession {
     this.resetStackPresentation();
   }
 
-  resumeSeededGeneration(): void {
-    this.engine.resumeSeededGeneration();
-  }
-
   continueFromTutorial(): void {
     this.engine.resumeSeededGeneration();
     this.state.score = 0;
@@ -292,10 +288,6 @@ export class LocalBoardSession {
     this.rewindLongestStreaks = [];
     this.resetPresentation(deepCloneBoard(this.state.board));
     return true;
-  }
-
-  setLongestStreak(value: number): void {
-    this.longestStreak = value;
   }
 
   enterMenu(): void {

@@ -1,29 +1,18 @@
 import type {
   MultiplayerCompatibilityError,
   MultiplayerLocalPhase,
-  MultiplayerSessionView,
 } from '../app/multiplayer-session-controller.js';
 import type {
   MultiplayerPlayerProgress,
-  MultiplayerResult,
+  MultiplayerLocalResult,
 } from '../shared/multiplayer-contracts.js';
 
 export interface MultiplayerHudView {
   readonly phase: MultiplayerLocalPhase;
   readonly remainingMs: number | null;
   readonly opponent: MultiplayerPlayerProgress | null;
-  readonly result: MultiplayerResult | null;
+  readonly result: MultiplayerLocalResult | null;
   readonly compatibilityError: MultiplayerCompatibilityError | null;
-}
-
-export function multiplayerHudView(view: MultiplayerSessionView): MultiplayerHudView {
-  return {
-    phase: view.phase,
-    remainingMs: view.remainingMs,
-    opponent: view.opponent,
-    result: view.result,
-    compatibilityError: view.compatibilityError,
-  };
 }
 
 /** Score/status-only multiplayer chrome; the local board remains the primary view. */
@@ -74,6 +63,8 @@ function statusText(
 ): string {
   if (error === 'protocol-mismatch') return 'CLIENT UPDATE REQUIRED';
   if (error === 'rules-mismatch') return 'RULES VERSION MISMATCH';
+  if (error === 'session-mismatch') return 'MATCH RULES MISMATCH';
+  if (error === 'invalid-message') return 'INVALID SERVER MESSAGE';
   switch (phase) {
     case 'lobby': return 'IN LOBBY';
     case 'ready': return 'READY';
@@ -100,7 +91,7 @@ function opponentText(progress: MultiplayerPlayerProgress | null): string {
   return `OPPONENT ${progress.score.toLocaleString('en-US')}${progress.finished ? ' · FINISHED' : ''}`;
 }
 
-function resultText(result: MultiplayerResult | null): string {
+function resultText(result: MultiplayerLocalResult | null): string {
   if (!result) return '';
   const label = result.outcome === 'win' ? 'YOU WIN' : result.outcome === 'loss' ? 'YOU LOSE' : 'TIE';
   return `${label} · ${result.localScore.toLocaleString('en-US')}–${result.opponentScore.toLocaleString('en-US')}`;

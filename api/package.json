@@ -3,14 +3,24 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "imports": {
+    "#multiplayer-contracts": "./dist/shared/multiplayer-contracts.js",
+    "#multiplayer-messages": "./dist/shared/multiplayer-messages.js"
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.json && tsc -p tsconfig.contracts.json",
+    "clean": "rm -rf dist",
+    "build:contracts": "tsc -p tsconfig.contracts.json",
+    "build": "npm run clean && npm run build:contracts && tsc -p tsconfig.json",
+    "predev": "npm run build:contracts",
     "dev": "tsx watch src/server.ts",
+    "premigrate": "npm run build:contracts",
     "migrate": "tsx src/db/migrate.ts",
     "start": "node dist/server.js",
+    "pretest": "npm run build:contracts",
     "test": "vitest run",
+    "pretest:coverage": "npm run build:contracts",
     "test:coverage": "vitest run --coverage",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.contracts.json --noEmit"
+    "typecheck": "npm run build:contracts && tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

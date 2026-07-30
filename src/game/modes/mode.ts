@@ -44,16 +44,13 @@ export interface RevealRules {
   readonly revealAdjacent: (board: Board, cleared: GridPos[]) => RevealStep;
 }
 
-export interface GenerationRules {
-  readonly kind: 'adaptive-history@1' | 'history-balanced@1';
+interface GenerationHistoryRules {
   readonly discValueMin: number;
   readonly discValueMax: number;
   readonly initialUnnumberedProbability: number;
   readonly unnumberedProbabilityLevelStep: number;
   readonly maxUnnumberedProbability: number;
   readonly minLevelForBoardClearBonus: number;
-  /** Whether choices may vary with the live board even when the seed is shared. */
-  readonly boardAdaptive: boolean;
   /** Hard cap on repeats of the same disc value in a row. */
   readonly maxSameValueRun: number;
   /** Hard cap on consecutive Numbered discs. */
@@ -64,10 +61,19 @@ export interface GenerationRules {
   readonly valueBalanceStrength: number;
   readonly kindBalanceWindow: number;
   readonly kindBalanceStrength: number;
-  readonly boardPressureStartHeight: number;
-  readonly boardPressureStrength: number;
-  readonly boardRelevanceStrength: number;
 }
+
+export type GenerationRules = GenerationHistoryRules & (
+  | {
+    readonly kind: 'adaptive-history@1';
+    readonly boardPressureStartHeight: number;
+    readonly boardPressureStrength: number;
+    readonly boardRelevanceStrength: number;
+  }
+  | {
+    readonly kind: 'history-balanced@1';
+  }
+);
 
 export type ScoringRules =
   | {
@@ -180,6 +186,8 @@ export interface MultiplayerSessionRules {
 export interface MultiplayerModeDefinition {
   readonly kind: 'multiplayer';
   readonly id: string;
+  /** Version of the complete multiplayer contract, including session rules. */
+  readonly version: number;
   readonly name: string;
   readonly tagline: string;
   readonly rules: GameRulesConfig;
@@ -245,13 +253,6 @@ export function defineGameRules(config: GameRulesConfig): GameRulesConfig {
   }
 
   const generation = config.generation;
-  if (
-    (generation.kind === 'adaptive-history@1') !== generation.boardAdaptive
-  ) {
-    throw new Error(
-      `Generation kind ${generation.kind} for ${config.id} does not match its board-adaptive behavior`,
-    );
-  }
   assertPositiveInteger(generation.discValueMin, `Minimum disc value for ${config.id}`);
   assertPositiveInteger(generation.discValueMax, `Maximum disc value for ${config.id}`);
   if (generation.discValueMin > generation.discValueMax) {
@@ -327,13 +328,17 @@ export function defineSoloMode(definition: SoloModeDefinition): SoloModeDefiniti
 export function defineMultiplayerMode(
   definition: MultiplayerModeDefinition,
 ): MultiplayerModeDefinition {
+  assertPositiveInteger(
+    definition.version,
+    `Multiplayer mode version for ${definition.id}`,
+  );
   if (definition.id !== definition.rules.id) {
     throw new Error(
       `Multiplayer mode ${definition.id} must use a ruleset with the same stable id; received ${definition.rules.id}`,
     );
   }
   if (definition.session.fairness.kind === 'identical-sequence'
-    && definition.rules.generation.boardAdaptive) {
+    && definition.rules.generation.kind === 'adaptive-history@1') {
     throw new Error(
       `Multiplayer mode ${definition.id} promises identical sequences with a board-adaptive generator`,
     );

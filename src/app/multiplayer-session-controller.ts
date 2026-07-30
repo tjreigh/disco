@@ -1,17 +1,19 @@
 import type { TurnResult } from '../game/engine.js';
-import type { GameRulesConfig } from '../game/modes/mode.js';
+import type { MultiplayerModeDefinition } from '../game/modes/mode.js';
 import {
+  localizeMultiplayerResult,
+  multiplayerModeIdentity,
   MULTIPLAYER_PROTOCOL_VERSION,
-  rulesIdentity,
-  sameRulesIdentity,
+  sameMultiplayerModeIdentity,
 } from '../shared/multiplayer-contracts.js';
+import { parseMultiplayerServerMessage } from '../shared/multiplayer-messages.js';
 import type {
   MultiplayerClientMessage,
   MultiplayerConnectionState,
+  MultiplayerLocalResult,
   MultiplayerModeIdentity,
   MultiplayerPlayerProgress,
-  MultiplayerResult,
-  MultiplayerServerMessage,
+  MultiplayerProgress,
 } from '../shared/multiplayer-contracts.js';
 import { LocalBoardSession } from './local-board-session.js';
 import type { LocalBoardSessionView } from './local-board-session.js';
@@ -22,7 +24,7 @@ export interface SessionClock {
 
 export interface MultiplayerSessionTransport {
   send(message: MultiplayerClientMessage): void;
-  subscribe(listener: (message: MultiplayerServerMessage) => void): () => void;
+  subscribe(listener: (message: unknown) => void): () => void;
   subscribeConnection(listener: (state: MultiplayerConnectionState) => void): () => void;
 }
 
@@ -35,10 +37,15 @@ export type MultiplayerLocalPhase =
   | 'disconnected'
   | 'reconnecting';
 
-export type MultiplayerCompatibilityError = 'protocol-mismatch' | 'rules-mismatch';
+export type MultiplayerCompatibilityError =
+  | 'invalid-message'
+  | 'protocol-mismatch'
+  | 'rules-mismatch'
+  | 'session-mismatch';
 
 export interface MultiplayerSessionView {
   readonly phase: MultiplayerLocalPhase;
+  readonly connection: MultiplayerConnectionState;
   readonly roomId: string;
   readonly playerId: string;
   readonly mode: MultiplayerModeIdentity;
@@ -49,7 +56,7 @@ export interface MultiplayerSessionView {
   readonly deadline: number | null;
   readonly remainingMs: number | null;
   readonly opponent: MultiplayerPlayerProgress | null;
-  readonly result: MultiplayerResult | null;
+  readonly result: MultiplayerLocalResult | null;
   readonly compatibilityError: MultiplayerCompatibilityError | null;
   readonly board: LocalBoardSessionView;
 }
@@ -57,56 +64,76 @@ export interface MultiplayerSessionView {
 export interface MultiplayerSessionControllerOptions {
   readonly roomId: string;
   readonly playerId: string;
-  readonly modeId: string;
-  readonly rules: GameRulesConfig;
+  readonly mode: MultiplayerModeDefinition;
   readonly clock: SessionClock;
   readonly transport: MultiplayerSessionTransport;
 }
 
+interface MatchContext {
+  readonly matchId: string;
+  readonly startsAt: number;
+  readonly deadline: number;
+  readonly seed: number;
+  readonly opponent: MultiplayerPlayerProgress | null;
+}
+
+type MatchLifecycle =
+  | {
+    readonly kind: 'lobby';
+    readonly localReady: boolean;
+    readonly opponentReady: boolean;
+  }
+  | { readonly kind: 'countdown'; readonly match: MatchContext }
+  | { readonly kind: 'playing'; readonly match: MatchContext }
+  | { readonly kind: 'awaiting-result'; readonly match: MatchContext }
+  | {
+    readonly kind: 'complete';
+    readonly match: MatchContext;
+    readonly result: MultiplayerLocalResult;
+  }
+  | {
+    readonly kind: 'incompatible';
+    readonly error: MultiplayerCompatibilityError;
+  };
+
+type WithoutClientEnvelope<T> = T extends MultiplayerClientMessage
+  ? Omit<T, 'protocolVersion' | 'roomId' | 'playerId'>
+  : never;
+type MultiplayerClientPayload = WithoutClientEnvelope<MultiplayerClientMessage>;
+
 /**
  * Client-side timed-match lifecycle around one local board.
  *
- * It deliberately knows nothing about accounts, solo saves/stats, tutorials,
- * or concrete sockets. Server messages supply countdown/deadline/result state;
- * an injected monotonic clock decides when local gameplay intents are accepted.
+ * Match lifecycle and transport connection are independent state axes. Network
+ * input is parsed at this boundary before it can affect either state machine.
  */
 export class MultiplayerSessionController {
   private readonly roomId: string;
   private readonly playerId: string;
+  private readonly definition: MultiplayerModeDefinition;
   private readonly mode: MultiplayerModeIdentity;
-  private readonly rules: GameRulesConfig;
   private readonly clock: SessionClock;
   private readonly transport: MultiplayerSessionTransport;
   private readonly session: LocalBoardSession;
   private readonly unsubscribeMessages: () => void;
   private readonly unsubscribeConnection: () => void;
-  private phase: MultiplayerLocalPhase = 'lobby';
-  private resumePhase: Exclude<MultiplayerLocalPhase, 'disconnected' | 'reconnecting'> = 'lobby';
-  private localReady = false;
-  private opponentReady = false;
-  private matchId: string | null = null;
-  private startsAt: number | null = null;
-  private deadline: number | null = null;
-  private seed: number | null = null;
-  private matchStarted = false;
-  private finishSent = false;
+  private lifecycle: MatchLifecycle = {
+    kind: 'lobby',
+    localReady: false,
+    opponentReady: false,
+  };
+  private connection: MultiplayerConnectionState = 'connected';
   private progressSequence = 0;
-  private opponent: MultiplayerPlayerProgress | null = null;
-  private result: MultiplayerResult | null = null;
-  private compatibilityError: MultiplayerCompatibilityError | null = null;
 
   constructor(options: MultiplayerSessionControllerOptions) {
     this.roomId = options.roomId;
     this.playerId = options.playerId;
-    this.mode = {
-      modeId: options.modeId,
-      rules: rulesIdentity(options.rules),
-    };
-    this.rules = options.rules;
+    this.definition = options.mode;
+    this.mode = multiplayerModeIdentity(options.mode);
     this.clock = options.clock;
     this.transport = options.transport;
     this.session = new LocalBoardSession({
-      rules: options.rules,
+      rules: options.mode.rules,
       events: {
         onStableTurn: result => this.publishStableTurn(result),
       },
@@ -119,35 +146,36 @@ export class MultiplayerSessionController {
   }
 
   get view(): MultiplayerSessionView {
+    const match = this.matchContext();
     const now = this.clock.now();
-    const target = this.phase === 'countdown' ? this.startsAt : this.deadline;
+    const target = this.lifecycle.kind === 'countdown'
+      ? match?.startsAt ?? null
+      : match?.deadline ?? null;
     return {
-      phase: this.phase,
+      phase: this.localPhase(),
+      connection: this.connection,
       roomId: this.roomId,
       playerId: this.playerId,
       mode: this.mode,
-      localReady: this.localReady,
-      opponentReady: this.opponentReady,
-      matchId: this.matchId,
-      startsAt: this.startsAt,
-      deadline: this.deadline,
+      localReady: this.lifecycle.kind === 'lobby' ? this.lifecycle.localReady : true,
+      opponentReady: this.lifecycle.kind === 'lobby' ? this.lifecycle.opponentReady : true,
+      matchId: match?.matchId ?? null,
+      startsAt: match?.startsAt ?? null,
+      deadline: match?.deadline ?? null,
       remainingMs: target === null ? null : Math.max(0, target - now),
-      opponent: this.opponent,
-      result: this.result,
-      compatibilityError: this.compatibilityError,
+      opponent: match?.opponent ?? null,
+      result: this.lifecycle.kind === 'complete' ? this.lifecycle.result : null,
+      compatibilityError: this.lifecycle.kind === 'incompatible'
+        ? this.lifecycle.error
+        : null,
       board: this.session.view,
     };
   }
 
   setReady(ready: boolean): void {
-    if (this.phase !== 'lobby' && this.phase !== 'ready') return;
-    this.localReady = ready;
-    this.phase = ready ? 'ready' : 'lobby';
-    this.resumePhase = this.phase;
-    this.transport.send(this.baseMessage({
-      type: 'set-ready',
-      ready,
-    }));
+    if (this.connection !== 'connected' || this.lifecycle.kind !== 'lobby') return;
+    this.lifecycle = { ...this.lifecycle, localReady: ready };
+    this.send({ type: 'set-ready', ready });
   }
 
   move(lane: number): boolean {
@@ -184,14 +212,8 @@ export class MultiplayerSessionController {
   }
 
   tick(): void {
-    const now = this.clock.now();
-    if (this.phase === 'countdown' && this.startsAt !== null && now >= this.startsAt) {
-      this.startMatch();
-    }
-    if (this.phase === 'playing' && this.deadline !== null && now >= this.deadline) {
-      this.finishAtDeadline();
-    }
-    this.session.tick(now);
+    this.advanceForClock();
+    this.session.tick(this.clock.now());
   }
 
   destroy(): void {
@@ -199,154 +221,153 @@ export class MultiplayerSessionController {
     this.unsubscribeConnection();
   }
 
-  private receive(message: MultiplayerServerMessage): void {
-    if (message.roomId !== this.roomId) return;
-    if (message.protocolVersion !== MULTIPLAYER_PROTOCOL_VERSION) {
-      this.failCompatibility('protocol-mismatch');
+  private receive(value: unknown): void {
+    if (this.lifecycle.kind === 'incompatible') return;
+    const parsed = parseMultiplayerServerMessage(value);
+    if (!parsed.ok) {
+      this.failCompatibility(parsed.error);
       return;
     }
-    if (
-      message.mode.modeId !== this.mode.modeId
-      || !sameRulesIdentity(message.mode.rules, this.mode.rules)
-    ) {
+    const message = parsed.message;
+    if (message.roomId !== this.roomId) return;
+    if (!sameMultiplayerModeIdentity(message.mode, this.mode)) {
       this.failCompatibility('rules-mismatch');
       return;
     }
 
     switch (message.type) {
       case 'room-state':
-        if (this.matchId !== null) return;
-        this.localReady = message.localReady;
-        this.opponentReady = message.opponentReady;
-        this.phase = this.localReady ? 'ready' : 'lobby';
-        this.resumePhase = this.phase;
+        if (this.lifecycle.kind !== 'lobby') return;
+        this.lifecycle = {
+          kind: 'lobby',
+          localReady: message.localReady,
+          opponentReady: message.opponentReady,
+        };
         break;
       case 'match-countdown':
-        if (message.startsAt >= message.deadline) return;
-        this.matchId = message.matchId;
-        this.startsAt = message.startsAt;
-        this.deadline = message.deadline;
-        this.seed = message.seed;
-        this.matchStarted = false;
-        this.finishSent = false;
+        if (this.lifecycle.kind !== 'lobby') return;
+        if (message.deadline - message.startsAt !== this.definition.session.durationMs) {
+          this.failCompatibility('session-mismatch');
+          return;
+        }
         this.progressSequence = 0;
-        this.opponent = null;
-        this.result = null;
-        this.phase = 'countdown';
-        this.resumePhase = 'countdown';
-        this.tick();
+        this.lifecycle = {
+          kind: 'countdown',
+          match: {
+            matchId: message.matchId,
+            startsAt: message.startsAt,
+            deadline: message.deadline,
+            seed: message.seed,
+            opponent: null,
+          },
+        };
+        this.advanceForClock();
         break;
       case 'opponent-progress':
-        if (message.matchId !== this.matchId) return;
-        if (this.opponent && message.progress.sequence <= this.opponent.sequence) return;
-        this.opponent = { ...message.progress };
+        this.updateOpponent(message.matchId, message.progress);
         break;
       case 'match-finished':
-        if (message.matchId !== this.matchId) return;
-        this.result = { ...message.result };
-        this.phase = 'finished';
-        this.resumePhase = 'finished';
+        this.completeMatch(message.matchId, message.result);
         break;
     }
   }
 
   private handleConnection(state: MultiplayerConnectionState): void {
+    if (state === this.connection) return;
+    this.connection = state;
     if (state === 'disconnected') {
-      if (this.phase !== 'disconnected' && this.phase !== 'reconnecting') {
-        this.resumePhase = this.phase;
-      }
-      this.phase = 'disconnected';
       this.session.pause(this.clock.now());
       return;
     }
-    if (state === 'reconnecting') {
-      this.phase = 'reconnecting';
-      return;
-    }
+    if (state === 'reconnecting') return;
 
-    if (this.phase !== 'disconnected' && this.phase !== 'reconnecting') return;
-    this.restoreConnectedPhase();
     this.session.resume(this.clock.now());
-    this.transport.send(this.baseMessage({
+    if (this.lifecycle.kind === 'incompatible' || this.lifecycle.kind === 'complete') return;
+    const match = this.matchContext();
+    this.send({
       type: 'resume-session',
-      matchId: this.matchId,
+      matchId: match?.matchId ?? null,
       lastProgressSequence: this.progressSequence,
-    }));
+    });
+    this.advanceForClock();
   }
 
-  private restoreConnectedPhase(): void {
+  private advanceForClock(): void {
     const now = this.clock.now();
-    if (this.deadline !== null && now >= this.deadline) {
-      this.phase = 'playing';
-      this.finishAtDeadline();
-    } else if (this.startsAt !== null && now >= this.startsAt) {
-      this.startMatch();
-    } else {
-      this.phase = this.resumePhase;
+    if (this.lifecycle.kind === 'countdown' && now >= this.lifecycle.match.startsAt) {
+      const match = this.lifecycle.match;
+      this.session.configure(this.definition.rules, match.seed);
+      this.lifecycle = { kind: 'playing', match };
+    }
+    if (this.lifecycle.kind === 'playing'
+      && now >= this.lifecycle.match.deadline
+      && this.connection === 'connected') {
+      this.finishLocalRun();
     }
   }
 
-  private startMatch(): void {
-    if (!this.matchStarted) {
-      this.session.configure(this.rules, this.seed ?? undefined);
-      this.matchStarted = true;
-    }
-    this.phase = 'playing';
-    this.resumePhase = 'playing';
-  }
-
-  private finishAtDeadline(): void {
-    if (!this.matchId || this.finishSent) {
-      this.phase = 'finished';
-      this.resumePhase = 'finished';
+  private updateOpponent(matchId: string, progress: MultiplayerPlayerProgress): void {
+    const match = this.matchContext();
+    if (!match || match.matchId !== matchId || this.lifecycle.kind === 'complete') return;
+    if (progress.playerId === this.playerId) {
+      this.failCompatibility('invalid-message');
       return;
     }
-    this.finishSent = true;
-    const progress = this.currentProgress(true);
-    this.transport.send(this.baseMessage({
-      type: 'finish-match',
-      matchId: this.matchId,
-      progress,
-    }));
-    this.phase = 'finished';
-    this.resumePhase = 'finished';
+    if (match.opponent && progress.sequence <= match.opponent.sequence) return;
+    this.replaceMatch({ ...match, opponent: { ...progress } });
+  }
+
+  private completeMatch(
+    matchId: string,
+    result: Parameters<typeof localizeMultiplayerResult>[0],
+  ): void {
+    const match = this.matchContext();
+    if (!match || match.matchId !== matchId || this.lifecycle.kind === 'complete') return;
+    const localized = localizeMultiplayerResult(result, this.playerId);
+    if (!localized) {
+      this.failCompatibility('invalid-message');
+      return;
+    }
+    this.lifecycle = { kind: 'complete', match, result: localized };
   }
 
   private publishStableTurn(result: TurnResult): void {
-    if (!result.accepted || this.phase !== 'playing' || !this.matchId) return;
+    if (!result.accepted || this.lifecycle.kind !== 'playing') return;
     this.progressSequence++;
     if (result.gameOver) {
-      this.finishSent = true;
-      this.transport.send(this.baseMessage({
-        type: 'finish-match',
-        matchId: this.matchId,
-        progress: this.currentProgress(true),
-      }));
-      this.phase = 'finished';
-      this.resumePhase = 'finished';
+      this.finishLocalRun();
       return;
     }
-    this.transport.send(this.baseMessage({
+    this.send({
       type: 'publish-progress',
-      matchId: this.matchId,
-      progress: this.currentProgress(false),
-    }));
+      matchId: this.lifecycle.match.matchId,
+      progress: this.currentProgress(),
+    });
   }
 
-  private currentProgress(finished: boolean): MultiplayerPlayerProgress {
+  private finishLocalRun(): void {
+    if (this.lifecycle.kind !== 'playing') return;
+    const match = this.lifecycle.match;
+    this.send({
+      type: 'finish-match',
+      matchId: match.matchId,
+      progress: this.currentProgress(),
+    });
+    this.lifecycle = { kind: 'awaiting-result', match };
+  }
+
+  private currentProgress(): MultiplayerProgress {
     return {
-      playerId: this.playerId,
       sequence: this.progressSequence,
       score: this.session.state.score,
       turnsPlayed: this.session.state.dropCount,
-      finished,
     };
   }
 
   private acceptsGameplay(): boolean {
-    if (this.phase !== 'playing') return false;
-    if (this.deadline !== null && this.clock.now() >= this.deadline) {
-      this.finishAtDeadline();
+    if (this.connection !== 'connected' || this.lifecycle.kind !== 'playing') return false;
+    if (this.clock.now() >= this.lifecycle.match.deadline) {
+      this.finishLocalRun();
       return false;
     }
     return true;
@@ -356,57 +377,54 @@ export class MultiplayerSessionController {
     return Math.max(0, Math.min(this.session.view.laneCount - 1, lane));
   }
 
-  private failCompatibility(error: MultiplayerCompatibilityError): void {
-    this.compatibilityError = error;
-    this.phase = 'finished';
-    this.resumePhase = 'finished';
+  private localPhase(): MultiplayerLocalPhase {
+    if (this.lifecycle.kind === 'incompatible' || this.lifecycle.kind === 'complete') {
+      return 'finished';
+    }
+    if (this.connection !== 'connected') return this.connection;
+    switch (this.lifecycle.kind) {
+      case 'lobby': return this.lifecycle.localReady ? 'ready' : 'lobby';
+      case 'countdown': return 'countdown';
+      case 'playing': return 'playing';
+      case 'awaiting-result': return 'finished';
+    }
   }
 
-  private baseMessage<T extends Omit<MultiplayerClientMessage, 'protocolVersion' | 'roomId' | 'playerId'>>(
-    message: T,
-  ): T & {
-    protocolVersion: typeof MULTIPLAYER_PROTOCOL_VERSION;
-    roomId: string;
-    playerId: string;
-  } {
-    return {
+  private matchContext(): MatchContext | null {
+    return this.lifecycle.kind === 'countdown'
+      || this.lifecycle.kind === 'playing'
+      || this.lifecycle.kind === 'awaiting-result'
+      || this.lifecycle.kind === 'complete'
+      ? this.lifecycle.match
+      : null;
+  }
+
+  private replaceMatch(match: MatchContext): void {
+    switch (this.lifecycle.kind) {
+      case 'countdown':
+      case 'playing':
+      case 'awaiting-result':
+        this.lifecycle = { kind: this.lifecycle.kind, match };
+        break;
+      case 'complete':
+        this.lifecycle = { ...this.lifecycle, match };
+        break;
+      case 'lobby':
+      case 'incompatible':
+        break;
+    }
+  }
+
+  private failCompatibility(error: MultiplayerCompatibilityError): void {
+    this.lifecycle = { kind: 'incompatible', error };
+  }
+
+  private send(message: MultiplayerClientPayload): void {
+    this.transport.send({
       protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
       roomId: this.roomId,
       playerId: this.playerId,
       ...message,
-    };
-  }
-}
-
-export class FakeMultiplayerTransport implements MultiplayerSessionTransport {
-  readonly sent: MultiplayerClientMessage[] = [];
-
-  private messageListener: ((message: MultiplayerServerMessage) => void) | null = null;
-  private connectionListener: ((state: MultiplayerConnectionState) => void) | null = null;
-
-  send(message: MultiplayerClientMessage): void {
-    this.sent.push(message);
-  }
-
-  subscribe(listener: (message: MultiplayerServerMessage) => void): () => void {
-    this.messageListener = listener;
-    return () => {
-      if (this.messageListener === listener) this.messageListener = null;
-    };
-  }
-
-  subscribeConnection(listener: (state: MultiplayerConnectionState) => void): () => void {
-    this.connectionListener = listener;
-    return () => {
-      if (this.connectionListener === listener) this.connectionListener = null;
-    };
-  }
-
-  receive(message: MultiplayerServerMessage): void {
-    this.messageListener?.(message);
-  }
-
-  setConnection(state: MultiplayerConnectionState): void {
-    this.connectionListener?.(state);
+    } as MultiplayerClientMessage);
   }
 }

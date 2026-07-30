@@ -115,12 +115,10 @@ describe('composed solo rules', () => {
       version: 1,
       generation: {
         kind: 'history-balanced@1',
-        boardAdaptive: false,
-        boardPressureStrength: 0,
-        boardRelevanceStrength: 0,
       },
       modifiers: [],
     });
+    expect(SCORE_RACE_MODE.version).toBe(1);
     expect(SCORE_RACE_RULES.board).toBe(CLASSIC_RULES.board);
     expect(SCORE_RACE_RULES.placement).toBe(CLASSIC_RULES.placement);
     expect(SCORE_RACE_RULES.clearing).toBe(CLASSIC_RULES.clearing);
@@ -246,6 +244,7 @@ describe('rule definition validation', () => {
     expect(() => defineMultiplayerMode({
       kind: 'multiplayer',
       id: 'classic',
+      version: 1,
       name: 'Invalid race',
       tagline: 'Invalid adaptive fairness fixture.',
       rules: CLASSIC_RULES,
@@ -256,15 +255,5 @@ describe('rule definition validation', () => {
         result: { kind: 'highest-score-wins@1', tie: 'tie' },
       },
     })).toThrow(/board-adaptive generator/i);
-  });
-
-  test('generation identity must describe whether the board affects deals', () => {
-    expect(() => defineGameRules(testMode({
-      id: 'misidentified-generation',
-      generation: {
-        kind: 'history-balanced@1',
-        boardAdaptive: true,
-      },
-    }))).toThrow(/does not match its board-adaptive behavior/i);
   });
 });

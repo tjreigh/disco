@@ -1,5 +1,6 @@
 import {
   SCORE_RACE_MODE_ID,
+  SCORE_RACE_MODE_VERSION,
   SCORE_RACE_RULES_VERSION,
 } from '../../shared/multiplayer-contracts.js';
 import {
@@ -34,6 +35,7 @@ export const SCORE_RACE_RULES = defineGameRules({
 export const SCORE_RACE_MODE = defineMultiplayerMode({
   kind: 'multiplayer',
   id: SCORE_RACE_MODE_ID,
+  version: SCORE_RACE_MODE_VERSION,
   name: 'Score Race',
   tagline: 'Three minutes. Same discs. Highest score wins.',
   rules: SCORE_RACE_RULES,

@@ -66,8 +66,11 @@ describe('LocalBoardSession', () => {
     const source = new LocalBoardSession({ rules: CLASSIC_RULES, seed: 1 });
     source.drop(3);
     drain(source);
-    source.setLongestStreak(4);
-    const save = source.exportSave();
+    const exported = source.exportSave();
+    const save = {
+      ...exported,
+      session: { ...exported.session, longestStreak: 4 },
+    };
 
     const restored = new LocalBoardSession({ rules: GRAVITY_RULES, seed: 2 });
     restored.loadSave(save, CLASSIC_RULES);

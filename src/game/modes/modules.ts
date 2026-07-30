@@ -128,7 +128,6 @@ export const CLASSIC_ADAPTIVE_GENERATION: GenerationRules = {
   unnumberedProbabilityLevelStep: 0.01,
   maxUnnumberedProbability: 0.40,
   minLevelForBoardClearBonus: 2,
-  boardAdaptive: true,
   maxSameValueRun: 3,
   maxNumberedRun: 6,
   maxCrackedRun: 2,
@@ -149,7 +148,6 @@ export const STACK_ADAPTIVE_GENERATION: GenerationRules = {
   unnumberedProbabilityLevelStep: 0,
   maxUnnumberedProbability: 0,
   minLevelForBoardClearBonus: 2,
-  boardAdaptive: true,
   maxSameValueRun: 3,
   maxNumberedRun: 6,
   maxCrackedRun: 2,
@@ -174,7 +172,6 @@ export const SCORE_RACE_HISTORY_GENERATION: GenerationRules = {
   unnumberedProbabilityLevelStep: 0.01,
   maxUnnumberedProbability: 0.40,
   minLevelForBoardClearBonus: 2,
-  boardAdaptive: false,
   maxSameValueRun: 3,
   maxNumberedRun: 6,
   maxCrackedRun: 2,
@@ -182,9 +179,6 @@ export const SCORE_RACE_HISTORY_GENERATION: GenerationRules = {
   valueBalanceStrength: 0.75,
   kindBalanceWindow: 50,
   kindBalanceStrength: 1,
-  boardPressureStartHeight: 2,
-  boardPressureStrength: 0,
-  boardRelevanceStrength: 0,
 };
 
 export const CLASSIC_CHAIN_SCORING: ScoringRules = {

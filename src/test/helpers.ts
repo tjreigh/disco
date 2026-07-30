@@ -29,11 +29,15 @@ export function testMode(
   base: GameRulesConfig = CLASSIC_RULES,
 ): GameRulesConfig {
   const scoring = { ...base.scoring, ...overrides.scoring } as ScoringRules;
+  const generation = {
+    ...base.generation,
+    ...overrides.generation,
+  } as GenerationRules;
   return {
     ...base,
     ...overrides,
     board: { ...base.board, ...overrides.board },
-    generation: { ...base.generation, ...overrides.generation },
+    generation,
     scoring,
     progression: { ...base.progression, ...overrides.progression },
     modifiers: overrides.modifiers
