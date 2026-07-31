@@ -11,6 +11,7 @@ import { cloneTemplate, mustQuery } from './dom-utils.js';
 export interface MultiplayerHudView {
   readonly phase: MultiplayerLocalPhase;
   readonly remainingMs: number | null;
+  readonly localScore: number;
   readonly opponent: MultiplayerPlayerProgress | null;
   readonly result: MultiplayerLocalResult | null;
   readonly compatibilityError: MultiplayerCompatibilityError | null;
@@ -20,16 +21,20 @@ export interface MultiplayerHudView {
 export class MultiplayerHud {
   private readonly root: HTMLElement;
   private readonly status: HTMLElement;
+  private readonly localValue: HTMLElement;
+  private readonly timerLabel: HTMLElement;
   private readonly timer: HTMLElement;
-  private readonly opponent: HTMLElement;
+  private readonly opponentValue: HTMLElement;
   private readonly result: HTMLElement;
 
   constructor(mount: HTMLElement = document.body) {
     const fragment = cloneTemplate('tpl-multiplayer-hud');
     this.root = mustQuery(fragment, '.multiplayer-hud');
     this.status = mustQuery(fragment, '.multiplayer-hud__status');
+    this.localValue = mustQuery(fragment, '.multiplayer-hud__local-value');
+    this.timerLabel = mustQuery(fragment, '.multiplayer-hud__timer-label');
     this.timer = mustQuery(fragment, '.multiplayer-hud__timer');
-    this.opponent = mustQuery(fragment, '.multiplayer-hud__opponent');
+    this.opponentValue = mustQuery(fragment, '.multiplayer-hud__opponent-value');
     this.result = mustQuery(fragment, '.multiplayer-hud__result');
 
     mount.append(fragment);
@@ -37,10 +42,13 @@ export class MultiplayerHud {
 
   render(view: MultiplayerHudView): void {
     this.status.textContent = statusText(view.phase, view.compatibilityError);
+    this.localValue.textContent = view.localScore.toLocaleString('en-US');
+    this.timerLabel.textContent = timerLabelText(view.phase);
     this.timer.textContent = timerText(view.phase, view.remainingMs);
-    this.opponent.textContent = opponentText(view.opponent);
+    this.opponentValue.textContent = opponentText(view.opponent);
     this.result.textContent = resultText(view.result);
     this.result.hidden = view.result === null;
+    this.root.dataset.result = String(view.result !== null);
   }
 
   destroy(): void {
@@ -57,19 +65,23 @@ function statusText(
   if (error === 'session-mismatch') return 'MATCH RULES MISMATCH';
   if (error === 'invalid-message') return 'INVALID SERVER MESSAGE';
   switch (phase) {
-    case 'lobby': return 'IN LOBBY';
+    case 'lobby': return 'LOBBY';
     case 'ready': return 'READY';
-    case 'countdown': return 'MATCH STARTING';
-    case 'playing': return 'MATCH LIVE';
-    case 'finished': return 'MATCH COMPLETE';
-    case 'disconnected': return 'CONNECTION LOST';
-    case 'reconnecting': return 'RECONNECTING';
+    case 'countdown': return 'STARTING';
+    case 'playing': return 'LIVE';
+    case 'finished': return 'COMPLETE';
+    case 'disconnected': return 'OFFLINE';
+    case 'reconnecting': return 'REJOINING';
   }
+}
+
+function timerLabelText(phase: MultiplayerLocalPhase): string {
+  return phase === 'countdown' ? 'STARTS IN' : phase === 'playing' ? 'TIME LEFT' : 'TIME';
 }
 
 function timerText(phase: MultiplayerLocalPhase, remainingMs: number | null): string {
   if (remainingMs === null) return '—';
-  if (phase === 'countdown') return `STARTS IN ${Math.max(1, Math.ceil(remainingMs / 1_000))}`;
+  if (phase === 'countdown') return String(Math.max(1, Math.ceil(remainingMs / 1_000)));
   if (phase !== 'playing') return '0:00';
   const totalSeconds = Math.max(0, Math.ceil(remainingMs / 1_000));
   const minutes = Math.floor(totalSeconds / 60);
@@ -78,8 +90,8 @@ function timerText(phase: MultiplayerLocalPhase, remainingMs: number | null): st
 }
 
 function opponentText(progress: MultiplayerPlayerProgress | null): string {
-  if (!progress) return 'WAITING FOR OPPONENT';
-  return `OPPONENT ${progress.score.toLocaleString('en-US')}${progress.finished ? ' · FINISHED' : ''}`;
+  if (!progress) return 'WAITING';
+  return `${progress.score.toLocaleString('en-US')}${progress.finished ? ' · DONE' : ''}`;
 }
 
 function resultText(result: MultiplayerLocalResult | null): string {

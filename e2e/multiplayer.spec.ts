@@ -22,31 +22,35 @@ test.describe('private Score Race', () => {
 
       await host.getByRole('button', { name: 'READY', exact: true }).click();
       await guest.getByRole('button', { name: 'READY', exact: true }).click();
-      await expect(host.locator('.multiplayer-hud__status')).toHaveText('MATCH LIVE', {
+      await expect(host.locator('.multiplayer-hud__status')).toHaveText('LIVE', {
         timeout: 6_000,
       });
-      await expect(guest.locator('.multiplayer-hud__status')).toHaveText('MATCH LIVE', {
+      await expect(guest.locator('.multiplayer-hud__status')).toHaveText('LIVE', {
         timeout: 6_000,
       });
       await expect(host.locator('.multiplayer-room')).toBeHidden();
       await expect(guest.locator('.multiplayer-room')).toBeHidden();
-      await expectHudRegionsNotToOverlap(host);
-      await expectHudRegionsNotToOverlap(guest);
+      await expectHudLayout(host);
+      await expectHudLayout(guest);
       await host.setViewportSize({ width: 393, height: 852 });
-      await expectHudRegionsNotToOverlap(host);
+      await expectHudLayout(host);
 
       await Promise.all([
         playOneTurn(host),
         playOneTurn(guest),
       ]);
-      await expect(host.locator('.multiplayer-hud__opponent')).toContainText('OPPONENT');
-      await expect(guest.locator('.multiplayer-hud__opponent')).toContainText('OPPONENT');
+      await expect(host.locator('.multiplayer-hud__opponent-value')).toHaveText(/^\d/);
+      await expect(guest.locator('.multiplayer-hud__opponent-value')).toHaveText(/^\d/);
+      await expect(host.locator('.multiplayer-hud__local-value')).toHaveText(/^\d/);
+      await expect(guest.locator('.multiplayer-hud__local-value')).toHaveText(/^\d/);
+      await expectHudLayout(host);
+      await expectHudLayout(guest);
 
       await disconnectLiveSocket(host);
       await expect(host.locator('.multiplayer-hud__status')).toHaveText(
-        /CONNECTION LOST|RECONNECTING/,
+        /OFFLINE|REJOINING/,
       );
-      await expect(host.locator('.multiplayer-hud__status')).toHaveText('MATCH LIVE', {
+      await expect(host.locator('.multiplayer-hud__status')).toHaveText('LIVE', {
         timeout: 6_000,
       });
 
@@ -161,17 +165,44 @@ async function disconnectLiveSocket(page: Page): Promise<void> {
   });
 }
 
-async function expectHudRegionsNotToOverlap(page: Page): Promise<void> {
+async function expectHudLayout(page: Page): Promise<void> {
   await expect.poll(async () => {
     const multiplayer = await page.locator('.multiplayer-hud').boundingBox();
-    const score = await page.locator('.game-hud__score').boundingBox();
-    const records = await page.locator('.game-hud__records').boundingBox();
-    if (!multiplayer || !score || !records) return 'missing HUD region';
-    if (overlaps(multiplayer, score)) return 'multiplayer HUD overlaps score';
-    if (overlaps(multiplayer, records)) return 'multiplayer HUD overlaps records';
+    const canvas = await page.locator('canvas').boundingBox();
+    const turns = await page.locator('.game-hud__turns').boundingBox();
+    const bottom = await page.locator('.game-hud__bottom').boundingBox();
+    const queue = await page.locator('.game-hud__queue').boundingBox();
+    const timer = await page.locator('.multiplayer-hud__timer').boundingBox();
+    if (!multiplayer || !canvas || !turns || !bottom || !queue || !timer) {
+      return 'missing HUD region';
+    }
+    const viewport = page.viewportSize();
+    if (!viewport) return 'missing viewport';
+    if (Math.abs(turns.x + turns.width / 2 - viewport.width / 2) > 1) {
+      return 'game HUD is not centered';
+    }
+    if (Math.abs(multiplayer.x + multiplayer.width / 2 - viewport.width / 2) > 1) {
+      return 'multiplayer HUD is not centered';
+    }
+    if (overlaps(multiplayer, turns)) return 'multiplayer HUD overlaps turns';
+    if (overlaps(multiplayer, bottom)) return 'multiplayer HUD overlaps bottom HUD';
+    if (timer.x < multiplayer.x
+      || timer.x + timer.width > multiplayer.x + multiplayer.width) {
+      return 'timer overflows multiplayer HUD';
+    }
+    const contentFits = await page.locator('.multiplayer-hud').evaluate(
+      element => element.scrollWidth <= element.clientWidth,
+    );
+    if (!contentFits) return 'multiplayer HUD content overflows';
+    const gridWidth = await page.locator('.game-stage').evaluate(element =>
+      Number.parseFloat(getComputedStyle(element).getPropertyValue('--game-grid-width')));
+    const boardBottom = canvas.y + 96 + 8 + (gridWidth / 7) * 7.5;
+    const bottomGap = queue.y - boardBottom;
+    if (bottomGap < 0) return 'bottom HUD overlaps board';
+    if (bottomGap > 50) return 'bottom HUD leaves excessive space below board';
     return 'clear';
   }, {
-    message: 'multiplayer status should reserve its own HUD space',
+    message: 'game and multiplayer HUD regions should be centered, distinct, and content-safe',
   }).toBe('clear');
 }
 

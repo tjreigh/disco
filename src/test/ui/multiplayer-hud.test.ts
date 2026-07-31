@@ -14,16 +14,20 @@ describe('MultiplayerHud', () => {
     hud.render({
       phase: 'countdown',
       remainingMs: 2_400,
+      localScore: 50,
       opponent: null,
       result: null,
       compatibilityError: null,
     });
-    expect(document.querySelector('.multiplayer-hud')?.textContent).toContain('STARTS IN 3');
-    expect(document.querySelector('.multiplayer-hud')?.textContent).toContain('WAITING FOR OPPONENT');
+    expect(document.querySelector('.multiplayer-hud__timer-label')?.textContent).toBe('STARTS IN');
+    expect(document.querySelector('.multiplayer-hud__timer')?.textContent).toBe('3');
+    expect(document.querySelector('.multiplayer-hud__local-value')?.textContent).toBe('50');
+    expect(document.querySelector('.multiplayer-hud__opponent-value')?.textContent).toBe('WAITING');
 
     hud.render({
       phase: 'reconnecting',
       remainingMs: 45_000,
+      localScore: 2_000,
       opponent: {
         playerId: 'opponent',
         sequence: 3,
@@ -34,12 +38,13 @@ describe('MultiplayerHud', () => {
       result: null,
       compatibilityError: null,
     });
-    expect(document.querySelector('.multiplayer-hud')?.textContent).toContain('RECONNECTING');
-    expect(document.querySelector('.multiplayer-hud')?.textContent).toContain('OPPONENT 1,250');
+    expect(document.querySelector('.multiplayer-hud')?.textContent).toContain('REJOINING');
+    expect(document.querySelector('.multiplayer-hud__opponent-value')?.textContent).toBe('1,250');
 
     hud.render({
       phase: 'finished',
       remainingMs: 0,
+      localScore: 2_000,
       opponent: null,
       result: {
         outcome: 'win',

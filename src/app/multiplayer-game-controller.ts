@@ -205,6 +205,7 @@ export class MultiplayerGame {
     multiplayerHud.render({
       phase: view.phase,
       remainingMs: view.remainingMs,
+      localScore: board.displayedScore,
       opponent: view.opponent,
       result: view.result,
       compatibilityError: view.compatibilityError,
