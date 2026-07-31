@@ -118,7 +118,8 @@ export class MultiplayerGame {
         this.mounts.controls,
       );
       this.gameHud = new GameHud(this.mounts.stage);
-      this.multiplayerHud = new MultiplayerHud(this.mounts.utilities);
+      this.gameHud.root.dataset.multiplayer = 'true';
+      this.multiplayerHud = new MultiplayerHud(this.mounts.stage);
       this.input = new InputHandler(
         this.canvas,
         intent => this.handleIntent(intent),

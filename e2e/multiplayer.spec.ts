@@ -28,6 +28,12 @@ test.describe('private Score Race', () => {
       await expect(guest.locator('.multiplayer-hud__status')).toHaveText('MATCH LIVE', {
         timeout: 6_000,
       });
+      await expect(host.locator('.multiplayer-room')).toBeHidden();
+      await expect(guest.locator('.multiplayer-room')).toBeHidden();
+      await expectHudRegionsNotToOverlap(host);
+      await expectHudRegionsNotToOverlap(guest);
+      await host.setViewportSize({ width: 393, height: 852 });
+      await expectHudRegionsNotToOverlap(host);
 
       await Promise.all([
         playOneTurn(host),
@@ -153,4 +159,28 @@ async function disconnectLiveSocket(page: Page): Promise<void> {
     if (!socket) throw new Error('No live multiplayer socket');
     socket.close(4000, 'E2E reconnect check');
   });
+}
+
+async function expectHudRegionsNotToOverlap(page: Page): Promise<void> {
+  await expect.poll(async () => {
+    const multiplayer = await page.locator('.multiplayer-hud').boundingBox();
+    const score = await page.locator('.game-hud__score').boundingBox();
+    const records = await page.locator('.game-hud__records').boundingBox();
+    if (!multiplayer || !score || !records) return 'missing HUD region';
+    if (overlaps(multiplayer, score)) return 'multiplayer HUD overlaps score';
+    if (overlaps(multiplayer, records)) return 'multiplayer HUD overlaps records';
+    return 'clear';
+  }, {
+    message: 'multiplayer status should reserve its own HUD space',
+  }).toBe('clear');
+}
+
+function overlaps(
+  first: { x: number; y: number; width: number; height: number },
+  second: { x: number; y: number; width: number; height: number },
+): boolean {
+  return first.x < second.x + second.width
+    && first.x + first.width > second.x
+    && first.y < second.y + second.height
+    && first.y + first.height > second.y;
 }

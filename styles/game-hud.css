@@ -36,6 +36,13 @@
   height: 100%;
   font: 700 13px ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+.game-hud[data-multiplayer="true"] .game-hud__summary {
+  /* Leave the upper-right lane to the match clock/opponent status. */
+  position: absolute;
+  top: 10px;
+  left: max(16px, env(safe-area-inset-left));
+  width: calc(100% - 204px);
+}
 .game-hud__score { margin-bottom: 5px; font-size: 24px; line-height: 1.1; color: #ffffff; }
 .game-hud__records { margin-bottom: 3px; color: #62b0e8; font-size: 11px; white-space: nowrap; }
 .game-hud__level { margin-top: 7px; color: #a0aec0; white-space: nowrap; }
@@ -141,14 +148,18 @@
 }
 .game-hud__instability[hidden] { display: none; }
 .multiplayer-hud {
-  position: fixed;
-  top: max(12px, env(safe-area-inset-top));
-  left: 50%;
-  z-index: 20;
+  position: absolute;
+  top: calc(50% - var(--game-canvas-height, 0px) / 2 + 10px);
+  right: max(
+    16px,
+    env(safe-area-inset-right),
+    calc((100% - var(--game-canvas-width, 680px)) / 2 + 16px)
+  );
+  z-index: 3;
   display: grid;
   grid-template-columns: auto auto;
   gap: 3px 14px;
-  min-width: 220px;
+  width: 180px;
   padding: 7px 10px;
   border: 1px solid #486581;
   border-radius: 6px;
@@ -156,8 +167,10 @@
   color: #d9e2ec;
   font: 700 10px ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: .06em;
-  transform: translateX(-50%);
+  pointer-events: none;
 }
+.multiplayer-hud__status,
+.multiplayer-hud__opponent { white-space: nowrap; }
 .multiplayer-hud__timer {
   grid-row: 1 / span 2;
   grid-column: 2;
