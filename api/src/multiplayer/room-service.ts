@@ -227,7 +227,7 @@ export class ScoreRaceRoomService {
 
     const admission = this.createAdmission(room.id);
     room.players.push(this.createPlayer(admission));
-    this.touchLobby(room);
+    this.touchReadyRoom(room);
     return success(admission);
   }
 
@@ -245,7 +245,7 @@ export class ScoreRaceRoomService {
       playerId: player.id,
     });
     player.connection = connection;
-    this.touchLobby(room);
+    this.touchReadyRoom(room);
     const snapshot = room.lifecycle.kind === 'lobby'
       ? this.roomStateDeliveries(room)
       : this.snapshotDeliveries(room, player);
@@ -256,7 +256,8 @@ export class ScoreRaceRoomService {
     const active = this.activePlayer(connection);
     if (!active) return [];
     active.player.connection = null;
-    if (active.room.lifecycle.kind === 'lobby') {
+    if (active.room.lifecycle.kind === 'lobby'
+      || active.room.lifecycle.kind === 'complete') {
       active.player.ready = false;
       return this.roomStateDeliveries(active.room);
     }
@@ -331,11 +332,11 @@ export class ScoreRaceRoomService {
     ready: boolean,
     priorDeliveries: readonly RoomDelivery[],
   ): RoomServiceResult<null> {
-    if (room.lifecycle.kind !== 'lobby') {
+    if (room.lifecycle.kind !== 'lobby' && room.lifecycle.kind !== 'complete') {
       return failure('invalid-state', priorDeliveries);
     }
     player.ready = ready;
-    this.touchLobby(room);
+    this.touchReadyRoom(room);
     const deliveries = [...priorDeliveries, ...this.roomStateDeliveries(room)];
     if (room.players.length === 2 && room.players.every(candidate => candidate.ready)) {
       const startsAt = this.clock.now() + this.countdownMs;
@@ -454,6 +455,7 @@ export class ScoreRaceRoomService {
     const second = room.players[1];
     if (!first || !second) return [];
     const match = room.lifecycle.match;
+    for (const player of room.players) player.ready = false;
     const result = determineScoreRaceResult(
       first.id,
       first.progress.score,
@@ -495,6 +497,10 @@ export class ScoreRaceRoomService {
           room.lifecycle.match,
           room.lifecycle.result,
         ),
+      });
+      deliveries.push({
+        playerId: player.id,
+        message: this.roomStateMessage(room, player),
       });
     }
     return deliveries;
@@ -635,9 +641,11 @@ export class ScoreRaceRoomService {
     return player?.connection === connection ? { room, player } : null;
   }
 
-  private touchLobby(room: Room): void {
+  private touchReadyRoom(room: Room): void {
     if (room.lifecycle.kind === 'lobby') {
       room.lifecycle.expiresAt = this.clock.now() + this.lobbyTtlMs;
+    } else if (room.lifecycle.kind === 'complete') {
+      room.lifecycle.expiresAt = this.clock.now() + this.resultTtlMs;
     }
   }
 

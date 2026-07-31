@@ -16,7 +16,7 @@ import {
 
 describe('shared multiplayer contracts', () => {
   test('the API consumes the same protocol and rules identity source as the browser', () => {
-    expect(MULTIPLAYER_PROTOCOL_VERSION).toBe(1);
+    expect(MULTIPLAYER_PROTOCOL_VERSION).toBe(2);
     expect(SCORE_RACE_DURATION_MS).toBe(180_000);
     expect(rulesIdentity({
       id: SCORE_RACE_MODE_ID,

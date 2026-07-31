@@ -61,8 +61,36 @@ test.describe('private Score Race', () => {
 
       await expect(host.getByRole('heading', { name: 'YOU WIN' })).toBeVisible();
       await expect(guest.getByRole('heading', { name: 'YOU LOSE' })).toBeVisible();
+      await expect(host.getByRole('button', { name: 'PLAY AGAIN', exact: true })).toBeVisible();
+      await expect(guest.getByRole('button', { name: 'PLAY AGAIN', exact: true })).toBeVisible();
+      await expect(host.locator('[data-multiplayer-action="copy"]')).toBeHidden();
+      await expect(guest.locator('[data-multiplayer-action="copy"]')).toBeHidden();
       await expect(host.locator('.multiplayer-hud__result')).toContainText('YOU WIN');
       await expect(guest.locator('.multiplayer-hud__result')).toContainText('YOU LOSE');
+
+      await host.getByRole('button', { name: 'PLAY AGAIN', exact: true }).click();
+      await expect(host.getByRole('button', { name: 'CANCEL REMATCH', exact: true }))
+        .toBeVisible();
+      await expect(host.locator('.multiplayer-room__message')).toContainText(
+        'Waiting for your opponent',
+      );
+      await expect(guest.locator('.multiplayer-room__message')).toContainText(
+        'opponent wants another round',
+      );
+
+      await guest.getByRole('button', { name: 'PLAY AGAIN', exact: true }).click();
+      await expect(host.locator('.multiplayer-hud__status')).toHaveText('LIVE', {
+        timeout: 6_000,
+      });
+      await expect(guest.locator('.multiplayer-hud__status')).toHaveText('LIVE', {
+        timeout: 6_000,
+      });
+      await expect(host.locator('.multiplayer-room')).toBeHidden();
+      await expect(guest.locator('.multiplayer-room')).toBeHidden();
+      await expect.poll(async () => await receivedMatchIds(host)).toHaveLength(2);
+      await expect.poll(async () => await receivedMatchIds(guest)).toHaveLength(2);
+      await expect(host.locator('.multiplayer-hud__local-value')).toHaveText('0');
+      await expect(guest.locator('.multiplayer-hud__local-value')).toHaveText('0');
     } finally {
       await hostContext.close();
       await guestContext.close();
@@ -114,6 +142,15 @@ async function installSocketObserver(context: BrowserContext): Promise<void> {
         return socket;
       },
     });
+  });
+}
+
+async function receivedMatchIds(page: Page): Promise<string[]> {
+  return await page.evaluate(() => {
+    const observed = (window as any).__discoMultiplayerTest;
+    return [...new Set<string>(observed.incoming
+      .filter((message: any) => message.type === 'match-countdown')
+      .map((message: any) => message.matchId))];
   });
 }
 

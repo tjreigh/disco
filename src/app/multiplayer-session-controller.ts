@@ -90,6 +90,8 @@ type MatchLifecycle =
     readonly kind: 'complete';
     readonly match: MatchContext;
     readonly result: MultiplayerLocalResult;
+    readonly localReady: boolean;
+    readonly opponentReady: boolean;
   }
   | {
     readonly kind: 'incompatible';
@@ -157,8 +159,12 @@ export class MultiplayerSessionController {
       roomId: this.roomId,
       playerId: this.playerId,
       mode: this.mode,
-      localReady: this.lifecycle.kind === 'lobby' ? this.lifecycle.localReady : true,
-      opponentReady: this.lifecycle.kind === 'lobby' ? this.lifecycle.opponentReady : true,
+      localReady: this.lifecycle.kind === 'lobby' || this.lifecycle.kind === 'complete'
+        ? this.lifecycle.localReady
+        : true,
+      opponentReady: this.lifecycle.kind === 'lobby' || this.lifecycle.kind === 'complete'
+        ? this.lifecycle.opponentReady
+        : true,
       matchId: match?.matchId ?? null,
       startsAt: match?.startsAt ?? null,
       deadline: match?.deadline ?? null,
@@ -173,7 +179,10 @@ export class MultiplayerSessionController {
   }
 
   setReady(ready: boolean): void {
-    if (this.connection !== 'connected' || this.lifecycle.kind !== 'lobby') return;
+    if (this.connection !== 'connected'
+      || (this.lifecycle.kind !== 'lobby' && this.lifecycle.kind !== 'complete')) {
+      return;
+    }
     this.lifecycle = { ...this.lifecycle, localReady: ready };
     this.send({ type: 'set-ready', ready });
   }
@@ -237,15 +246,22 @@ export class MultiplayerSessionController {
 
     switch (message.type) {
       case 'room-state':
-        if (this.lifecycle.kind !== 'lobby') return;
-        this.lifecycle = {
-          kind: 'lobby',
-          localReady: message.localReady,
-          opponentReady: message.opponentReady,
-        };
+        if (this.lifecycle.kind === 'lobby') {
+          this.lifecycle = {
+            kind: 'lobby',
+            localReady: message.localReady,
+            opponentReady: message.opponentReady,
+          };
+        } else if (this.lifecycle.kind === 'complete') {
+          this.lifecycle = {
+            ...this.lifecycle,
+            localReady: message.localReady,
+            opponentReady: message.opponentReady,
+          };
+        }
         break;
       case 'match-countdown':
-        if (this.lifecycle.kind !== 'lobby') return;
+        if (this.lifecycle.kind !== 'lobby' && this.lifecycle.kind !== 'complete') return;
         if (message.deadline - message.startsAt !== this.definition.session.durationMs) {
           this.failCompatibility('session-mismatch');
           return;
@@ -344,7 +360,13 @@ export class MultiplayerSessionController {
       this.failCompatibility('invalid-message');
       return;
     }
-    this.lifecycle = { kind: 'complete', match, result: localized };
+    this.lifecycle = {
+      kind: 'complete',
+      match,
+      result: localized,
+      localReady: false,
+      opponentReady: false,
+    };
   }
 
   private publishStableTurn(result: TurnResult): void {

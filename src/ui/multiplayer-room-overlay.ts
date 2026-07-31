@@ -74,10 +74,18 @@ export class MultiplayerRoomOverlay {
       this.title.textContent = view.result.outcome === 'win'
         ? 'YOU WIN'
         : view.result.outcome === 'loss' ? 'YOU LOSE' : 'TIE';
-      this.message.textContent =
+      const score =
         `${view.result.localScore.toLocaleString('en-US')} – ${view.result.opponentScore.toLocaleString('en-US')}`;
+      this.message.textContent = view.localReady
+        ? `${score} · Waiting for your opponent…`
+        : view.opponentReady
+          ? `${score} · Your opponent wants another round.`
+          : score;
       this.roomCode.textContent = '';
-      this.readyButton.hidden = true;
+      this.readyButton.hidden = false;
+      this.readyButton.disabled = view.connection !== 'connected';
+      this.readyButton.dataset.ready = String(view.localReady);
+      this.readyButton.textContent = view.localReady ? 'CANCEL REMATCH' : 'PLAY AGAIN';
       this.copyButton.hidden = true;
       return;
     }

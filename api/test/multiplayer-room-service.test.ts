@@ -686,6 +686,82 @@ describe('ScoreRaceRoomService', () => {
     expect(replay.deliveries).toEqual([]);
   });
 
+  test('collects fresh readiness after a result and starts a new match in the same room', () => {
+    const harness = setupRoom();
+    const firstMatch = startMatch(harness);
+    harness.clock.time = firstMatch.startsAt;
+
+    valueOf(harness.service.receive(
+      harness.hostConnection,
+      message(harness.host, {
+        type: 'finish-match',
+        matchId: firstMatch.matchId,
+        progress: progress(3, 120),
+      }),
+    ));
+    valueOf(harness.service.receive(
+      harness.guestConnection,
+      message(harness.guest, {
+        type: 'finish-match',
+        matchId: firstMatch.matchId,
+        progress: progress(4, 150),
+      }),
+    ));
+
+    const hostReady = harness.service.receive(
+      harness.hostConnection,
+      message(harness.host, { type: 'set-ready', ready: true }),
+    );
+    valueOf(hostReady);
+    expect(hostReady.deliveries).toEqual([
+      {
+        playerId: harness.host.playerId,
+        message: expect.objectContaining({
+          type: 'room-state',
+          localReady: true,
+          opponentReady: false,
+        }),
+      },
+      {
+        playerId: harness.guest.playerId,
+        message: expect.objectContaining({
+          type: 'room-state',
+          localReady: false,
+          opponentReady: true,
+        }),
+      },
+    ]);
+
+    const guestReady = harness.service.receive(
+      harness.guestConnection,
+      message(harness.guest, { type: 'set-ready', ready: true }),
+    );
+    valueOf(guestReady);
+    const countdowns = guestReady.deliveries.filter(
+      delivery => delivery.message.type === 'match-countdown',
+    );
+    expect(countdowns).toHaveLength(2);
+    const secondMatch = countdowns[0]?.message;
+    expect(secondMatch).toEqual(expect.objectContaining({
+      type: 'match-countdown',
+      matchId: 'match-2',
+    }));
+    if (!secondMatch || secondMatch.type !== 'match-countdown') {
+      throw new Error('Expected rematch countdown');
+    }
+    expect(secondMatch.matchId).not.toBe(firstMatch.matchId);
+
+    harness.clock.time = secondMatch.startsAt;
+    valueOf(harness.service.receive(
+      harness.hostConnection,
+      message(harness.host, {
+        type: 'publish-progress',
+        matchId: secondMatch.matchId,
+        progress: progress(1, 10),
+      }),
+    ));
+  });
+
   test('finalizes at the exact deadline and serves the result to a reconnecting player', () => {
     const harness = setupRoom();
     const countdown = startMatch(harness);
@@ -734,6 +810,7 @@ describe('ScoreRaceRoomService', () => {
       'match-countdown',
       'opponent-progress',
       'match-finished',
+      'room-state',
     ]);
     const result = guestReconnect.deliveries.find(
       delivery => delivery.message.type === 'match-finished',

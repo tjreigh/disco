@@ -1,5 +1,5 @@
 /** Stable identities and value contracts shared by multiplayer messages. */
-export const MULTIPLAYER_PROTOCOL_VERSION = 1 as const;
+export const MULTIPLAYER_PROTOCOL_VERSION = 2 as const;
 export const SCORE_RACE_MODE_ID = 'score-race' as const;
 export const SCORE_RACE_MODE_VERSION = 1 as const;
 export const SCORE_RACE_RULES_VERSION = 1 as const;

@@ -212,6 +212,55 @@ describe('MultiplayerSessionController lifecycle', () => {
     expect(controller.view.result?.outcome).toBe('tie');
   });
 
+  test('collects rematch readiness and starts a fresh board in the same room', () => {
+    const { clock, transport, controller } = createSession();
+    startMatch(transport);
+    expect(controller.drop(3)?.accepted).toBe(true);
+    expect(controller.view.board.state.dropCount).toBe(1);
+
+    transport.receive(serverMessage({
+      type: 'match-finished',
+      matchId: 'match-1',
+      result: determineScoreRaceResult(
+        'local-player',
+        100,
+        'opponent-player',
+        50,
+      ),
+    }));
+    expect(controller.view.result?.outcome).toBe('win');
+    expect(controller.view.localReady).toBe(false);
+    expect(controller.view.opponentReady).toBe(false);
+
+    controller.setReady(true);
+    expect(controller.view.localReady).toBe(true);
+    expect(transport.sent.at(-1)).toMatchObject({ type: 'set-ready', ready: true });
+
+    transport.receive(serverMessage({
+      type: 'room-state',
+      localReady: true,
+      opponentReady: false,
+    }));
+    expect(controller.view.result?.outcome).toBe('win');
+    expect(controller.view.opponentReady).toBe(false);
+
+    transport.receive(serverMessage({
+      type: 'room-state',
+      localReady: true,
+      opponentReady: true,
+    }));
+    startMatch(transport, 1_000, SCORE_RACE_MODE, 'match-2');
+    expect(controller.view.phase).toBe('countdown');
+    expect(controller.view.matchId).toBe('match-2');
+    expect(controller.view.result).toBeNull();
+
+    clock.value = 1_000;
+    controller.tick();
+    expect(controller.view.phase).toBe('playing');
+    expect(controller.view.board.state.dropCount).toBe(0);
+    expect(controller.view.board.state.score).toBe(0);
+  });
+
   test('finishes instead of publishing progress when reconnecting at the deadline', () => {
     const { clock, transport, controller } = createSession();
     startMatch(transport);
