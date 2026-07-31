@@ -1,4 +1,5 @@
 import {
+  SCORE_RACE_DURATION_MS,
   SCORE_RACE_MODE_ID,
   SCORE_RACE_MODE_VERSION,
   SCORE_RACE_RULES_VERSION,
@@ -41,7 +42,7 @@ export const SCORE_RACE_MODE = defineMultiplayerMode({
   rules: SCORE_RACE_RULES,
   session: {
     kind: 'timed-score-race@1',
-    durationMs: 3 * 60 * 1_000,
+    durationMs: SCORE_RACE_DURATION_MS,
     fairness: { kind: 'identical-sequence' },
     result: {
       kind: 'highest-score-wins@1',

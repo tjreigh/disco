@@ -7,6 +7,7 @@ import {
   parseMultiplayerClientMessage,
   parseMultiplayerServerMessage,
   rulesIdentity,
+  SCORE_RACE_DURATION_MS,
   SCORE_RACE_MODE_ID,
   SCORE_RACE_MODE_VERSION,
   SCORE_RACE_RULES_VERSION,
@@ -16,6 +17,7 @@ import {
 describe('shared multiplayer contracts', () => {
   test('the API consumes the same protocol and rules identity source as the browser', () => {
     expect(MULTIPLAYER_PROTOCOL_VERSION).toBe(1);
+    expect(SCORE_RACE_DURATION_MS).toBe(180_000);
     expect(rulesIdentity({
       id: SCORE_RACE_MODE_ID,
       version: SCORE_RACE_RULES_VERSION,

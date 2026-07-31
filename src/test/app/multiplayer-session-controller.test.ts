@@ -126,13 +126,25 @@ describe('MultiplayerSessionController lifecycle', () => {
     transport.setConnection('reconnecting');
     expect(controller.view.phase).toBe('reconnecting');
     clock.value = 2_100;
+    const sentBeforeReconnect = transport.sent.length;
     transport.setConnection('connected');
     expect(controller.view.phase).toBe('playing');
-    expect(transport.sent.at(-1)).toMatchObject({
-      type: 'resume-session',
-      matchId: 'match-1',
-      lastProgressSequence: 1,
-    });
+    expect(transport.sent.slice(sentBeforeReconnect)).toEqual([
+      expect.objectContaining({
+        type: 'resume-session',
+        matchId: 'match-1',
+        lastProgressSequence: 1,
+      }),
+      expect.objectContaining({
+        type: 'publish-progress',
+        matchId: 'match-1',
+        progress: {
+          sequence: 1,
+          score: controller.view.board.state.score,
+          turnsPlayed: controller.view.board.state.dropCount,
+        },
+      }),
+    ]);
 
     clock.value = 1_000 + SCORE_RACE_MODE.session.durationMs;
     controller.tick();
@@ -143,6 +155,23 @@ describe('MultiplayerSessionController lifecycle', () => {
       matchId: 'match-1',
       progress: { sequence: 1, turnsPlayed: 1 },
     });
+
+    transport.setConnection('disconnected');
+    transport.setConnection('reconnecting');
+    const sentBeforeFinishedReconnect = transport.sent.length;
+    transport.setConnection('connected');
+    expect(transport.sent.slice(sentBeforeFinishedReconnect)).toEqual([
+      expect.objectContaining({
+        type: 'resume-session',
+        matchId: 'match-1',
+        lastProgressSequence: 1,
+      }),
+      expect.objectContaining({
+        type: 'finish-match',
+        matchId: 'match-1',
+        progress: expect.objectContaining({ sequence: 1, turnsPlayed: 1 }),
+      }),
+    ]);
 
     transport.receive(serverMessage({
       type: 'match-finished',
@@ -181,6 +210,29 @@ describe('MultiplayerSessionController lifecycle', () => {
 
     expect(controller.view.phase).toBe('finished');
     expect(controller.view.result?.outcome).toBe('tie');
+  });
+
+  test('finishes instead of publishing progress when reconnecting at the deadline', () => {
+    const { clock, transport, controller } = createSession();
+    startMatch(transport);
+    transport.setConnection('disconnected');
+    transport.setConnection('reconnecting');
+    clock.value = SCORE_RACE_MODE.session.durationMs;
+    const sentBeforeReconnect = transport.sent.length;
+
+    transport.setConnection('connected');
+
+    expect(controller.view.phase).toBe('finished');
+    expect(transport.sent.slice(sentBeforeReconnect)).toEqual([
+      expect.objectContaining({
+        type: 'resume-session',
+        matchId: 'match-1',
+      }),
+      expect.objectContaining({
+        type: 'finish-match',
+        matchId: 'match-1',
+      }),
+    ]);
   });
 
   test('keeps compatibility failures terminal when later messages arrive', () => {

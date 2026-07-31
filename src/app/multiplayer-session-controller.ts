@@ -289,6 +289,22 @@ export class MultiplayerSessionController {
       matchId: match?.matchId ?? null,
       lastProgressSequence: this.progressSequence,
     });
+    if (this.lifecycle.kind === 'playing'
+      && this.clock.now() < this.lifecycle.match.deadline) {
+      this.send({
+        type: 'publish-progress',
+        matchId: this.lifecycle.match.matchId,
+        progress: this.currentProgress(),
+      });
+    } else if (this.lifecycle.kind === 'playing') {
+      this.finishLocalRun();
+    } else if (this.lifecycle.kind === 'awaiting-result') {
+      this.send({
+        type: 'finish-match',
+        matchId: this.lifecycle.match.matchId,
+        progress: this.currentProgress(),
+      });
+    }
     this.advanceForClock();
   }
 

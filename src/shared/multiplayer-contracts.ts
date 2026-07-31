@@ -3,6 +3,7 @@ export const MULTIPLAYER_PROTOCOL_VERSION = 1 as const;
 export const SCORE_RACE_MODE_ID = 'score-race' as const;
 export const SCORE_RACE_MODE_VERSION = 1 as const;
 export const SCORE_RACE_RULES_VERSION = 1 as const;
+export const SCORE_RACE_DURATION_MS = 3 * 60 * 1_000;
 
 export type MultiplayerProtocolVersion = typeof MULTIPLAYER_PROTOCOL_VERSION;
 
