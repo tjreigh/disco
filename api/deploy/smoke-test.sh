@@ -25,3 +25,4 @@ check() {
 check "/health" '"ok":true'
 check "/me" '"account":null'
 check "/leaderboards/classic?limit=1" '"entries"'
+node "$(cd "$(dirname "$0")" && pwd)/check-websocket.mjs" "$base_url"

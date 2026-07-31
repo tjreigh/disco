@@ -1,0 +1,78 @@
+.multiplayer-room {
+  position: fixed;
+  inset: 0;
+  z-index: 34;
+  display: grid;
+  place-items: center;
+  padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+  background: rgba(10, 16, 32, .82);
+}
+.multiplayer-room[hidden] { display: none; }
+.multiplayer-room__panel {
+  width: min(390px, 94vw);
+  border: 1px solid #486581;
+  border-radius: 10px;
+  padding: 24px;
+  background: #102a43;
+  box-shadow: 0 22px 54px rgba(0, 0, 0, .5);
+  color: #f0f4f8;
+  text-align: center;
+}
+.multiplayer-room__eyebrow {
+  color: #81e6b3;
+  font: 800 9px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .12em;
+}
+.multiplayer-room h1 {
+  margin-top: 6px;
+  font-size: 21px;
+  letter-spacing: .1em;
+}
+.multiplayer-room__message {
+  margin-top: 10px;
+  color: #9fb3c8;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.multiplayer-room__code {
+  display: block;
+  margin-top: 18px;
+  color: #9ed7ff;
+  font: 800 27px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .18em;
+}
+.multiplayer-room__code:empty { display: none; }
+.multiplayer-room__actions {
+  display: grid;
+  gap: 8px;
+  margin-top: 20px;
+}
+.multiplayer-room__button {
+  display: grid;
+  min-height: 42px;
+  place-items: center;
+  border: 1px solid #486581;
+  border-radius: 5px;
+  padding: 9px 12px;
+  background: #0b2034;
+  color: #d9e2ec;
+  font: 700 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .08em;
+  text-decoration: none;
+  cursor: pointer;
+}
+.multiplayer-room__button:hover { border-color: #62b0e8; background: #16324f; }
+.multiplayer-room__button:focus-visible { outline: 2px solid #9ed7ff; outline-offset: 2px; }
+.multiplayer-room__button:disabled { cursor: wait; opacity: .6; }
+.multiplayer-room__button--primary {
+  border-color: #62b0e8;
+  background: #1769aa;
+  color: #ffffff;
+}
+.multiplayer-room__button--quiet {
+  border-color: transparent;
+  background: transparent;
+  color: #829ab1;
+}
+.multiplayer-room[data-state="result"] .multiplayer-room__eyebrow { color: #ffd166; }
+.multiplayer-room[data-state="error"] .multiplayer-room__eyebrow { color: #ef6b73; }

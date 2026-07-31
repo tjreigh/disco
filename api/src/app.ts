@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
+import websocket from '@fastify/websocket';
 import { ZodError } from 'zod';
 import type { FastifyError, FastifyReply, FastifyRequest } from 'fastify';
 import type { AppConfig } from './config.js';
@@ -9,8 +10,23 @@ import type { Db } from './db/connection.js';
 import { Repositories } from './db/repositories.js';
 import { sessionLoader } from './http/authenticate.js';
 import { registerRoutes } from './http/routes.js';
+import {
+  registerMultiplayerGateway,
+} from './multiplayer/room-gateway.js';
+import {
+  ScoreRaceRoomService,
+} from './multiplayer/room-service.js';
 
-export async function buildApp(config: AppConfig, db: Db) {
+export interface BuildAppOptions {
+  readonly roomService?: ScoreRaceRoomService;
+  readonly roomTickMs?: number;
+}
+
+export async function buildApp(
+  config: AppConfig,
+  db: Db,
+  options: BuildAppOptions = {},
+) {
   const app = Fastify({
     logger: config.nodeEnv !== 'test',
     // Production traffic arrives through Caddy on loopback. Trust forwarded
@@ -19,7 +35,14 @@ export async function buildApp(config: AppConfig, db: Db) {
     trustProxy: ['127.0.0.1', '::1'],
   });
   const repos = new Repositories(db);
+  const roomService = options.roomService ?? new ScoreRaceRoomService({
+    clock: { now: () => Date.now() },
+  });
 
+  // WebSocket support must be installed before any route declarations.
+  await app.register(websocket, {
+    options: { maxPayload: 4_096 },
+  });
   await app.register(cookie);
   await app.register(rateLimit, { global: false });
   await app.register(cors, {
@@ -48,5 +71,8 @@ export async function buildApp(config: AppConfig, db: Db) {
   });
 
   await registerRoutes(app, config, repos);
+  await registerMultiplayerGateway(app, roomService, {
+    ...(options.roomTickMs !== undefined ? { tickMs: options.roomTickMs } : {}),
+  });
   return app;
 }

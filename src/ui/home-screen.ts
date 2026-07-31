@@ -32,6 +32,8 @@ export class HomeScreen {
   onRequestToggleSound?: () => void;
   onRequestDebug?: () => void;
   onRequestTutorial?: (mode: SoloModeDefinition) => void;
+  onRequestCreateMultiplayer?: () => void;
+  onRequestJoinMultiplayer?: (roomId: string) => void;
 
   constructor(
     private readonly modes: readonly SoloModeDefinition[],
@@ -100,6 +102,8 @@ export class HomeScreen {
 
     browser.append(this.cardsContainer, this.modeDetails);
     modeSection.append(sectionHeader, browser);
+
+    const multiplayerSection = this.createMultiplayerSection();
     this.footer = document.createElement('footer');
     this.footer.className = 'home-footer';
     this.footer.dataset.uiAboveHome = 'true';
@@ -129,7 +133,7 @@ export class HomeScreen {
     footerLinks.append(github, report);
     this.footer.append(copyright, footerLinks);
 
-    shell.append(header, modeSection);
+    shell.append(header, modeSection, multiplayerSection);
     this.overlay.append(shell);
     this.mount.append(this.overlay, this.footer);
 
@@ -345,6 +349,62 @@ export class HomeScreen {
     button.addEventListener('click', onClick);
     blurOnClick(button);
     return button;
+  }
+
+  private createMultiplayerSection(): HTMLElement {
+    const section = document.createElement('section');
+    section.className = 'home-multiplayer';
+    section.setAttribute('aria-labelledby', 'home-multiplayer-title');
+
+    const copy = document.createElement('div');
+    const eyebrow = document.createElement('span');
+    eyebrow.className = 'home-multiplayer__eyebrow';
+    eyebrow.textContent = 'MULTIPLAYER · SCORE RACE';
+    const title = document.createElement('h2');
+    title.id = 'home-multiplayer-title';
+    title.textContent = 'PLAY A PRIVATE MATCH';
+    const description = document.createElement('p');
+    description.textContent = 'Three minutes, the same disc sequence, highest score wins.';
+    copy.append(eyebrow, title, description);
+
+    const actions = document.createElement('div');
+    actions.className = 'home-multiplayer__actions';
+    const createButton = document.createElement('button');
+    createButton.type = 'button';
+    createButton.className = 'home-mode-action home-multiplayer__create';
+    createButton.textContent = 'CREATE ROOM';
+    createButton.addEventListener('click', () => this.onRequestCreateMultiplayer?.());
+    blurOnClick(createButton);
+
+    const joinLabel = document.createElement('label');
+    joinLabel.className = 'home-multiplayer__join';
+    const labelText = document.createElement('span');
+    labelText.textContent = 'ROOM CODE';
+    const roomInput = document.createElement('input');
+    roomInput.type = 'text';
+    roomInput.inputMode = 'text';
+    roomInput.autocomplete = 'off';
+    roomInput.maxLength = 8;
+    roomInput.placeholder = 'ABCD2345';
+    roomInput.setAttribute('aria-label', 'Private room code');
+    const joinButton = document.createElement('button');
+    joinButton.type = 'button';
+    joinButton.className = 'home-mode-action';
+    joinButton.textContent = 'JOIN';
+    const join = () => {
+      const roomId = roomInput.value.trim().toUpperCase();
+      if (!roomId) return;
+      this.onRequestJoinMultiplayer?.(roomId);
+    };
+    joinButton.addEventListener('click', join);
+    roomInput.addEventListener('keydown', event => {
+      if (event.key === 'Enter') join();
+    });
+    blurOnClick(joinButton);
+    joinLabel.append(labelText, roomInput, joinButton);
+    actions.append(createButton, joinLabel);
+    section.append(copy, actions);
+    return section;
   }
 
   private setBackgroundInert(inert: boolean): void {

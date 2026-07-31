@@ -17,6 +17,7 @@ mkdir -p "$SEED/api/deploy" "$SEED/src/shared" "$FAKE_BIN" "$STATE"
 cp "$SOURCE_DIR/auto-deploy.sh" "$SEED/api/deploy/auto-deploy.sh"
 cp "$SOURCE_DIR/backup-sqlite.sh" "$SEED/api/deploy/backup-sqlite.sh"
 cp "$SOURCE_DIR/smoke-test.sh" "$SEED/api/deploy/smoke-test.sh"
+cp "$SOURCE_DIR/check-websocket.mjs" "$SEED/api/deploy/check-websocket.mjs"
 chmod +x "$SEED/api/deploy/"*.sh
 printf '{"name":"deploy-fixture","private":true}\n' > "$SEED/api/package.json"
 printf 'export const protocolVersion = 1;\n' > "$SEED/src/shared/multiplayer-contracts.ts"

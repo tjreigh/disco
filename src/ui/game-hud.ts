@@ -33,6 +33,8 @@ export interface GameHudState {
   criticalInstability?: number | undefined;
   /** Turn pips consumed by the next accepted move in rewind modes. */
   turnCost?: number | undefined;
+  /** Whether the generic solo restart shortcut should be advertised. */
+  hasRestart?: boolean;
   gravityAngle?: number | undefined;
   /** Angle at the start of the in-progress tilt (GravityState.turnStartAngle) — only meaningful during Aiming. */
   gravityTurnStartAngle?: number | undefined;
@@ -467,11 +469,12 @@ function controlHintsFor(
     ];
   }
   if (state.hasGravity) {
-    return [
+    const hints: ControlHint[] = [
       { controls: '← →', action: 'Choose lane' },
       { controls: '↓', action: 'Stage drop' },
-      { controls: 'R', action: 'New game' },
     ];
+    if (state.hasRestart !== false) hints.push({ controls: 'R', action: 'New game' });
+    return hints;
   }
 
   const hints: ControlHint[] = [
@@ -479,7 +482,7 @@ function controlHintsFor(
     { controls: '↓ / Click', action: 'Drop' },
   ];
   if (state.hasRewind) hints.push({ controls: 'Z', action: 'Rewind' });
-  hints.push({ controls: 'R', action: 'New game' });
+  if (state.hasRestart !== false) hints.push({ controls: 'R', action: 'New game' });
   return hints;
 }
 

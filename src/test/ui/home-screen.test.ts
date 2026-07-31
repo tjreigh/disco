@@ -169,6 +169,29 @@ describe('HomeScreen', () => {
     expect(onSelectMode).not.toHaveBeenCalled();
   });
 
+  test('starts or joins a private Score Race from the multiplayer section', () => {
+    const home = createHome();
+    const onCreate = vi.fn();
+    const onJoin = vi.fn();
+    home.onRequestCreateMultiplayer = onCreate;
+    home.onRequestJoinMultiplayer = onJoin;
+
+    const section = document.querySelector<HTMLElement>('.home-multiplayer')!;
+    const create = Array.from(section.querySelectorAll<HTMLButtonElement>('button'))
+      .find(button => button.textContent === 'CREATE ROOM')!;
+    const join = Array.from(section.querySelectorAll<HTMLButtonElement>('button'))
+      .find(button => button.textContent === 'JOIN')!;
+    const input = section.querySelector<HTMLInputElement>('input')!;
+
+    expect(section.textContent).toContain('MULTIPLAYER · SCORE RACE');
+    create.click();
+    input.value = 'abcd2345';
+    join.click();
+
+    expect(onCreate).toHaveBeenCalledOnce();
+    expect(onJoin).toHaveBeenCalledWith('ABCD2345');
+  });
+
   test('auth button calls login or logout based on account state', () => {
     const onLogin = vi.fn();
     const onLogout = vi.fn();

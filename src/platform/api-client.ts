@@ -83,7 +83,7 @@ export function resolveApiBaseUrl(env: ApiBaseUrlEnvironment): string {
   return `https://api.${hostname}`;
 }
 
-function configuredApiBaseUrl(): string {
+export function configuredApiBaseUrl(): string {
   const meta = document.querySelector<HTMLMetaElement>('meta[name="disco-api-base-url"]')?.content;
   let storageBaseUrl: string | null = null;
 

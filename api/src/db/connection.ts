@@ -5,8 +5,10 @@ import { mkdirSync } from 'node:fs';
 export type Db = Database.Database;
 
 export function openDatabase(databasePath: string): Db {
-  const resolvedPath = resolve(databasePath);
-  mkdirSync(dirname(resolvedPath), { recursive: true });
+  const resolvedPath = databasePath === ':memory:' ? databasePath : resolve(databasePath);
+  if (resolvedPath !== ':memory:') {
+    mkdirSync(dirname(resolvedPath), { recursive: true });
+  }
 
   const db = new Database(resolvedPath);
   db.pragma('foreign_keys = ON');

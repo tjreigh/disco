@@ -57,6 +57,21 @@ describe('GameHud', () => {
     expect(doubleCracked.querySelectorAll('.game-hud__disc-crack')).toHaveLength(2);
   });
 
+  test('can omit the solo restart shortcut for multiplayer sessions', () => {
+    const hud = new GameHud();
+    hud.render({
+      phase: GamePhase.WaitingForDrop, score: 0,
+      currentDisc: disc(3), nextDisc: disc(4),
+      level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 30,
+      hasGravity: false, hasRestart: false,
+    });
+
+    expect(Array.from(hud.root.querySelectorAll('.game-hud__hint-action'))
+      .map(control => control.getAttribute('aria-label'))).toEqual([
+        '← →: Move', '↓ / Click: Drop',
+      ]);
+  });
+
   test('shows Paradox records and instability, and marks its critical tier', () => {
     const hud = new GameHud();
     const base = {

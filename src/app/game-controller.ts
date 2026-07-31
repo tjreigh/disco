@@ -124,6 +124,12 @@ export class SoloSessionController {
     this.homeScreen.onRequestToggleSound = () => this.toggleSound();
     this.homeScreen.onRequestDebug = () => this.openDebugPanel();
     this.homeScreen.onRequestTutorial = mode => this.startTutorial(mode);
+    this.homeScreen.onRequestCreateMultiplayer = () => {
+      location.search = '?multiplayer=create';
+    };
+    this.homeScreen.onRequestJoinMultiplayer = roomId => {
+      location.search = `?room=${encodeURIComponent(roomId)}`;
+    };
     this.gameOverScreen.onRequestRewind = () => this.requestRewind();
     this.gameOverScreen.onRequestNewGame = () => this.restart();
     this.gameOverScreen.onRequestHome = () => this.returnToMenu();
