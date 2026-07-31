@@ -758,6 +758,50 @@ describe('ScoreRaceRoomService', () => {
     ))).toBe('invalid-state');
   });
 
+  test('accepts a finish notification racing with authoritative deadline completion', () => {
+    const harness = setupRoom();
+    const countdown = startMatch(harness);
+    harness.clock.time = countdown.startsAt;
+    valueOf(harness.service.receive(
+      harness.hostConnection,
+      message(harness.host, {
+        type: 'publish-progress',
+        matchId: countdown.matchId,
+        progress: progress(5, 200),
+      }),
+    ));
+    valueOf(harness.service.receive(
+      harness.guestConnection,
+      message(harness.guest, {
+        type: 'publish-progress',
+        matchId: countdown.matchId,
+        progress: progress(4, 180),
+      }),
+    ));
+
+    harness.clock.time = countdown.deadline;
+    const racedFinish = harness.service.receive(
+      harness.hostConnection,
+      message(harness.host, {
+        type: 'finish-match',
+        matchId: countdown.matchId,
+        progress: progress(5, 200),
+      }),
+    );
+
+    valueOf(racedFinish);
+    expect(deliveriesFor(
+      racedFinish.deliveries,
+      harness.host.playerId,
+      'match-finished',
+    )).toHaveLength(1);
+    expect(deliveriesFor(
+      racedFinish.deliveries,
+      harness.guest.playerId,
+      'match-finished',
+    )).toHaveLength(1);
+  });
+
   test('expires idle lobbies and completed matches with their credentials', () => {
     const lobbyClock = new ManualClock();
     const lobbyService = createService(lobbyClock);

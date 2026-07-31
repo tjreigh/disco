@@ -368,7 +368,11 @@ export class ScoreRaceRoomService {
       if (matchId !== lifecycle.match.id) {
         return failure('match-mismatch', priorDeliveries);
       }
-      if (finishing && player.finished && sameProgress(player.progress, progress)) {
+      // The authoritative deadline can complete the room immediately before a
+      // client's own deadline tick sends finish-match. The result has already
+      // been fixed, so treat that terminal notification as an idempotent no-op
+      // instead of sending an error after match-finished.
+      if (finishing) {
         return success(null, priorDeliveries);
       }
       return failure('invalid-state', priorDeliveries);

@@ -64,14 +64,9 @@ export class MultiplayerRoomOverlay {
   }
 
   render(view: MultiplayerSessionView, error: MultiplayerTransportError | null): void {
-    if (error) {
-      this.renderError(transportErrorText(error));
-      return;
-    }
-    if (view.compatibilityError) {
-      this.renderError('This match uses an incompatible Disco multiplayer version.');
-      return;
-    }
+    // A result is authoritative and terminal. A transport error can race in
+    // immediately afterward (for example, when both deadline timers fire), but
+    // it must never replace the winner presentation the player already earned.
     if (view.result) {
       this.root.hidden = false;
       this.root.dataset.state = 'result';
@@ -84,6 +79,14 @@ export class MultiplayerRoomOverlay {
       this.roomCode.textContent = '';
       this.readyButton.hidden = true;
       this.copyButton.hidden = true;
+      return;
+    }
+    if (error) {
+      this.renderError(transportErrorText(error));
+      return;
+    }
+    if (view.compatibilityError) {
+      this.renderError('This match uses an incompatible Disco multiplayer version.');
       return;
     }
     if (view.phase === 'finished') {
