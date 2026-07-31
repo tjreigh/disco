@@ -3,14 +3,11 @@ import { DiscKind } from '../game/model.js';
 import { GamePhase } from '../game/state.js';
 import { computeGravityVector } from '../game/gravity/settling.js';
 import { COLOR_GRAVITY_ACCENT, COLOR_TEXT_DIM } from './rendering/theme.js';
-import { isTouchDevice } from './dom-utils.js';
+import { cloneTemplate, isTouchDevice, mustQuery } from './dom-utils.js';
 
-const SVG_NS = 'http://www.w3.org/2000/svg';
 const DIAL_CX = 40;
 const DIAL_CY = 40;
 const DIAL_RING_R = 26;
-const DIAL_BACKDROP_R = 32;
-const DIAL_ATTENTION_R = 36;
 const DIAL_ARC_R = 38;
 
 export interface GameHudState {
@@ -97,118 +94,46 @@ export class GameHud {
   private hintRenderKey = '';
 
   constructor(container?: HTMLElement | null) {
-    this.root = document.createElement('section');
-    this.root.className = 'game-hud';
-    this.root.setAttribute('aria-label', 'Game status');
-    this.root.hidden = true;
-
-    const top = document.createElement('div');
-    top.className = 'game-hud__top';
-    const summary = document.createElement('div');
-    summary.className = 'game-hud__summary';
-    this.score = this.makeValue('Score', 'game-hud__score');
-    this.level = this.makeValue('Level', 'game-hud__level');
-    this.turns = this.makeValue('Turns remaining', 'game-hud__turns');
-    this.turnsLabel = document.createElement('span');
-    this.turnPips = document.createElement('span');
-    this.turnPips.className = 'game-hud__pips';
-    this.turnPips.setAttribute('aria-hidden', 'true');
-    this.turns.append(this.turnsLabel, this.turnPips);
-    this.records = this.makeValue('Records', 'game-hud__records');
-    summary.append(this.score, this.records, this.turns, this.level);
-
-    top.append(summary);
-
-    const bottom = document.createElement('div');
-    bottom.className = 'game-hud__bottom';
-    const queue = document.createElement('div');
-    queue.className = 'game-hud__queue';
-    this.current = this.makeDiscSlot('Current disc');
-    this.next = this.makeDiscSlot('Next disc');
-    queue.append(this.current, this.next);
-
-    this.gravity = document.createElement('span');
-    this.gravity.className = 'game-hud__gravity';
-    const dial = document.createElementNS(SVG_NS, 'svg');
-    dial.setAttribute('class', 'game-hud__gravity-dial');
-    dial.setAttribute('viewBox', '0 0 80 80');
-    dial.setAttribute('aria-hidden', 'true');
-
-    const backdrop = document.createElementNS(SVG_NS, 'circle');
-    backdrop.setAttribute('cx', String(DIAL_CX));
-    backdrop.setAttribute('cy', String(DIAL_CY));
-    backdrop.setAttribute('r', String(DIAL_BACKDROP_R));
-    backdrop.setAttribute('fill', 'rgba(15, 23, 42, 0.82)');
-    backdrop.setAttribute('stroke', COLOR_GRAVITY_ACCENT);
-    backdrop.setAttribute('stroke-width', '1.5');
-
-    const ring = document.createElementNS(SVG_NS, 'circle');
-    ring.setAttribute('cx', String(DIAL_CX));
-    ring.setAttribute('cy', String(DIAL_CY));
-    ring.setAttribute('r', String(DIAL_RING_R));
-    ring.setAttribute('fill', 'none');
-    ring.setAttribute('stroke', COLOR_TEXT_DIM);
-    ring.setAttribute('stroke-width', '1');
-
-    this.gravityArc = document.createElementNS(SVG_NS, 'path');
-    this.gravityArc.setAttribute('fill', 'none');
-    this.gravityArc.setAttribute('stroke', COLOR_GRAVITY_ACCENT);
-    this.gravityArc.setAttribute('stroke-width', '4');
-    this.gravityArc.setAttribute('stroke-linecap', 'round');
-    this.gravityArc.setAttribute('opacity', '0.55');
-
-    this.gravityArrow = document.createElementNS(SVG_NS, 'line');
-    this.gravityArrow.setAttribute('stroke', COLOR_GRAVITY_ACCENT);
-    this.gravityArrow.setAttribute('stroke-width', '4');
-    this.gravityArrow.setAttribute('stroke-linecap', 'round');
-
-    this.gravityArrowhead = document.createElementNS(SVG_NS, 'polygon');
-    this.gravityArrowhead.setAttribute('fill', COLOR_GRAVITY_ACCENT);
-
+    const fragment = cloneTemplate('tpl-game-hud');
+    this.root = mustQuery(fragment, '.game-hud');
+    this.score = mustQuery(fragment, '.game-hud__score');
+    this.level = mustQuery(fragment, '.game-hud__level');
+    this.turns = mustQuery(fragment, '.game-hud__turns');
+    this.turnsLabel = mustQuery(fragment, '[data-ui-ref="turns-label"]');
+    this.turnPips = mustQuery(fragment, '.game-hud__pips');
+    this.records = mustQuery(fragment, '.game-hud__records');
+    this.current = mustQuery(fragment, '.game-hud__disc-slot[aria-label="Current disc"]');
+    this.next = mustQuery(fragment, '.game-hud__disc-slot[aria-label="Next disc"]');
+    this.gravity = mustQuery(fragment, '.game-hud__gravity');
+    this.gravitySr = mustQuery(fragment, '.game-hud__gravity-sr');
     // Attention ring: outside the backdrop so it's never obscured by it, on
     // a dedicated class so tests and CSS never depend on circle order. Only
     // visible while a tilt is owed (game-hud__gravity--attention, CSS-driven).
-    const attentionRing = document.createElementNS(SVG_NS, 'circle');
-    attentionRing.setAttribute('class', 'game-hud__gravity-attention-ring');
-    attentionRing.setAttribute('cx', String(DIAL_CX));
-    attentionRing.setAttribute('cy', String(DIAL_CY));
-    attentionRing.setAttribute('r', String(DIAL_ATTENTION_R));
-    attentionRing.setAttribute('fill', 'none');
+    const attentionRing = mustQuery<SVGCircleElement>(fragment, '.game-hud__gravity-attention-ring');
+    const backdrop = mustQuery<SVGCircleElement>(fragment, '[data-ui-ref="gravity-backdrop"]');
+    this.gravityArc = mustQuery<SVGPathElement>(fragment, '[data-ui-ref="gravity-arc"]');
+    const ring = mustQuery<SVGCircleElement>(fragment, '[data-ui-ref="gravity-ring"]');
+    this.gravityArrow = mustQuery<SVGLineElement>(fragment, '[data-ui-ref="gravity-arrow"]');
+    this.gravityArrowhead = mustQuery<SVGPolygonElement>(fragment, '[data-ui-ref="gravity-arrowhead"]');
+    this.instability = mustQuery(fragment, '.game-hud__instability');
+    this.instabilityValue = mustQuery(fragment, '.game-hud__instability-value');
+    this.pressure = mustQuery(fragment, '.game-hud__pressure');
+    this.hint = mustQuery(fragment, '.game-hud__hint');
+    this.stackReceipt = mustQuery(fragment, '.game-hud__stack-receipt');
+    this.stackReceiptTotal = mustQuery(fragment, '.game-hud__stack-receipt-total');
+    this.stackReceiptBreakdown = mustQuery(fragment, '.game-hud__stack-receipt-breakdown');
+
+    // Geometry/opacity/etc. are static in the template; only the theme
+    // colors — sourced from rendering/theme.ts, not literal hex in markup —
+    // stay imperative, set once here.
     attentionRing.setAttribute('stroke', COLOR_GRAVITY_ACCENT);
-    attentionRing.setAttribute('stroke-width', '2.5');
+    backdrop.setAttribute('stroke', COLOR_GRAVITY_ACCENT);
+    this.gravityArc.setAttribute('stroke', COLOR_GRAVITY_ACCENT);
+    ring.setAttribute('stroke', COLOR_TEXT_DIM);
+    this.gravityArrow.setAttribute('stroke', COLOR_GRAVITY_ACCENT);
+    this.gravityArrowhead.setAttribute('fill', COLOR_GRAVITY_ACCENT);
 
-    dial.append(attentionRing, backdrop, this.gravityArc, ring, this.gravityArrow, this.gravityArrowhead);
-
-    this.gravitySr = document.createElement('span');
-    this.gravitySr.className = 'game-hud__gravity-sr';
-    this.gravitySr.setAttribute('aria-live', 'polite');
-
-    this.gravity.append(dial, this.gravitySr);
-    this.instability = document.createElement('span');
-    this.instability.className = 'game-hud__instability';
-    this.instabilityValue = document.createElement('span');
-    this.instabilityValue.className = 'game-hud__instability-value';
-    this.pressure = document.createElement('span');
-    this.pressure.className = 'game-hud__pressure';
-    this.instability.append(this.instabilityValue, this.pressure);
-    this.hint = document.createElement('p');
-    this.hint.className = 'game-hud__hint';
-
-    const status = document.createElement('div');
-    status.className = 'game-hud__status';
-    this.stackReceipt = document.createElement('p');
-    this.stackReceipt.className = 'game-hud__stack-receipt';
-    this.stackReceiptTotal = document.createElement('span');
-    this.stackReceiptTotal.className = 'game-hud__stack-receipt-total';
-    this.stackReceiptBreakdown = document.createElement('span');
-    this.stackReceiptBreakdown.className = 'game-hud__stack-receipt-breakdown';
-    this.stackReceipt.append(this.stackReceiptTotal, this.stackReceiptBreakdown);
-    status.append(this.stackReceipt, this.hint);
-
-    top.append(this.gravity, this.instability);
-    bottom.append(queue, status);
-    this.root.append(top, bottom);
-    (container ?? document.querySelector<HTMLElement>('.game-stage') ?? document.body).append(this.root);
+    (container ?? document.querySelector<HTMLElement>('.game-stage') ?? document.body).append(fragment);
   }
 
   render(state: GameHudState): void {
@@ -365,20 +290,6 @@ export class GameHud {
     } else {
       this.gravityArc.style.display = 'none';
     }
-  }
-
-  private makeValue(label: string, className: string): HTMLElement {
-    const element = document.createElement('span');
-    element.className = className;
-    element.setAttribute('aria-label', label);
-    return element;
-  }
-
-  private makeDiscSlot(label: string): HTMLElement {
-    const element = document.createElement('span');
-    element.className = 'game-hud__disc-slot';
-    element.setAttribute('aria-label', label);
-    return element;
   }
 
   private renderDisc(slot: HTMLElement, disc: Disc, label: string): void {

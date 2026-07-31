@@ -1,5 +1,6 @@
 import type { SaveGameV1 } from '../game/save.js';
 import type { SoloModeDefinition } from '../game/modes/mode.js';
+import { cloneTemplate, mustQuery } from './dom-utils.js';
 import { ModalController } from './modal-controller.js';
 
 export type SavedGameConflictSide = SaveGameV1 | null;
@@ -25,27 +26,18 @@ export class SavedGameDialog {
   ) {
     const id = `saved-game-dialog-${SavedGameDialog.nextId++}`;
 
-    this.root = document.createElement('section');
-    this.root.className = 'saved-game-dialog';
-    this.root.setAttribute('role', 'dialog');
-    this.root.setAttribute('aria-modal', 'true');
+    const fragment = cloneTemplate('tpl-saved-game-dialog');
+    this.root = mustQuery(fragment, '.saved-game-dialog');
+    this.panel = mustQuery(fragment, '.saved-game-dialog__panel');
+    this.title = mustQuery(fragment, '.saved-game-dialog__panel > h2');
+    this.description = mustQuery(fragment, '.saved-game-dialog__description');
+
     this.root.setAttribute('aria-labelledby', `${id}-title`);
     this.root.setAttribute('aria-describedby', `${id}-description`);
-    this.root.setAttribute('aria-hidden', 'true');
-
-    this.panel = document.createElement('div');
-    this.panel.className = 'saved-game-dialog__panel';
-
-    this.title = document.createElement('h2');
     this.title.id = `${id}-title`;
-
-    this.description = document.createElement('p');
     this.description.id = `${id}-description`;
-    this.description.className = 'saved-game-dialog__description';
 
-    this.panel.append(this.title, this.description);
-    this.root.append(this.panel);
-    mount.append(this.root);
+    mount.append(fragment);
     this.modal = new ModalController(this.root, {
       openClass: 'saved-game-dialog--open',
       initialFocus: () => this.primaryFocus,

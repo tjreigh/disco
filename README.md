@@ -10,8 +10,10 @@ These adapters are coordinated by `src/app/game-controller.ts` around the
 synchronous `GameEngine` turn result.
 
 The browser game is a static Cloudflare Pages deploy. Its runtime has no
-client framework or bundled third-party game dependencies; `yarn build`
-compiles `src/` into `public/` and copies `index.html`.
+client framework or bundled third-party game dependencies. Static UI markup
+lives beside its TypeScript behavior in `src/ui/*.template.html`; `yarn build`
+compiles `src/`, stitches those templates into `public/index.html`, and copies
+the styles into `public/`.
 
 An optional account/statistics API lives under `api/`. It is a separate Fastify
 and SQLite Node service for VPS deployment, used for OIDC sign-in, cross-device
@@ -25,6 +27,10 @@ Run all headless tests:
 ```sh
 yarn test
 ```
+
+For local UI work, `yarn dev` performs an initial build, watches TypeScript and
+`*.template.html` files, and serves `public/` on port 3000. Use `yarn watch` for
+the same build and watchers without starting the static server.
 
 To run only the turn-level engine tests, use `yarn run test:engine`.
 

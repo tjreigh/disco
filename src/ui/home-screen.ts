@@ -1,7 +1,7 @@
 import type { SoloModeDefinition } from '../game/modes/mode.js';
 import type { GameStats } from '../game/stats.js';
 import type { AccountStatsState } from '../platform/account-stats-store.js';
-import { blurOnClick } from './dom-utils.js';
+import { blurOnClick, cloneTemplate, mustQuery } from './dom-utils.js';
 import { ModalController } from './modal-controller.js';
 
 // DOM overlay for mode selection. It mounts into the shared UI layer and
@@ -45,179 +45,76 @@ export class HomeScreen {
     private readonly mount: HTMLElement = document.body,
     private readonly modalBackground: readonly HTMLElement[] = [],
   ) {
-    this.overlay = document.createElement('div');
-    this.overlay.className = 'home-screen';
-    this.overlay.setAttribute('aria-label', 'Disco home screen');
-    this.overlay.setAttribute('aria-hidden', 'true');
+    const mainFragment = cloneTemplate('tpl-home-screen-main');
+    this.overlay = mustQuery(mainFragment, '.home-screen');
     this.selectedModeId = this.modes[0]?.id ?? '';
+    this.authBar = mustQuery(mainFragment, '.home-auth');
+    this.cardsContainer = mustQuery(mainFragment, '.home-mode-list');
+    this.modeDetails = mustQuery(mainFragment, '.home-mode-detail');
+    this.footer = mustQuery(mainFragment, '.home-footer');
 
-    const shell = document.createElement('div');
-    shell.className = 'home-shell';
-
-    const header = document.createElement('header');
-    header.className = 'home-header';
-
-    const title = document.createElement('h1');
-    title.className = 'home-title';
-    title.textContent = 'DISCO';
-
-    this.authBar = document.createElement('div');
-    this.authBar.className = 'home-auth';
-
-    header.append(title, this.authBar);
-
-    const modeSection = document.createElement('section');
-    modeSection.className = 'home-mode-section';
-    modeSection.setAttribute('aria-labelledby', 'home-mode-section-title');
-
-    const sectionHeader = document.createElement('header');
-    sectionHeader.className = 'home-mode-section-header';
-
-    const category = document.createElement('span');
-    category.className = 'home-mode-category';
-    category.textContent = 'SOLO';
-
-    const sectionTitle = document.createElement('h2');
-    sectionTitle.id = 'home-mode-section-title';
-    sectionTitle.textContent = 'CHOOSE A MODE';
-
-    const sectionDescription = document.createElement('p');
-    sectionDescription.textContent = 'Pick a ruleset, then jump in when you’re ready.';
-
-    sectionHeader.append(category, sectionTitle, sectionDescription);
-
-    const browser = document.createElement('div');
-    browser.className = 'home-mode-browser';
-
-    this.cardsContainer = document.createElement('div');
-    this.cardsContainer.className = 'home-mode-list';
-    this.cardsContainer.setAttribute('role', 'radiogroup');
-    this.cardsContainer.setAttribute('aria-label', 'Solo game modes');
-
-    this.modeDetails = document.createElement('div');
-    this.modeDetails.className = 'home-mode-detail';
-    this.modeDetails.id = 'home-mode-detail';
-    this.modeDetails.setAttribute('role', 'region');
-    this.modeDetails.setAttribute('aria-live', 'polite');
-
-    browser.append(this.cardsContainer, this.modeDetails);
-    modeSection.append(sectionHeader, browser);
-
-    const multiplayerSection = this.createMultiplayerSection();
-    this.footer = document.createElement('footer');
-    this.footer.className = 'home-footer';
-    this.footer.dataset.uiAboveHome = 'true';
-
-    const copyright = document.createElement('span');
-    copyright.className = 'home-footer__copyright';
+    const copyright = mustQuery<HTMLElement>(mainFragment, '.home-footer__copyright');
     copyright.textContent = `© ${new Date().getFullYear()} Trevor Reigh`;
 
-    const footerLinks = document.createElement('nav');
-    footerLinks.className = 'home-footer__links';
-    footerLinks.setAttribute('aria-label', 'Project links');
-
-    const github = document.createElement('a');
-    github.className = 'home-footer__link';
-    github.href = 'https://github.com/tjreigh/disco';
-    github.target = '_blank';
-    github.rel = 'noreferrer';
-    github.textContent = 'GITHUB';
-
-    const report = document.createElement('button');
-    report.type = 'button';
-    report.className = 'home-footer__link home-footer__button';
-    report.textContent = 'REPORT / DEBUG';
+    const report = mustQuery<HTMLButtonElement>(mainFragment, '.home-footer__button');
     report.addEventListener('click', () => this.onRequestDebug?.());
     blurOnClick(report);
 
-    footerLinks.append(github, report);
-    this.footer.append(copyright, footerLinks);
+    const createRoomButton = mustQuery<HTMLButtonElement>(mainFragment, '[data-multiplayer-action="create"]');
+    createRoomButton.addEventListener('click', () => this.onRequestCreateMultiplayer?.());
+    blurOnClick(createRoomButton);
 
-    shell.append(header, modeSection, multiplayerSection);
-    this.overlay.append(shell);
-    this.mount.append(this.overlay, this.footer);
+    const roomInput = mustQuery<HTMLInputElement>(mainFragment, '.home-multiplayer__join input');
+    const joinButton = mustQuery<HTMLButtonElement>(mainFragment, '[data-multiplayer-action="join"]');
+    const join = (): void => {
+      const roomId = roomInput.value.trim().toUpperCase();
+      if (!roomId) return;
+      this.onRequestJoinMultiplayer?.(roomId);
+    };
+    joinButton.addEventListener('click', join);
+    roomInput.addEventListener('keydown', event => {
+      if (event.key === 'Enter') join();
+    });
+    blurOnClick(joinButton);
 
-    this.menuButton = document.createElement('button');
-    this.menuButton.type = 'button';
-    this.menuButton.className = 'home-back-button';
-    this.menuButton.setAttribute('aria-label', 'Game menu');
-    const menuIcon = document.createElement('span');
-    menuIcon.className = 'home-back-button__icon';
-    menuIcon.setAttribute('aria-hidden', 'true');
-    menuIcon.append(document.createElement('i'), document.createElement('i'), document.createElement('i'));
-    const menuLabel = document.createElement('span');
-    menuLabel.className = 'home-back-button__label';
-    menuLabel.textContent = 'MENU';
-    this.menuButton.append(menuIcon, menuLabel);
-    this.menuButton.setAttribute('aria-hidden', 'true');
+    this.mount.append(mainFragment);
+
+    const menuFragment = cloneTemplate('tpl-home-screen-game-menu');
+    this.menuButton = mustQuery(menuFragment, '.home-back-button');
+    this.gameMenu = mustQuery(menuFragment, '.game-menu');
+    this.restartDialog = mustQuery(menuFragment, '.restart-confirmation');
+
     this.menuButton.addEventListener('click', () => this.onRequestGameMenu?.());
     blurOnClick(this.menuButton);
 
-    this.gameMenu = document.createElement('div');
-    this.gameMenu.className = 'game-menu';
-    this.gameMenu.setAttribute('aria-label', 'Game menu');
-    this.gameMenu.setAttribute('role', 'dialog');
-    this.gameMenu.setAttribute('aria-modal', 'true');
-
-    const panel = document.createElement('div');
-    panel.className = 'game-menu-panel';
-
-    const menuTitle = document.createElement('h2');
-    menuTitle.textContent = 'MENU';
-
-    const menuNote = document.createElement('p');
-    menuNote.className = 'game-menu-note';
-    menuNote.textContent = 'Progress saves automatically.';
-
-    const closeMenuButton = document.createElement('button');
-    closeMenuButton.type = 'button';
-    closeMenuButton.className = 'game-menu-close';
-    closeMenuButton.textContent = '×';
-    closeMenuButton.setAttribute('aria-label', 'Resume game');
+    const closeMenuButton = mustQuery<HTMLButtonElement>(menuFragment, '.game-menu-close');
     closeMenuButton.addEventListener('click', () => this.onRequestResume?.());
     blurOnClick(closeMenuButton);
 
-    const resumeButton = this.createGameMenuButton('RESUME', () => this.onRequestResume?.());
-    resumeButton.classList.add('game-menu-button--primary');
-    const restartButton = this.createGameMenuButton('RESTART', () => this.restartDialogModal.open());
-    this.soundButton = this.createGameMenuButton('SOUND ON', () => this.onRequestToggleSound?.());
-    this.saveExitButton = this.createGameMenuButton('SAVE & EXIT', () => this.onRequestHome?.());
-    const debugButton = this.createGameMenuButton('REPORT / DEBUG', () => this.onRequestDebug?.());
-    debugButton.classList.add('game-menu-button--secondary', 'game-menu-button--debug');
+    const resumeButton = mustQuery<HTMLButtonElement>(menuFragment, '.game-menu-button--primary');
+    resumeButton.addEventListener('click', () => this.onRequestResume?.());
+    blurOnClick(resumeButton);
 
-    panel.append(menuTitle, closeMenuButton, menuNote, resumeButton, restartButton, this.soundButton, this.saveExitButton, debugButton);
-    this.gameMenu.append(panel);
+    const restartButton = mustQuery<HTMLButtonElement>(menuFragment, '[data-game-menu-action="restart"]');
+    restartButton.addEventListener('click', () => this.restartDialogModal.open());
+    blurOnClick(restartButton);
 
-    this.restartDialog = document.createElement('div');
-    this.restartDialog.className = 'restart-confirmation';
-    this.restartDialog.setAttribute('role', 'alertdialog');
-    this.restartDialog.setAttribute('aria-modal', 'true');
-    this.restartDialog.setAttribute('aria-labelledby', 'restart-confirmation-title');
-    this.restartDialog.setAttribute('aria-describedby', 'restart-confirmation-description');
+    this.soundButton = mustQuery(menuFragment, '[data-game-menu-action="sound"]');
+    this.soundButton.addEventListener('click', () => this.onRequestToggleSound?.());
+    blurOnClick(this.soundButton);
 
-    const restartPanel = document.createElement('div');
-    restartPanel.className = 'restart-confirmation__panel';
-    const restartTitle = document.createElement('h2');
-    restartTitle.id = 'restart-confirmation-title';
-    restartTitle.textContent = 'RESTART GAME?';
-    const restartDescription = document.createElement('p');
-    restartDescription.id = 'restart-confirmation-description';
-    restartDescription.textContent = 'Your current run will be replaced.';
-    const restartActions = document.createElement('div');
-    restartActions.className = 'restart-confirmation__actions';
-    const cancelRestartButton = document.createElement('button');
-    cancelRestartButton.type = 'button';
-    cancelRestartButton.className = 'restart-confirmation__button';
-    cancelRestartButton.textContent = 'CANCEL';
-    const confirmRestartButton = document.createElement('button');
-    confirmRestartButton.type = 'button';
-    confirmRestartButton.className = 'restart-confirmation__button restart-confirmation__button--danger';
-    confirmRestartButton.textContent = 'RESTART GAME';
-    restartActions.append(cancelRestartButton, confirmRestartButton);
-    restartPanel.append(restartTitle, restartDescription, restartActions);
-    this.restartDialog.append(restartPanel);
+    this.saveExitButton = mustQuery(menuFragment, '[data-game-menu-action="save-exit"]');
+    this.saveExitButton.addEventListener('click', () => this.onRequestHome?.());
+    blurOnClick(this.saveExitButton);
 
-    this.mount.append(this.menuButton, this.gameMenu, this.restartDialog);
+    const debugButton = mustQuery<HTMLButtonElement>(menuFragment, '.game-menu-button--debug');
+    debugButton.addEventListener('click', () => this.onRequestDebug?.());
+    blurOnClick(debugButton);
+
+    const cancelRestartButton = mustQuery<HTMLButtonElement>(menuFragment, '[data-restart-action="cancel"]');
+    const confirmRestartButton = mustQuery<HTMLButtonElement>(menuFragment, '.restart-confirmation__button--danger');
+
+    this.mount.append(menuFragment);
     this.gameMenuModal = new ModalController(this.gameMenu, {
       openClass: 'game-menu--open',
       initialFocus: () => resumeButton,
@@ -339,72 +236,6 @@ export class HomeScreen {
     blurOnClick(button);
 
     this.authBar.append(status, button);
-  }
-
-  private createGameMenuButton(label: string, onClick: () => void): HTMLButtonElement {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'game-menu-button';
-    button.textContent = label;
-    button.addEventListener('click', onClick);
-    blurOnClick(button);
-    return button;
-  }
-
-  private createMultiplayerSection(): HTMLElement {
-    const section = document.createElement('section');
-    section.className = 'home-multiplayer';
-    section.setAttribute('aria-labelledby', 'home-multiplayer-title');
-
-    const copy = document.createElement('div');
-    const eyebrow = document.createElement('span');
-    eyebrow.className = 'home-multiplayer__eyebrow';
-    eyebrow.textContent = 'MULTIPLAYER · SCORE RACE';
-    const title = document.createElement('h2');
-    title.id = 'home-multiplayer-title';
-    title.textContent = 'PLAY A PRIVATE MATCH';
-    const description = document.createElement('p');
-    description.textContent = 'Three minutes, the same disc sequence, highest score wins.';
-    copy.append(eyebrow, title, description);
-
-    const actions = document.createElement('div');
-    actions.className = 'home-multiplayer__actions';
-    const createButton = document.createElement('button');
-    createButton.type = 'button';
-    createButton.className = 'home-mode-action home-multiplayer__create';
-    createButton.textContent = 'CREATE ROOM';
-    createButton.addEventListener('click', () => this.onRequestCreateMultiplayer?.());
-    blurOnClick(createButton);
-
-    const joinLabel = document.createElement('label');
-    joinLabel.className = 'home-multiplayer__join';
-    const labelText = document.createElement('span');
-    labelText.textContent = 'ROOM CODE';
-    const roomInput = document.createElement('input');
-    roomInput.type = 'text';
-    roomInput.inputMode = 'text';
-    roomInput.autocomplete = 'off';
-    roomInput.maxLength = 8;
-    roomInput.placeholder = 'ABCD2345';
-    roomInput.setAttribute('aria-label', 'Private room code');
-    const joinButton = document.createElement('button');
-    joinButton.type = 'button';
-    joinButton.className = 'home-mode-action';
-    joinButton.textContent = 'JOIN';
-    const join = () => {
-      const roomId = roomInput.value.trim().toUpperCase();
-      if (!roomId) return;
-      this.onRequestJoinMultiplayer?.(roomId);
-    };
-    joinButton.addEventListener('click', join);
-    roomInput.addEventListener('keydown', event => {
-      if (event.key === 'Enter') join();
-    });
-    blurOnClick(joinButton);
-    joinLabel.append(labelText, roomInput, joinButton);
-    actions.append(createButton, joinLabel);
-    section.append(copy, actions);
-    return section;
   }
 
   private setBackgroundInert(inert: boolean): void {

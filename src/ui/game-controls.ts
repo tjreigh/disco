@@ -1,5 +1,6 @@
 import type { InputIntent } from '../platform/input-handler.js';
 import { GamePhase } from '../game/state.js';
+import { cloneTemplate, mustQuery } from './dom-utils.js';
 
 export interface GameControlsState {
   phase: GamePhase;
@@ -32,42 +33,44 @@ export class GameControls {
 
   constructor(onIntent: (intent: InputIntent) => void, container?: HTMLElement | null) {
     this.onIntent = onIntent;
-    this.root = document.createElement('div');
-    this.root.className = 'game-controls';
-    this.root.setAttribute('aria-label', 'Gameplay controls');
-    this.root.hidden = true;
 
-    this.previousButton = this.createButton('previous', '‹', 'Move to previous lane', () => {
+    const fragment = cloneTemplate('tpl-game-controls');
+    this.root = mustQuery(fragment, '.game-controls');
+    this.previousButton = mustQuery(fragment, '[data-control="previous"]');
+    this.dropButton = mustQuery(fragment, '[data-control="drop"]');
+    this.nextButton = mustQuery(fragment, '[data-control="next"]');
+    this.counterClockwiseButton = mustQuery(fragment, '[data-control="tilt-counter-clockwise"]');
+    this.clockwiseButton = mustQuery(fragment, '[data-control="tilt-clockwise"]');
+    this.cancelButton = mustQuery(fragment, '[data-control="cancel"]');
+    this.confirmButton = mustQuery(fragment, '[data-control="confirm"]');
+    this.rewindButton = mustQuery(fragment, '[data-control="rewind"]');
+
+    this.previousButton.addEventListener('click', () => {
       this.onIntent({ kind: 'move', col: this.lastState.cursorLane - 1 });
     });
-    this.dropButton = this.createButton('drop', 'DROP', 'Drop disc in selected lane', () => {
+    this.dropButton.addEventListener('click', () => {
       this.onIntent({ kind: 'drop', col: this.lastState.cursorLane });
     });
-    this.nextButton = this.createButton('next', '›', 'Move to next lane', () => {
+    this.nextButton.addEventListener('click', () => {
       this.onIntent({ kind: 'move', col: this.lastState.cursorLane + 1 });
     });
-    this.counterClockwiseButton = this.createButton('tilt-counter-clockwise', '↺', 'Tilt counter-clockwise', () => {
+    this.counterClockwiseButton.addEventListener('click', () => {
       this.onIntent({ kind: 'tilt', delta: -45 });
     });
-    this.clockwiseButton = this.createButton('tilt-clockwise', '↻', 'Tilt clockwise', () => {
+    this.clockwiseButton.addEventListener('click', () => {
       this.onIntent({ kind: 'tilt', delta: 45 });
     });
-    this.cancelButton = this.createButton('cancel', 'CANCEL', 'Cancel tilt', () => {
+    this.cancelButton.addEventListener('click', () => {
       this.onIntent({ kind: 'cancel' });
     });
-    this.confirmButton = this.createButton('confirm', 'CONFIRM', 'Confirm tilt', () => {
+    this.confirmButton.addEventListener('click', () => {
       this.onIntent({ kind: 'drop', col: this.lastState.cursorLane });
     });
-    this.rewindButton = this.createButton('rewind', 'REWIND', 'Rewind previous turns', () => {
+    this.rewindButton.addEventListener('click', () => {
       this.onIntent({ kind: 'rewind' });
     });
-    this.rewindButton.setAttribute('aria-keyshortcuts', 'Z');
 
-    this.root.append(
-      this.previousButton, this.counterClockwiseButton, this.cancelButton,
-      this.dropButton, this.confirmButton, this.clockwiseButton, this.nextButton, this.rewindButton,
-    );
-    (container ?? document.querySelector<HTMLElement>('.shell-region--bottom') ?? document.body).append(this.root);
+    (container ?? document.querySelector<HTMLElement>('.shell-region--bottom') ?? document.body).append(fragment);
   }
 
   private lastState: GameControlsState = {
@@ -122,23 +125,6 @@ export class GameControls {
 
   destroy(): void {
     this.root.remove();
-  }
-
-  private createButton(
-    control: string,
-    text: string,
-    label: string,
-    onClick: () => void,
-  ): HTMLButtonElement {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = `game-control game-control--${control}`;
-    button.dataset.control = control;
-    button.textContent = text;
-    button.setAttribute('aria-label', label);
-    button.title = label;
-    button.addEventListener('click', onClick);
-    return button;
   }
 
   private setButtonLabel(button: HTMLButtonElement, label: string): void {

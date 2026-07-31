@@ -17,6 +17,6 @@ describe('DemoOverlay', () => {
     expect(new URL(overlay.element.href).searchParams.has('demo')).toBe(false);
     expect(new URL(overlay.element.href).searchParams.get('campaign')).toBe('embed');
     expect(new URL(overlay.element.href).hash).toBe('#preview');
-    expect(overlay.element.textContent).toBe('play disco ↗');
+    expect(overlay.element.textContent?.trim()).toBe('play disco ↗');
   });
 });

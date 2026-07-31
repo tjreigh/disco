@@ -1,0 +1,21 @@
+<template id="tpl-game-over-screen">
+  <section class="game-over-screen" role="dialog" aria-modal="true" aria-labelledby="game-over-title" aria-hidden="true">
+    <div class="game-over-panel">
+      <h2 id="game-over-title">GAME OVER</h2>
+      <div class="game-over-highlights" hidden></div>
+      <p class="game-over-score"></p>
+      <p class="game-over-score-context" hidden></p>
+      <div class="game-over-run-summary">
+        <p class="game-over-reason"></p>
+        <p class="game-over-run-record"></p>
+      </div>
+      <p class="game-over-records"></p>
+      <p class="game-over-average"></p>
+      <div class="game-over-actions">
+        <button type="button" class="game-over-button game-over-button--rewind">REWIND</button>
+        <button type="button" class="game-over-button game-over-button--primary">NEW GAME</button>
+        <button type="button" class="game-over-button" data-ui-ref="home">HOME</button>
+      </div>
+    </div>
+  </section>
+</template>

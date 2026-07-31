@@ -1,0 +1,74 @@
+<template id="tpl-home-screen-main">
+  <div class="home-screen" aria-label="Disco home screen" aria-hidden="true">
+    <div class="home-shell">
+      <header class="home-header">
+        <h1 class="home-title">DISCO</h1>
+        <div class="home-auth"></div>
+      </header>
+      <section class="home-mode-section" aria-labelledby="home-mode-section-title">
+        <header class="home-mode-section-header">
+          <span class="home-mode-category">SOLO</span>
+          <h2 id="home-mode-section-title">CHOOSE A MODE</h2>
+          <p>Pick a ruleset, then jump in when you’re ready.</p>
+        </header>
+        <div class="home-mode-browser">
+          <div class="home-mode-list" role="radiogroup" aria-label="Solo game modes"></div>
+          <div class="home-mode-detail" id="home-mode-detail" role="region" aria-live="polite"></div>
+        </div>
+      </section>
+      <section class="home-multiplayer" aria-labelledby="home-multiplayer-title">
+        <div>
+          <span class="home-multiplayer__eyebrow">MULTIPLAYER · SCORE RACE</span>
+          <h2 id="home-multiplayer-title">PLAY A PRIVATE MATCH</h2>
+          <p>Three minutes, the same disc sequence, highest score wins.</p>
+        </div>
+        <div class="home-multiplayer__actions">
+          <button type="button" class="home-mode-action home-multiplayer__create"
+            data-multiplayer-action="create">CREATE ROOM</button>
+          <label class="home-multiplayer__join">
+            <span>ROOM CODE</span>
+            <input type="text" inputmode="text" autocomplete="off" maxlength="8"
+              placeholder="ABCD2345" aria-label="Private room code">
+            <button type="button" class="home-mode-action" data-multiplayer-action="join">JOIN</button>
+          </label>
+        </div>
+      </section>
+    </div>
+  </div>
+  <footer class="home-footer" data-ui-above-home="true">
+    <span class="home-footer__copyright"></span>
+    <nav class="home-footer__links" aria-label="Project links">
+      <a class="home-footer__link" href="https://github.com/tjreigh/disco" target="_blank" rel="noreferrer">GITHUB</a>
+      <button type="button" class="home-footer__link home-footer__button">REPORT / DEBUG</button>
+    </nav>
+  </footer>
+</template>
+<template id="tpl-home-screen-game-menu">
+  <button type="button" class="home-back-button" aria-label="Game menu" aria-hidden="true">
+    <span class="home-back-button__icon" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span class="home-back-button__label">MENU</span>
+  </button>
+  <div class="game-menu" aria-label="Game menu" role="dialog" aria-modal="true">
+    <div class="game-menu-panel">
+      <h2>MENU</h2>
+      <button type="button" class="game-menu-close" aria-label="Resume game">×</button>
+      <p class="game-menu-note">Progress saves automatically.</p>
+      <button type="button" class="game-menu-button game-menu-button--primary">RESUME</button>
+      <button type="button" class="game-menu-button" data-game-menu-action="restart">RESTART</button>
+      <button type="button" class="game-menu-button" data-game-menu-action="sound">SOUND ON</button>
+      <button type="button" class="game-menu-button" data-game-menu-action="save-exit">SAVE &amp; EXIT</button>
+      <button type="button" class="game-menu-button game-menu-button--secondary game-menu-button--debug">REPORT / DEBUG</button>
+    </div>
+  </div>
+  <div class="restart-confirmation" role="alertdialog" aria-modal="true"
+    aria-labelledby="restart-confirmation-title" aria-describedby="restart-confirmation-description">
+    <div class="restart-confirmation__panel">
+      <h2 id="restart-confirmation-title">RESTART GAME?</h2>
+      <p id="restart-confirmation-description">Your current run will be replaced.</p>
+      <div class="restart-confirmation__actions">
+        <button type="button" class="restart-confirmation__button" data-restart-action="cancel">CANCEL</button>
+        <button type="button" class="restart-confirmation__button restart-confirmation__button--danger">RESTART GAME</button>
+      </div>
+    </div>
+  </div>
+</template>

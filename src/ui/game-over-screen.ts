@@ -1,6 +1,6 @@
 import type { GameStats } from '../game/stats.js';
 import type { GameOverReason } from '../game/engine.js';
-import { blurOnClick } from './dom-utils.js';
+import { blurOnClick, cloneTemplate, mustQuery } from './dom-utils.js';
 import { ModalController } from './modal-controller.js';
 
 export interface GameOverSummary {
@@ -38,73 +38,28 @@ export class GameOverScreen {
     mount: HTMLElement = document.body,
     modalBackground: readonly HTMLElement[] = [],
   ) {
-    this.overlay = document.createElement('section');
-    this.overlay.className = 'game-over-screen';
-    this.overlay.setAttribute('role', 'dialog');
-    this.overlay.setAttribute('aria-modal', 'true');
-    this.overlay.setAttribute('aria-labelledby', 'game-over-title');
-    this.overlay.setAttribute('aria-hidden', 'true');
+    const fragment = cloneTemplate('tpl-game-over-screen');
+    this.overlay = mustQuery(fragment, '.game-over-screen');
+    this.highlights = mustQuery(fragment, '.game-over-highlights');
+    this.score = mustQuery(fragment, '.game-over-score');
+    this.scoreContext = mustQuery(fragment, '.game-over-score-context');
+    this.reason = mustQuery(fragment, '.game-over-reason');
+    this.runRecord = mustQuery(fragment, '.game-over-run-record');
+    this.records = mustQuery(fragment, '.game-over-records');
+    this.average = mustQuery(fragment, '.game-over-average');
+    this.actions = mustQuery(fragment, '.game-over-actions');
+    this.rewindButton = mustQuery(fragment, '.game-over-button--rewind');
+    this.newGameButton = mustQuery(fragment, '.game-over-button--primary');
+    this.homeButton = mustQuery(fragment, '[data-ui-ref="home"]');
 
-    const panel = document.createElement('div');
-    panel.className = 'game-over-panel';
+    this.rewindButton.addEventListener('click', () => this.onRequestRewind?.());
+    blurOnClick(this.rewindButton);
+    this.newGameButton.addEventListener('click', () => this.onRequestNewGame?.());
+    blurOnClick(this.newGameButton);
+    this.homeButton.addEventListener('click', () => this.onRequestHome?.());
+    blurOnClick(this.homeButton);
 
-    const title = document.createElement('h2');
-    title.id = 'game-over-title';
-    title.textContent = 'GAME OVER';
-
-    this.highlights = document.createElement('div');
-    this.highlights.className = 'game-over-highlights';
-    this.highlights.hidden = true;
-
-    this.score = document.createElement('p');
-    this.score.className = 'game-over-score';
-
-    this.scoreContext = document.createElement('p');
-    this.scoreContext.className = 'game-over-score-context';
-    this.scoreContext.hidden = true;
-
-    const runSummary = document.createElement('div');
-    runSummary.className = 'game-over-run-summary';
-
-    this.reason = document.createElement('p');
-    this.reason.className = 'game-over-reason';
-
-    this.runRecord = document.createElement('p');
-    this.runRecord.className = 'game-over-run-record';
-    runSummary.append(this.reason, this.runRecord);
-
-    this.records = document.createElement('p');
-    this.records.className = 'game-over-records';
-
-    this.average = document.createElement('p');
-    this.average.className = 'game-over-average';
-
-    this.actions = document.createElement('div');
-    this.actions.className = 'game-over-actions';
-
-    this.rewindButton = this.createButton('REWIND', 'game-over-button--rewind', () => {
-      this.onRequestRewind?.();
-    });
-    this.newGameButton = this.createButton('NEW GAME', 'game-over-button--primary', () => {
-      this.onRequestNewGame?.();
-    });
-    this.homeButton = this.createButton('HOME', '', () => {
-      this.onRequestHome?.();
-    });
-    this.actions.append(this.rewindButton, this.newGameButton, this.homeButton);
-
-    panel.append(
-      title,
-      this.highlights,
-      this.score,
-      this.scoreContext,
-      runSummary,
-      this.records,
-      this.average,
-      this.actions,
-    );
-    this.overlay.append(panel);
-    mount.append(this.overlay);
+    mount.append(fragment);
     this.modal = new ModalController(this.overlay, {
       openClass: 'game-over-screen--open',
       initialFocus: () => this.rewindButton.hidden ? this.newGameButton : this.rewindButton,
@@ -163,15 +118,6 @@ export class GameOverScreen {
 
   close(): void {
     this.modal.close();
-  }
-
-  private createButton(label: string, modifier: string, onClick: () => void): HTMLButtonElement {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = `game-over-button${modifier ? ` ${modifier}` : ''}`;
-    button.textContent = label;
-    button.addEventListener('click', onClick);
-    return blurOnClick(button);
   }
 
   private makeHighlight(label: string): HTMLElement {

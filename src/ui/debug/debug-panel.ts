@@ -5,7 +5,7 @@ import { DiscKind } from '../../game/model.js';
 import type { GameState } from '../../game/state.js';
 import { StepKind } from '../../game/events.js';
 import { buildDebugReport } from './debug-report.js';
-import { blurOnClick } from '../dom-utils.js';
+import { blurOnClick, cloneTemplate, mustQuery } from '../dom-utils.js';
 
 export const MAX_TURN_HISTORY = 50;
 export type DebugPanelAccess = 'report' | 'full';
@@ -192,25 +192,16 @@ export class DebugPanel {
   ) {
     this.access = access;
 
-    this.root = document.createElement('aside');
-    this.root.className = 'debug-panel';
-    this.root.dataset.uiAboveHome = 'true';
+    const fragment = cloneTemplate('tpl-debug-panel');
+    this.root = mustQuery(fragment, '.debug-panel');
+    const title = mustQuery<HTMLElement>(fragment, 'header strong');
+    const close = mustQuery<HTMLButtonElement>(fragment, 'header button');
+    this.content = mustQuery(fragment, '.debug-content');
+
     this.root.setAttribute('aria-label', this.access === 'full' ? 'Game logic debugger' : 'Issue report export');
-    this.root.setAttribute('aria-hidden', 'true');
-
-    const header = document.createElement('header');
-    const title = document.createElement('strong');
     title.textContent = this.access === 'full' ? 'GAME LOGIC' : 'ISSUE REPORT';
-    const close = document.createElement('button');
-    close.type = 'button';
-    close.textContent = '×';
-    close.setAttribute('aria-label', 'Close debugger');
-    header.append(title, close);
 
-    this.content = document.createElement('div');
-    this.content.className = 'debug-content';
-    this.root.append(header, this.content);
-    mount.append(this.root);
+    mount.append(fragment);
 
     close.addEventListener('click', () => this.close());
     blurOnClick(close);

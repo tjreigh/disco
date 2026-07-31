@@ -1,5 +1,5 @@
 import type { TutorialDefinition, TutorialStep } from '../app/tutorial.js';
-import { blurOnClick } from './dom-utils.js';
+import { blurOnClick, cloneTemplate, mustQuery } from './dom-utils.js';
 
 export class TutorialOverlay {
   private readonly root: HTMLElement;
@@ -18,34 +18,26 @@ export class TutorialOverlay {
   onContinue?: () => void;
 
   constructor(mount: HTMLElement = document.body) {
-    this.root = document.createElement('div');
-    this.root.className = 'tutorial-overlay';
-    this.root.setAttribute('aria-live', 'polite');
+    const fragment = cloneTemplate('tpl-tutorial-overlay');
+    this.root = mustQuery(fragment, '.tutorial-overlay');
+    this.eyebrow = mustQuery(fragment, '.tutorial-eyebrow');
+    this.title = mustQuery(fragment, '.tutorial-title');
+    this.prompt = mustQuery(fragment, '.tutorial-prompt');
+    this.retryButton = mustQuery(fragment, '[data-tutorial-action="retry"]');
+    this.exitButton = mustQuery(fragment, '[data-tutorial-action="exit"]');
 
-    this.eyebrow = document.createElement('div');
-    this.eyebrow.className = 'tutorial-eyebrow';
-
-    this.title = document.createElement('div');
-    this.title.className = 'tutorial-title';
-
-    this.prompt = document.createElement('div');
-    this.prompt.className = 'tutorial-prompt';
-
-    const actions = document.createElement('div');
-    actions.className = 'tutorial-actions';
-
-    this.retryButton = this.createButton('RETRY', () => {
+    this.retryButton.addEventListener('click', () => {
       if (this.complete) {
         this.onContinue?.();
       } else {
         this.onRetry?.();
       }
     });
-    this.exitButton = this.createButton('EXIT', () => this.onExit?.());
-    actions.append(this.retryButton, this.exitButton);
+    blurOnClick(this.retryButton);
+    this.exitButton.addEventListener('click', () => this.onExit?.());
+    blurOnClick(this.exitButton);
 
-    this.root.append(this.eyebrow, this.title, this.prompt, actions);
-    mount.append(this.root);
+    mount.append(fragment);
   }
 
   show(definition: TutorialDefinition, index: number): void {
@@ -100,16 +92,6 @@ export class TutorialOverlay {
   setAimingPrompt(text: string | null): void {
     this.prompt.textContent = text ?? this.basePrompt;
     this.root.classList.toggle('tutorial-overlay--aiming', text !== null);
-  }
-
-  private createButton(label: string, onClick: () => void): HTMLButtonElement {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'tutorial-button';
-    button.textContent = label;
-    button.addEventListener('click', onClick);
-    blurOnClick(button);
-    return button;
   }
 
   private clearCompleteTimer(): void {

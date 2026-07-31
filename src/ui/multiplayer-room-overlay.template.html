@@ -1,0 +1,15 @@
+<template id="tpl-multiplayer-room-overlay">
+  <section class="multiplayer-room" aria-label="Private multiplayer room">
+    <div class="multiplayer-room__panel">
+      <span class="multiplayer-room__eyebrow"></span>
+      <h1></h1>
+      <p class="multiplayer-room__message" aria-live="polite"></p>
+      <strong class="multiplayer-room__code"></strong>
+      <div class="multiplayer-room__actions">
+        <button type="button" class="multiplayer-room__button multiplayer-room__button--primary">READY</button>
+        <button type="button" class="multiplayer-room__button" data-multiplayer-action="copy">COPY INVITE LINK</button>
+        <a class="multiplayer-room__button multiplayer-room__button--quiet">BACK TO SOLO</a>
+      </div>
+    </div>
+  </section>
+</template>

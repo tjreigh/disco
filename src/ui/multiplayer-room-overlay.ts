@@ -4,7 +4,7 @@ import type {
 import type {
   MultiplayerTransportError,
 } from '../platform/websocket-multiplayer-transport.js';
-import { blurOnClick } from './dom-utils.js';
+import { blurOnClick, cloneTemplate, mustQuery } from './dom-utils.js';
 
 /** Lobby, invite, terminal-result, and transport-error presentation. */
 export class MultiplayerRoomOverlay {
@@ -22,44 +22,27 @@ export class MultiplayerRoomOverlay {
   private copied = false;
 
   constructor(mount: HTMLElement = document.body) {
-    this.root = document.createElement('section');
-    this.root.className = 'multiplayer-room';
-    this.root.setAttribute('aria-label', 'Private multiplayer room');
+    const fragment = cloneTemplate('tpl-multiplayer-room-overlay');
+    this.root = mustQuery(fragment, '.multiplayer-room');
+    this.eyebrow = mustQuery(fragment, '.multiplayer-room__eyebrow');
+    this.title = mustQuery(fragment, '.multiplayer-room__panel > h1');
+    this.message = mustQuery(fragment, '.multiplayer-room__message');
+    this.roomCode = mustQuery(fragment, '.multiplayer-room__code');
+    this.actions = mustQuery(fragment, '.multiplayer-room__actions');
+    this.readyButton = mustQuery(fragment, '.multiplayer-room__button--primary');
+    this.copyButton = mustQuery(fragment, '[data-multiplayer-action="copy"]');
+    this.homeLink = mustQuery(fragment, '.multiplayer-room__button--quiet');
 
-    const panel = document.createElement('div');
-    panel.className = 'multiplayer-room__panel';
-    this.eyebrow = document.createElement('span');
-    this.eyebrow.className = 'multiplayer-room__eyebrow';
-    this.title = document.createElement('h1');
-    this.message = document.createElement('p');
-    this.message.className = 'multiplayer-room__message';
-    this.message.setAttribute('aria-live', 'polite');
-    this.roomCode = document.createElement('strong');
-    this.roomCode.className = 'multiplayer-room__code';
-
-    this.actions = document.createElement('div');
-    this.actions.className = 'multiplayer-room__actions';
-    this.readyButton = this.button('READY', () => {
+    this.readyButton.addEventListener('click', () => {
       const ready = this.readyButton.dataset.ready !== 'true';
       this.onReady?.(ready);
     });
-    this.readyButton.classList.add('multiplayer-room__button--primary');
-    this.copyButton = this.button('COPY INVITE LINK', () => void this.copyInvite());
-    this.homeLink = document.createElement('a');
-    this.homeLink.className = 'multiplayer-room__button multiplayer-room__button--quiet';
+    blurOnClick(this.readyButton);
+    this.copyButton.addEventListener('click', () => void this.copyInvite());
+    blurOnClick(this.copyButton);
     this.homeLink.href = location.pathname;
-    this.homeLink.textContent = 'BACK TO SOLO';
-    this.actions.append(this.readyButton, this.copyButton, this.homeLink);
 
-    panel.append(
-      this.eyebrow,
-      this.title,
-      this.message,
-      this.roomCode,
-      this.actions,
-    );
-    this.root.append(panel);
-    mount.append(this.root);
+    mount.append(fragment);
     this.renderLoading();
   }
 
@@ -148,16 +131,6 @@ export class MultiplayerRoomOverlay {
 
   destroy(): void {
     this.root.remove();
-  }
-
-  private button(label: string, onClick: () => void): HTMLButtonElement {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'multiplayer-room__button';
-    button.textContent = label;
-    button.addEventListener('click', onClick);
-    blurOnClick(button);
-    return button;
   }
 
   private async copyInvite(): Promise<void> {

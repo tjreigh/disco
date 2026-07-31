@@ -1,0 +1,44 @@
+<template id="tpl-game-hud">
+  <section class="game-hud" aria-label="Game status" hidden>
+    <div class="game-hud__top">
+      <div class="game-hud__summary">
+        <span class="game-hud__score" aria-label="Score"></span>
+        <span class="game-hud__records" aria-label="Records"></span>
+        <span class="game-hud__turns" aria-label="Turns remaining">
+          <span data-ui-ref="turns-label"></span>
+          <span class="game-hud__pips" aria-hidden="true"></span>
+        </span>
+        <span class="game-hud__level" aria-label="Level"></span>
+      </div>
+      <span class="game-hud__gravity">
+        <svg class="game-hud__gravity-dial" viewBox="0 0 80 80" aria-hidden="true">
+          <circle class="game-hud__gravity-attention-ring" cx="40" cy="40" r="36" fill="none" stroke-width="2.5"></circle>
+          <circle data-ui-ref="gravity-backdrop" cx="40" cy="40" r="32"
+            fill="rgba(15, 23, 42, 0.82)" stroke-width="1.5"></circle>
+          <path data-ui-ref="gravity-arc" fill="none" stroke-width="4" stroke-linecap="round" opacity="0.55"></path>
+          <circle data-ui-ref="gravity-ring" cx="40" cy="40" r="26" fill="none" stroke-width="1"></circle>
+          <line data-ui-ref="gravity-arrow" stroke-width="4" stroke-linecap="round"></line>
+          <polygon data-ui-ref="gravity-arrowhead"></polygon>
+        </svg>
+        <span class="game-hud__gravity-sr" aria-live="polite"></span>
+      </span>
+      <span class="game-hud__instability">
+        <span class="game-hud__instability-value"></span>
+        <span class="game-hud__pressure"></span>
+      </span>
+    </div>
+    <div class="game-hud__bottom">
+      <div class="game-hud__queue">
+        <span class="game-hud__disc-slot" aria-label="Current disc"></span>
+        <span class="game-hud__disc-slot" aria-label="Next disc"></span>
+      </div>
+      <div class="game-hud__status">
+        <p class="game-hud__stack-receipt">
+          <span class="game-hud__stack-receipt-total"></span>
+          <span class="game-hud__stack-receipt-breakdown"></span>
+        </p>
+        <p class="game-hud__hint"></p>
+      </div>
+    </div>
+  </section>
+</template>

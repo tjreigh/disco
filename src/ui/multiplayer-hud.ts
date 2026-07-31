@@ -6,6 +6,7 @@ import type {
   MultiplayerPlayerProgress,
   MultiplayerLocalResult,
 } from '../shared/multiplayer-contracts.js';
+import { cloneTemplate, mustQuery } from './dom-utils.js';
 
 export interface MultiplayerHudView {
   readonly phase: MultiplayerLocalPhase;
@@ -24,24 +25,14 @@ export class MultiplayerHud {
   private readonly result: HTMLElement;
 
   constructor(mount: HTMLElement = document.body) {
-    this.root = document.createElement('section');
-    this.root.className = 'multiplayer-hud';
-    this.root.setAttribute('aria-label', 'Multiplayer match status');
+    const fragment = cloneTemplate('tpl-multiplayer-hud');
+    this.root = mustQuery(fragment, '.multiplayer-hud');
+    this.status = mustQuery(fragment, '.multiplayer-hud__status');
+    this.timer = mustQuery(fragment, '.multiplayer-hud__timer');
+    this.opponent = mustQuery(fragment, '.multiplayer-hud__opponent');
+    this.result = mustQuery(fragment, '.multiplayer-hud__result');
 
-    this.status = document.createElement('span');
-    this.status.className = 'multiplayer-hud__status';
-
-    this.timer = document.createElement('strong');
-    this.timer.className = 'multiplayer-hud__timer';
-
-    this.opponent = document.createElement('span');
-    this.opponent.className = 'multiplayer-hud__opponent';
-
-    this.result = document.createElement('span');
-    this.result.className = 'multiplayer-hud__result';
-
-    this.root.append(this.status, this.timer, this.opponent, this.result);
-    mount.append(this.root);
+    mount.append(fragment);
   }
 
   render(view: MultiplayerHudView): void {

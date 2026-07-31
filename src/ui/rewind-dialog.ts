@@ -1,6 +1,6 @@
 import type { RewindPreview } from '../game/engine.js';
 import { DiscKind } from '../game/model.js';
-import { blurOnClick } from './dom-utils.js';
+import { blurOnClick, cloneTemplate, mustQuery } from './dom-utils.js';
 import { ModalController } from './modal-controller.js';
 
 /** Confirmation step that makes a Paradox rewind's exact cost visible first. */
@@ -22,49 +22,22 @@ export class RewindDialog {
     mount: HTMLElement = document.body,
     modalBackground: readonly HTMLElement[] = [],
   ) {
-    this.root = document.createElement('section');
-    this.root.className = 'rewind-dialog';
-    this.root.setAttribute('role', 'dialog');
-    this.root.setAttribute('aria-modal', 'true');
-    this.root.setAttribute('aria-labelledby', 'rewind-dialog-title');
-    this.root.setAttribute('aria-describedby', 'rewind-dialog-consequence');
+    const fragment = cloneTemplate('tpl-rewind-dialog');
+    this.root = mustQuery(fragment, '.rewind-dialog');
+    this.title = mustQuery(fragment, '.rewind-panel__copy > h2');
+    this.depthSelector = mustQuery(fragment, '.rewind-panel__depths');
+    this.instability = mustQuery(fragment, '.rewind-panel__instability');
+    this.consequence = mustQuery(fragment, '.rewind-panel__consequence');
+    this.rescue = mustQuery(fragment, '.rewind-panel__rescue');
+    this.confirmButton = mustQuery(fragment, '.rewind-panel__button--primary');
+    const cancelButton = mustQuery<HTMLButtonElement>(fragment, '[data-rewind-action="cancel"]');
 
-    const panel = document.createElement('div');
-    panel.className = 'rewind-panel';
-    const copy = document.createElement('div');
-    copy.className = 'rewind-panel__copy';
-    const eyebrow = document.createElement('p');
-    eyebrow.className = 'rewind-panel__eyebrow';
-    eyebrow.textContent = 'PARADOX';
-    this.title = document.createElement('h2');
-    this.title.id = 'rewind-dialog-title';
-    const intro = document.createElement('p');
-    intro.className = 'rewind-panel__intro';
-    intro.textContent = 'Inspect the restored board before committing the rewind.';
-    this.depthSelector = document.createElement('div');
-    this.depthSelector.className = 'rewind-panel__depths';
-    this.depthSelector.setAttribute('role', 'group');
-    this.depthSelector.setAttribute('aria-label', 'Turns to rewind');
-    this.instability = document.createElement('p');
-    this.instability.className = 'rewind-panel__instability';
-    this.consequence = document.createElement('p');
-    this.consequence.className = 'rewind-panel__consequence';
-    this.consequence.id = 'rewind-dialog-consequence';
-    this.rescue = document.createElement('p');
-    this.rescue.className = 'rewind-panel__rescue';
+    this.confirmButton.addEventListener('click', () => this.onConfirm?.());
+    blurOnClick(this.confirmButton);
+    cancelButton.addEventListener('click', () => this.onCancel?.());
+    blurOnClick(cancelButton);
 
-    const actions = document.createElement('div');
-    actions.className = 'rewind-panel__actions';
-    this.confirmButton = this.makeButton('CONFIRM REWIND', true, () => this.onConfirm?.());
-    const cancelButton = this.makeButton('KEEP TURN', false, () => this.onCancel?.());
-    actions.append(this.confirmButton, cancelButton);
-    copy.append(
-      eyebrow, this.title, intro, this.depthSelector,
-      this.instability, this.consequence, this.rescue,
-    );
-    panel.append(copy, actions);
-    this.root.append(panel);
-    mount.append(this.root);
+    mount.append(fragment);
 
     this.modal = new ModalController(this.root, {
       openClass: 'rewind-dialog--open',

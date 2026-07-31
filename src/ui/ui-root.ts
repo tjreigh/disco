@@ -1,3 +1,5 @@
+import { cloneTemplate, mustQuery } from './dom-utils.js';
+
 export interface UiMounts {
   stage: HTMLElement;
   controls: HTMLElement;
@@ -13,35 +15,16 @@ export class UiRoot {
   readonly mounts: UiMounts;
 
   constructor(container: HTMLElement = document.body) {
-    this.root = document.createElement('div');
-    this.root.className = 'app-root';
+    const fragment = cloneTemplate('tpl-ui-root');
+    this.root = mustQuery(fragment, '.app-root');
+    this.canvas = mustQuery(fragment, 'canvas');
+    const shell = mustQuery<HTMLElement>(fragment, '.app-shell');
+    const stage = mustQuery<HTMLElement>(fragment, '.game-stage');
+    const controls = mustQuery<HTMLElement>(fragment, '.shell-region--bottom');
+    const overlays = mustQuery<HTMLElement>(fragment, '.ui-overlay-layer');
+    const utilities = mustQuery<HTMLElement>(fragment, '.ui-utility-layer');
 
-    const shell = document.createElement('main');
-    shell.className = 'app-shell';
-
-    const topRegion = document.createElement('div');
-    topRegion.className = 'shell-region shell-region--top';
-
-    const stage = document.createElement('div');
-    stage.className = 'game-stage';
-
-    this.canvas = document.createElement('canvas');
-    stage.append(this.canvas);
-
-    const controls = document.createElement('div');
-    controls.className = 'shell-region shell-region--bottom';
-    shell.append(topRegion, stage, controls);
-
-    const overlays = document.createElement('div');
-    overlays.className = 'ui-overlay-layer';
-    overlays.dataset.uiLayer = 'overlays';
-
-    const utilities = document.createElement('div');
-    utilities.className = 'ui-utility-layer';
-    utilities.dataset.uiLayer = 'utilities';
-
-    this.root.append(shell, overlays, utilities);
-    container.append(this.root);
+    container.append(fragment);
 
     this.mounts = {
       stage,
