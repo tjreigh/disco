@@ -153,7 +153,7 @@ type RoomLifecycle =
     readonly kind: 'complete';
     readonly match: RoomMatch;
     readonly result: MultiplayerMatchResult;
-    readonly expiresAt: number;
+    expiresAt: number;
   };
 
 interface Room {
