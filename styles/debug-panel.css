@@ -57,6 +57,29 @@
 .debug-alert { margin-top: 10px; border: 1px solid #d64545; background: #4b1d26; color: #ffb3b3; }
 .debug-ok { margin-top: 10px; border: 1px solid #287d57; background: #123b32; color: #8ae6bd; }
 .debug-muted { margin: 12px 0; color: #829ab1; line-height: 1.5; }
+.debug-actions {
+  margin-top: 12px;
+  border: 1px solid #334e68;
+  border-radius: 4px;
+  padding: 0 10px 10px;
+  background: #0b2034;
+}
+.debug-actions .debug-muted { margin: 0 0 9px; }
+.debug-action {
+  width: 100%;
+  border: 1px solid #486581;
+  border-radius: 3px;
+  padding: 8px;
+  color: #d9e2ec;
+  background: #102a43;
+  font: 800 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .06em;
+  cursor: pointer;
+}
+.debug-action--danger { border-color: #ef6b73; background: #8f2938; color: #fff; }
+.debug-action--danger:hover:not(:disabled),
+.debug-action--danger:focus-visible:not(:disabled) { border-color: #ff9298; background: #a83243; }
+.debug-action:disabled { opacity: .45; cursor: not-allowed; }
 .debug-grid {
   display: grid;
   gap: 3px;

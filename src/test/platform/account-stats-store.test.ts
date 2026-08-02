@@ -24,6 +24,9 @@ function stats(overrides: Partial<GameStats> = {}): GameStats {
     averageScore: 0,
     gamesPlayed: 0,
     totalScore: 0,
+    totalPlayTimeMs: 0,
+    totalDiscsDropped: 0,
+    totalDiscsBroken: 0,
     ...overrides,
   };
 }
@@ -93,14 +96,23 @@ describe('AccountStatsStore', () => {
 
   test('merges local and remote totals while keeping the highest live records', () => {
     expect(mergeLocalAndRemoteStats(
-      stats({ highScore: 1200, longestStreak: 3, gamesPlayed: 4, totalScore: 1800, averageScore: 450 }),
-      stats({ highScore: 900, longestStreak: 5, gamesPlayed: 6, totalScore: 3300, averageScore: 550 }),
+      stats({
+        highScore: 1200, longestStreak: 3, gamesPlayed: 4, totalScore: 1800, averageScore: 450,
+        totalPlayTimeMs: 240_000, totalDiscsDropped: 40, totalDiscsBroken: 20,
+      }),
+      stats({
+        highScore: 900, longestStreak: 5, gamesPlayed: 6, totalScore: 3300, averageScore: 550,
+        totalPlayTimeMs: 60_000, totalDiscsDropped: 10, totalDiscsBroken: 5,
+      }),
     )).toEqual({
       highScore: 1200,
       longestStreak: 5,
       gamesPlayed: 10,
       totalScore: 5100,
       averageScore: 510,
+      totalPlayTimeMs: 300_000,
+      totalDiscsDropped: 50,
+      totalDiscsBroken: 25,
     });
   });
 
@@ -141,6 +153,9 @@ describe('AccountStatsStore', () => {
       gamesPlayed: 5,
       totalScore: 2100,
       averageScore: 420,
+      totalPlayTimeMs: 0,
+      totalDiscsDropped: 0,
+      totalDiscsBroken: 0,
     });
     expect(api.putStats).toHaveBeenCalledTimes(1);
     expect(api.putStats).toHaveBeenCalledWith('classic', {
@@ -149,6 +164,9 @@ describe('AccountStatsStore', () => {
       gamesPlayed: 5,
       totalScore: 2100,
       averageScore: 420,
+      totalPlayTimeMs: 0,
+      totalDiscsDropped: 0,
+      totalDiscsBroken: 0,
     });
     expect(saved.at(-1)).toEqual({
       modeId: 'speed',
@@ -175,6 +193,9 @@ describe('AccountStatsStore', () => {
       gamesPlayed: 5,
       totalScore: 2100,
       averageScore: 420,
+      totalPlayTimeMs: 0,
+      totalDiscsDropped: 0,
+      totalDiscsBroken: 0,
     });
   });
 
@@ -206,6 +227,9 @@ describe('AccountStatsStore', () => {
       gamesPlayed: 2,
       totalScore: 900,
       averageScore: 450,
+      totalPlayTimeMs: 0,
+      totalDiscsDropped: 0,
+      totalDiscsBroken: 0,
     });
     expect(api.putStats).toHaveBeenCalledTimes(1);
     expect(api.putStats).toHaveBeenCalledWith('classic', {
@@ -214,6 +238,9 @@ describe('AccountStatsStore', () => {
       gamesPlayed: 2,
       totalScore: 900,
       averageScore: 450,
+      totalPlayTimeMs: 0,
+      totalDiscsDropped: 0,
+      totalDiscsBroken: 0,
     });
   });
 
@@ -361,6 +388,9 @@ describe('AccountStatsStore', () => {
       gamesPlayed: 3,
       totalScore: 900,
       averageScore: 300,
+      totalPlayTimeMs: 0,
+      totalDiscsDropped: 0,
+      totalDiscsBroken: 0,
     });
     expect(api.putStats).toHaveBeenCalledTimes(1);
   });

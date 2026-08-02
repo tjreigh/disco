@@ -26,9 +26,11 @@ import { GameHud } from '../ui/game-hud.js';
 import { SyncedSaveStore } from '../platform/synced-save-store.js';
 import { SavedGameDialog } from '../ui/saved-game-dialog.js';
 import { RewindDialog } from '../ui/rewind-dialog.js';
+import { AdvancedStatsDialog } from '../ui/advanced-stats-dialog.js';
 import type { SaveGameV1 } from '../game/save.js';
 import type { UiMounts } from '../ui/ui-root.js';
 import { LocalBoardSession } from './local-board-session.js';
+import { PlayTimeTracker } from './play-time-tracker.js';
 
 const TURN_PIP_CAPACITY = Math.max(
   ...SOLO_MODES.map(mode => mode.rules.progression.initialTurnsPerLevel),
@@ -51,6 +53,7 @@ export class SoloSessionController {
   private readonly saveStore: SyncedSaveStore;
   private readonly savedGameDialog: SavedGameDialog;
   private readonly rewindDialog: RewindDialog;
+  private readonly advancedStatsDialog: AdvancedStatsDialog;
   private saveDialogMode: SoloModeDefinition | null = null;
   private rafId = 0;
   private stats: GameStats;
@@ -64,11 +67,19 @@ export class SoloSessionController {
   private activeTutorial: TutorialDefinition | null = null;
   private tutorialStepIndex = 0;
   private saveExitPending = false;
+  private readonly playTime = new PlayTimeTracker();
+  private discsBrokenThisGame = 0;
   private readonly refreshSavesOnFocus = (): void => {
     this.refreshSavesForMenu();
   };
-  private readonly refreshSavesOnVisibilityChange = (): void => {
-    if (document.visibilityState === 'visible') this.refreshSavesForMenu();
+  private readonly handleVisibilityChange = (): void => {
+    if (document.visibilityState === 'visible') {
+      this.playTime.resume('backgrounded');
+      this.refreshSavesForMenu();
+    } else {
+      this.playTime.pause('backgrounded');
+      this.updateSavedRunMetrics();
+    }
   };
 
   constructor(canvas: HTMLCanvasElement, mounts?: UiMounts) {
@@ -96,11 +107,16 @@ export class SoloSessionController {
     this.state = this.session.state;
     this.session.enterMenu(); // suppress gameplay until a mode is selected
     this.debug    = new DebugPanel(this.state, undefined, overlayMount);
+    this.debug.canForceGameOver = () => !this.activeTutorial
+      && this.state.phase !== GamePhase.Menu
+      && this.state.phase !== GamePhase.GameOver;
+    this.debug.onForceGameOver = () => this.forceGameOver();
     this.tutorialOverlay = new TutorialOverlay(overlayMount);
     this.gameControls = new GameControls(intent => this.handleIntent(intent), controlsMount);
     this.gameHud = new GameHud(stageMount);
     this.savedGameDialog = new SavedGameDialog(overlayMount, modalBackground);
     this.rewindDialog = new RewindDialog(overlayMount, modalBackground);
+    this.advancedStatsDialog = new AdvancedStatsDialog(overlayMount, modalBackground);
     this.statsStore = new AccountStatsStore(SOLO_MODES);
     this.saveStore = new SyncedSaveStore(SOLO_MODES);
     this.stats = this.statsStore.loadStats(this.mode.id);
@@ -123,6 +139,10 @@ export class SoloSessionController {
     this.homeScreen.onRequestHome = () => void this.saveAndReturnToMenu();
     this.homeScreen.onRequestToggleSound = () => this.toggleSound();
     this.homeScreen.onRequestDebug = () => this.openDebugPanel();
+    this.homeScreen.onRequestAdvancedStats = modeId => this.advancedStatsDialog.open({
+      modes: SOLO_MODES.map(mode => ({ mode, stats: this.statsStore.loadStats(mode.id) })),
+      ...(modeId ? { modeId } : {}),
+    });
     this.homeScreen.onRequestTutorial = mode => this.startTutorial(mode);
     this.homeScreen.onRequestCreateMultiplayer = () => {
       location.search = '?multiplayer=create';
@@ -153,7 +173,7 @@ export class SoloSessionController {
     this.handleSaveStoreUpdate();
     this.homeScreen.open();
     window.addEventListener('focus', this.refreshSavesOnFocus);
-    document.addEventListener('visibilitychange', this.refreshSavesOnVisibilityChange);
+    document.addEventListener('visibilitychange', this.handleVisibilityChange);
 
     this.input = new InputHandler(
       canvas,
@@ -255,6 +275,7 @@ export class SoloSessionController {
     this.renderer.resize();
     this.pendingRewind = false;
     this.gameRecorded = false;
+    this.startRunTracking();
     this.debug.reset();
     this.homeScreen.close();
     this.releaseGameplayFocus();
@@ -273,6 +294,8 @@ export class SoloSessionController {
     this.activeTutorial = tutorial;
     this.tutorialStepIndex = 0;
     this.gameRecorded = true; // tutorials never count as completed games
+    this.playTime.stop();
+    this.discsBrokenThisGame = 0;
     this.debug.reset();
     this.loadTutorialStep();
     this.homeScreen.close();
@@ -287,6 +310,8 @@ export class SoloSessionController {
     this.activeTutorial = null;
     this.tutorialOverlay.hide();
     this.session.enterMenu();
+    this.playTime.stop();
+    this.discsBrokenThisGame = 0;
     this.pendingRewind = false;
     this.homeScreen.open();
   }
@@ -300,6 +325,7 @@ export class SoloSessionController {
 
     this.saveExitPending = true;
     this.homeScreen.setSaveExitPending(true);
+    this.updateSavedRunMetrics();
     let timeoutId: number | undefined;
     try {
       await Promise.race([
@@ -432,7 +458,6 @@ export class SoloSessionController {
     if (!result.accepted) {
       this.debug.recordTurn(result);
       if (result.gameOver) {
-        this.recordGameEnd();
         this.setGameOver(result.gameOverReason);
       }
       return;
@@ -442,6 +467,7 @@ export class SoloSessionController {
 
   private handleStableSessionTurn(result: TurnResult): void {
     if (!this.activeTutorial) {
+      this.discsBrokenThisGame += result.stackSize;
       if (!rewindModifier(this.mode.rules)) {
         const recordsImproved = updateRecords(
           this.stats,
@@ -452,9 +478,6 @@ export class SoloSessionController {
       }
       if (result.gameOver && !rewindModifier(this.mode.rules)) this.saveStore.remove(this.mode.id);
       else this.writeCurrentSave();
-    }
-    if (result.gameOver && !this.activeTutorial && !this.session.canRewind()) {
-      this.recordGameEnd();
     }
   }
 
@@ -486,6 +509,7 @@ export class SoloSessionController {
 
   private setGameOver(reason?: GameOverReason, clearSave = true): void {
     this.session.setGameOver(reason);
+    this.playTime.pause('gameover');
     const canRewind = this.session.canRewind();
     if (canRewind) {
       this.writeCurrentSave();
@@ -508,6 +532,9 @@ export class SoloSessionController {
       bestRunRecord: view.longestStreak,
       previousHighScore: this.highScoreAtGameStart,
       previousBestRecord: this.bestRecordAtGameStart,
+      playTimeMs: this.playTime.peek(),
+      discsDropped: this.state.dropCount,
+      discsBroken: this.discsBrokenThisGame,
       canRewind,
       ...(view.lastGameOverReason ? { reason: view.lastGameOverReason } : {}),
     });
@@ -516,15 +543,28 @@ export class SoloSessionController {
   private projectedFinalStats(): GameStats {
     const projected = { ...this.stats };
     updateRecords(projected, this.state.score, this.session.view.longestStreak);
-    recordCompletedGame(projected, this.state.score);
+    recordCompletedGame(
+      projected,
+      this.state.score,
+      this.playTime.peek(),
+      this.state.dropCount,
+      this.discsBrokenThisGame,
+    );
     return projected;
   }
 
   private recordGameEnd(): void {
     if (this.activeTutorial) return;
     if (!this.gameRecorded) {
+      const playTimeMs = this.playTime.stop();
       updateRecords(this.stats, this.state.score, this.session.view.longestStreak);
-      recordCompletedGame(this.stats, this.state.score);
+      recordCompletedGame(
+        this.stats,
+        this.state.score,
+        playTimeMs,
+        this.state.dropCount,
+        this.discsBrokenThisGame,
+      );
       this.statsStore.recordCompletedGame(
         this.mode.id,
         this.stats,
@@ -542,7 +582,20 @@ export class SoloSessionController {
   }
 
   private writeCurrentSave(): void {
-    this.saveStore.write(this.mode.id, this.session.exportSave());
+    this.saveStore.write(this.mode.id, this.session.exportSave({
+      playTimeMs: Math.floor(this.playTime.peek()),
+      discsBroken: this.discsBrokenThisGame,
+    }));
+  }
+
+  private updateSavedRunMetrics(): void {
+    if (this.activeTutorial || this.state.phase === GamePhase.Menu) return;
+    const save = this.saveStore.read(this.mode.id);
+    if (!save) return;
+    save.savedAt = Date.now();
+    save.session.playTimeMs = Math.floor(this.playTime.peek());
+    save.session.discsBroken = this.discsBrokenThisGame;
+    this.saveStore.write(this.mode.id, save);
   }
 
   private handleStatsStoreUpdate(): void {
@@ -566,6 +619,7 @@ export class SoloSessionController {
     const preview = this.session.previewRewind();
     if (!preview) return;
     this.pausePlayback();
+    this.playTime.pause('rewind');
     this.gameOverScreen.close();
     this.rewindDialog.show(preview);
   }
@@ -583,7 +637,10 @@ export class SoloSessionController {
     this.session.clearRewindPreview();
     this.pendingRewind = false;
     if (this.state.phase === GamePhase.GameOver) this.openGameOverSummary(true);
-    else this.resumePlayback();
+    else {
+      this.resumePlayback();
+      this.playTime.resume('rewind');
+    }
   }
 
   private confirmRewind(): void {
@@ -594,6 +651,8 @@ export class SoloSessionController {
     this.rewindDialog.hide();
     this.gameOverScreen.close();
     this.pendingRewind = false;
+    this.playTime.resume('rewind');
+    this.playTime.resume('gameover');
     this.writeCurrentSave();
     this.debug.refresh();
     this.releaseGameplayFocus();
@@ -618,6 +677,7 @@ export class SoloSessionController {
     this.debug.reset();
     this.captureGameStartRecords();
     this.gameRecorded = false;
+    this.startRunTracking();
   }
 
   private currentTutorialStep(): TutorialStep | null {
@@ -661,6 +721,7 @@ export class SoloSessionController {
       this.session.continueFromTutorial();
       this.activeTutorial = null;
       this.gameRecorded = false;
+      this.startRunTracking();
       this.stats = this.statsStore.loadStats(this.mode.id);
       this.captureGameStartRecords();
       this.tutorialOverlay.showComplete(completedTutorial, this.mode.name);
@@ -674,12 +735,15 @@ export class SoloSessionController {
   private openGameMenu(): void {
     if (this.state.phase === GamePhase.Menu) return;
     this.pausePlayback();
+    this.playTime.pause('menu');
+    this.updateSavedRunMetrics();
     this.homeScreen.setSoundEnabled(this.audio.isEnabled());
     this.homeScreen.openGameMenu();
   }
 
   private resumeGame(): void {
     this.resumePlayback();
+    this.playTime.resume('menu');
     this.homeScreen.closeGameMenu();
   }
 
@@ -700,6 +764,7 @@ export class SoloSessionController {
       this.activeTutorial = null;
       this.tutorialOverlay.hide();
       this.gameRecorded = false;
+      this.startRunTracking(save.session.playTimeMs ?? 0, save.session.discsBroken ?? 0);
       this.debug.reset();
       this.saveDialogMode = null;
       this.homeScreen.closeGameMenu();
@@ -716,6 +781,12 @@ export class SoloSessionController {
     this.bestRecordAtGameStart = this.stats.longestStreak;
   }
 
+  private startRunTracking(playTimeMs = 0, discsBroken = 0): void {
+    this.playTime.startFrom(playTimeMs);
+    this.discsBrokenThisGame = discsBroken;
+    if (document.visibilityState !== 'visible') this.playTime.pause('backgrounded');
+  }
+
   private toggleSound(): void {
     this.homeScreen.setSoundEnabled(this.audio.toggleEnabled());
   }
@@ -723,6 +794,13 @@ export class SoloSessionController {
   private openDebugPanel(): void {
     if (this.homeScreen.isGameMenuOpen()) this.resumeGame();
     this.debug.open();
+  }
+
+  private forceGameOver(): void {
+    if (this.activeTutorial
+      || this.state.phase === GamePhase.Menu
+      || this.state.phase === GamePhase.GameOver) return;
+    this.setGameOver();
   }
 
   private releaseGameplayFocus(): void {
@@ -742,11 +820,12 @@ export class SoloSessionController {
   destroy(): void {
     cancelAnimationFrame(this.rafId);
     window.removeEventListener('focus', this.refreshSavesOnFocus);
-    document.removeEventListener('visibilitychange', this.refreshSavesOnVisibilityChange);
+    document.removeEventListener('visibilitychange', this.handleVisibilityChange);
     this.unsubscribeStatsStore?.();
     this.unsubscribeSaveStore?.();
     this.savedGameDialog.hide();
     this.rewindDialog.hide();
+    this.advancedStatsDialog.close();
     this.input.destroy();
     this.gameControls.destroy();
     this.gameHud.destroy();

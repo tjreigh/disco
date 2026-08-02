@@ -73,7 +73,7 @@
 }
 .home-mode-section-header {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 1fr auto;
   align-items: baseline;
   gap: 5px 12px;
 }
@@ -100,6 +100,23 @@
   font-size: 12px;
   line-height: 1.35;
 }
+.home-advanced-stats-button {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  align-self: center;
+  min-height: 40px;
+  border: 1px solid #62b0e8;
+  border-radius: 6px;
+  padding: 9px 12px;
+  background: #123657;
+  color: #d9efff;
+  font: 800 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .07em;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(158, 215, 255, .08);
+}
+.home-advanced-stats-button:hover { background: #1769aa; color: #fff; }
+.home-advanced-stats-button:focus-visible { outline: 2px solid #9ed7ff; outline-offset: 2px; }
 .home-mode-browser {
   display: grid;
   grid-template-columns: minmax(250px, .8fr) minmax(360px, 1.2fr);
@@ -111,6 +128,10 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   align-content: start;
+}
+.home-mode-card-item {
+  position: relative;
+  min-width: 0;
 }
 .home-mode-card {
   display: flex;
@@ -128,6 +149,7 @@
   font-family: inherit;
   cursor: pointer;
   transition: border-color 120ms ease-out, background 120ms ease-out, transform 120ms ease-out;
+  width: 100%;
 }
 .home-mode-card:hover { border-color: #62b0e8; background: #16324f; transform: translateY(-1px); }
 .home-mode-card:focus-visible { outline: 2px solid #9ed7ff; outline-offset: 2px; }
@@ -150,6 +172,22 @@
   letter-spacing: .08em;
 }
 .home-mode-card--selected .home-mode-card-stat { color: #d9efff; }
+.home-mode-card-stats {
+  position: absolute;
+  z-index: 1;
+  right: 8px;
+  bottom: 8px;
+  border: 1px solid rgba(158, 215, 255, .45);
+  border-radius: 4px;
+  padding: 3px 5px;
+  background: rgba(13, 34, 55, .72);
+  color: #d9efff;
+  font: 800 8px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .08em;
+  cursor: pointer;
+}
+.home-mode-card-stats:hover,
+.home-mode-card-stats:focus-visible { border-color: #9ed7ff; background: #0d2237; }
 .home-mode-detail {
   display: flex;
   flex-direction: column;
@@ -357,6 +395,12 @@
 @media (max-width: 380px) {
   .home-mode-section-header { grid-template-columns: 1fr; }
   .home-mode-category { grid-row: auto; justify-self: start; min-height: 25px; }
+  .home-advanced-stats-button {
+    grid-column: 1;
+    grid-row: auto;
+    width: 100%;
+    margin-top: 5px;
+  }
   .home-mode-records { gap: 16px; }
 }
 .home-back-button {

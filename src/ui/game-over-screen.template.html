@@ -9,6 +9,26 @@
         <p class="game-over-reason"></p>
         <p class="game-over-run-record"></p>
       </div>
+      <section class="game-over-run-stats" aria-labelledby="game-over-run-stats-title">
+        <h3 id="game-over-run-stats-title">
+          <button type="button" class="game-over-run-stats__toggle" aria-expanded="false"
+            aria-controls="game-over-run-stats-details">
+            <span class="game-over-run-stats__copy">
+              <span class="game-over-run-stats__title">ADVANCED RUN STATS</span>
+              <span class="game-over-run-stats__hint">TIME · DISCS · PER-MINUTE RATES</span>
+            </span>
+            <span class="game-over-run-stats__chevron" aria-hidden="true"></span>
+          </button>
+        </h3>
+        <dl class="game-over-run-stats__details" id="game-over-run-stats-details" hidden>
+          <div><dt>TIME</dt><dd data-run-stat="time"></dd></div>
+          <div><dt>DROPPED</dt><dd data-run-stat="dropped"></dd></div>
+          <div><dt>BROKEN</dt><dd data-run-stat="broken"></dd></div>
+          <div><dt>SCORE / MIN</dt><dd data-run-stat="score-rate"></dd></div>
+          <div><dt>DROPS / MIN</dt><dd data-run-stat="drop-rate"></dd></div>
+          <div><dt>BROKEN / MIN</dt><dd data-run-stat="broken-rate"></dd></div>
+        </dl>
+      </section>
       <p class="game-over-records"></p>
       <p class="game-over-average"></p>
       <div class="game-over-actions">

@@ -42,6 +42,9 @@ export function parseStatsCookies(cookieHeader: string, modeId: string): GameSta
     gamesPlayed,
     // The fallback preserves stats written before total_score was introduced.
     totalScore: readField(cookies, modeId, 'total_score') || averageScore * gamesPlayed,
+    totalPlayTimeMs: readField(cookies, modeId, 'total_play_time_ms'),
+    totalDiscsDropped: readField(cookies, modeId, 'total_discs_dropped'),
+    totalDiscsBroken: readField(cookies, modeId, 'total_discs_broken'),
   };
 }
 
@@ -64,6 +67,9 @@ export function saveStats(modeId: string, stats: GameStats): void {
     writeCookie(`${modeId}_average_score`, stats.averageScore);
     writeCookie(`${modeId}_games_played`, stats.gamesPlayed);
     writeCookie(`${modeId}_total_score`, stats.totalScore);
+    writeCookie(`${modeId}_total_play_time_ms`, stats.totalPlayTimeMs);
+    writeCookie(`${modeId}_total_discs_dropped`, stats.totalDiscsDropped);
+    writeCookie(`${modeId}_total_discs_broken`, stats.totalDiscsBroken);
   } catch {
     // Cookies may be disabled. Stats remain available for this page session.
   }

@@ -31,7 +31,12 @@ describe('runMigrations', () => {
     expect(applied).toEqual([
       { version: '001_initial.sql' },
       { version: '002_account_save_slots.sql' },
+      { version: '003_advanced_stats.sql' },
     ]);
+    const statColumns = db.prepare('PRAGMA table_info(account_mode_stats)').all() as Array<{ name: string }>;
+    expect(statColumns.map(column => column.name)).toEqual(expect.arrayContaining([
+      'total_play_time_ms', 'total_discs_dropped', 'total_discs_broken',
+    ]));
     expect(tables.map(table => table.name)).toEqual([
       'account_identities',
       'account_mode_stats',
@@ -105,6 +110,11 @@ describe('Repositories', () => {
     expect(alphaStats.gamesPlayed).toBe(1);
     expect(alphaStats.totalScore).toBe(120);
     expect(alphaStats.averageScore).toBe(120);
+    expect(alphaStats).toMatchObject({
+      totalPlayTimeMs: 0,
+      totalDiscsDropped: 0,
+      totalDiscsBroken: 0,
+    });
     expect(submissions).toEqual([
       { score: 120, longest_streak: 6, accepted: 1 },
       { score: 90, longest_streak: 5, accepted: 1 },

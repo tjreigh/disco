@@ -85,6 +85,8 @@ export interface ScriptedGameStateOptions {
 
 export interface ExportSaveOptions {
   longestStreak?: number;
+  playTimeMs?: number;
+  discsBroken?: number;
   /** Controller-owned streak values aligned oldest-to-newest with rewind history. */
   rewindLongestStreaks?: readonly number[];
   savedAt?: number;
@@ -197,7 +199,11 @@ export class GameEngine {
           echoState: this.echoRandom!.snapshot(),
         },
       },
-      session: { longestStreak: options.longestStreak ?? 0 },
+      session: {
+        longestStreak: options.longestStreak ?? 0,
+        ...(options.playTimeMs !== undefined ? { playTimeMs: options.playTimeMs } : {}),
+        ...(options.discsBroken !== undefined ? { discsBroken: options.discsBroken } : {}),
+      },
       ...(rewindModifier(this.rules) ? {
         paradox: {
           instability: this.state.paradox?.instability ?? 0,

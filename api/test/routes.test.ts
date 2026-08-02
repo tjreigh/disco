@@ -158,6 +158,21 @@ describe('API routes', () => {
         gamesPlayed: 2,
         totalScore: 400,
         averageScore: 1,
+        totalPlayTimeMs: 120_000,
+        totalDiscsDropped: 30,
+        totalDiscsBroken: 12,
+      },
+    });
+    const legacyPutStats = await app!.inject({
+      method: 'PUT',
+      url: '/stats/gravity',
+      headers: { cookie },
+      payload: {
+        highScore: 10,
+        longestStreak: 1,
+        gamesPlayed: 1,
+        totalScore: 10,
+        averageScore: 10,
       },
     });
     const submitScore = await app!.inject({
@@ -177,6 +192,17 @@ describe('API routes', () => {
 
     expect(putStats.statusCode).toBe(200);
     expect(putStats.json().stats.averageScore).toBe(200);
+    expect(putStats.json().stats).toMatchObject({
+      totalPlayTimeMs: 120_000,
+      totalDiscsDropped: 30,
+      totalDiscsBroken: 12,
+    });
+    expect(legacyPutStats.statusCode).toBe(200);
+    expect(legacyPutStats.json().stats).toMatchObject({
+      totalPlayTimeMs: 0,
+      totalDiscsDropped: 0,
+      totalDiscsBroken: 0,
+    });
 
     expect(submitScore.statusCode).toBe(201);
     expect(submitScore.json().stats).toMatchObject({
@@ -187,6 +213,9 @@ describe('API routes', () => {
       gamesPlayed: 3,
       totalScore: 700,
       averageScore: 233,
+      totalPlayTimeMs: 120_000,
+      totalDiscsDropped: 30,
+      totalDiscsBroken: 12,
     });
 
     expect(me.statusCode).toBe(200);
@@ -203,7 +232,7 @@ describe('API routes', () => {
     });
 
     expect(stats.statusCode).toBe(200);
-    expect(stats.json().stats).toHaveLength(1);
+    expect(stats.json().stats).toHaveLength(2);
     expect(leaderboard.statusCode).toBe(200);
     expect(leaderboard.json().entries).toMatchObject([
       {

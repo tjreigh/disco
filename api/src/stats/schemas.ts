@@ -11,6 +11,10 @@ export const statsSchema = z.object({
   longestStreak: z.number().int().min(0).max(10_000),
   gamesPlayed: z.number().int().min(0).max(2_000_000_000),
   totalScore: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  // Defaults keep older deployed clients compatible with the expanded schema.
+  totalPlayTimeMs: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),
+  totalDiscsDropped: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),
+  totalDiscsBroken: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),
   averageScore: z.number().int().min(0).max(2_000_000_000),
 });
 

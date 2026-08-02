@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { recordCompletedGame, updateRecords, type GameStats } from '../../game/stats.js';
+import { perMinuteRate, recordCompletedGame, updateRecords, type GameStats } from '../../game/stats.js';
 
 function emptyStats(): GameStats {
   return {
@@ -8,6 +8,9 @@ function emptyStats(): GameStats {
     averageScore: 0,
     gamesPlayed: 0,
     totalScore: 0,
+    totalPlayTimeMs: 0,
+    totalDiscsDropped: 0,
+    totalDiscsBroken: 0,
   };
 }
 
@@ -38,6 +41,24 @@ describe('game stats semantics', () => {
       averageScore: 11,
       gamesPlayed: 3,
       totalScore: 32,
+      totalPlayTimeMs: 0,
+      totalDiscsDropped: 0,
+      totalDiscsBroken: 0,
     });
+  });
+
+  test('accumulates completed-run analytics and computes per-minute rates', () => {
+    const stats = emptyStats();
+    recordCompletedGame(stats, 900, 120_000, 30, 12);
+    recordCompletedGame(stats, 600, 60_000, 15, 8);
+
+    expect(stats).toMatchObject({
+      totalScore: 1500,
+      totalPlayTimeMs: 180_000,
+      totalDiscsDropped: 45,
+      totalDiscsBroken: 20,
+    });
+    expect(perMinuteRate(stats.totalScore, stats.totalPlayTimeMs)).toBe(500);
+    expect(perMinuteRate(10, 0)).toBeNull();
   });
 });

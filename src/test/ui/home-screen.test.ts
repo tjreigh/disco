@@ -14,6 +14,9 @@ function stats(overrides: Partial<GameStats> = {}): GameStats {
     averageScore: 0,
     gamesPlayed: 0,
     totalScore: 0,
+    totalPlayTimeMs: 0,
+    totalDiscsDropped: 0,
+    totalDiscsBroken: 0,
     ...overrides,
   };
 }
@@ -87,6 +90,25 @@ describe('HomeScreen', () => {
     expect(github.rel).toContain('noreferrer');
     report.click();
     expect(onRequestDebug).toHaveBeenCalledOnce();
+  });
+
+  test('opens advanced stats from the Solo section and from a mode-specific sibling button', () => {
+    const home = createHome();
+    const onRequestAdvancedStats = vi.fn();
+    home.onRequestAdvancedStats = onRequestAdvancedStats;
+
+    const advancedStats = document.querySelector<HTMLButtonElement>('[data-home-action="advanced-stats"]')!;
+    expect(advancedStats.closest('.home-mode-section-header')).not.toBeNull();
+    expect(advancedStats.closest('.home-footer')).toBeNull();
+    expect(advancedStats.textContent).toBe('VIEW ADVANCED STATS');
+    advancedStats.click();
+    document.querySelector<HTMLButtonElement>('.home-mode-card-stats')!.click();
+
+    expect(onRequestAdvancedStats).toHaveBeenNthCalledWith(1);
+    expect(onRequestAdvancedStats).toHaveBeenNthCalledWith(2, CLASSIC_MODE.id);
+    const card = document.querySelector('.home-mode-card')!;
+    expect(card.querySelector('button')).toBeNull();
+    expect(card.parentElement?.querySelector('.home-mode-card-stats')).not.toBeNull();
   });
 
   test('selects a mode separately from starting it', () => {

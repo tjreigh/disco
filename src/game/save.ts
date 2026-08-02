@@ -79,6 +79,9 @@ export interface SaveGameV1 {
   generation: SavedGenerationState;
   session: {
     longestStreak: number;
+    /** Controller-owned completed-run analytics; absent in older v1 saves. */
+    playTimeMs?: number;
+    discsBroken?: number;
   };
   paradox?: SavedParadoxState;
   meta: {
@@ -350,8 +353,11 @@ export function parseSaveGame(value: unknown, rules: GameRulesConfig): SaveGameV
   const state = parseState(value.state, rules, rewind !== undefined);
   const generation = parseGeneration(value.generation, rules);
   if (!state || !generation) return null;
-  if (!isObject(value.session) || !hasOnlyKeys(value.session, ['longestStreak'])
-    || !isNonNegativeInteger(value.session.longestStreak)) return null;
+  if (!isObject(value.session)
+    || !hasOnlyKeys(value.session, ['longestStreak'], ['playTimeMs', 'discsBroken'])
+    || !isNonNegativeInteger(value.session.longestStreak)
+    || (value.session.playTimeMs !== undefined && !isNonNegativeInteger(value.session.playTimeMs))
+    || (value.session.discsBroken !== undefined && !isNonNegativeInteger(value.session.discsBroken))) return null;
   if (!isObject(value.meta) || !hasOnlyKeys(value.meta, ['source'])
     || value.meta.source !== 'autosave') return null;
 
@@ -369,7 +375,11 @@ export function parseSaveGame(value: unknown, rules: GameRulesConfig): SaveGameV
     modeId: rules.id,
     state,
     generation,
-    session: { longestStreak: value.session.longestStreak },
+    session: {
+      longestStreak: value.session.longestStreak,
+      ...(value.session.playTimeMs !== undefined ? { playTimeMs: value.session.playTimeMs } : {}),
+      ...(value.session.discsBroken !== undefined ? { discsBroken: value.session.discsBroken } : {}),
+    },
     ...(paradox ? { paradox } : {}),
     meta: { source: 'autosave' },
   };

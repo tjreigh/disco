@@ -24,6 +24,9 @@ function emptyStats(): GameStats {
     averageScore: 0,
     gamesPlayed: 0,
     totalScore: 0,
+    totalPlayTimeMs: 0,
+    totalDiscsDropped: 0,
+    totalDiscsBroken: 0,
   };
 }
 
@@ -42,6 +45,9 @@ describe('persistent game stats', () => {
       averageScore: 425,
       gamesPlayed: 4,
       totalScore: 1700,
+      totalPlayTimeMs: 0,
+      totalDiscsDropped: 0,
+      totalDiscsBroken: 0,
     });
   });
 
@@ -56,6 +62,9 @@ describe('persistent game stats', () => {
       averageScore: 300,
       gamesPlayed: 3,
       totalScore: 900,
+      totalPlayTimeMs: 0,
+      totalDiscsDropped: 0,
+      totalDiscsBroken: 0,
     });
   });
 
@@ -70,6 +79,9 @@ describe('persistent game stats', () => {
       averageScore: 0,
       gamesPlayed: 0,
       totalScore: 0,
+      totalPlayTimeMs: 0,
+      totalDiscsDropped: 0,
+      totalDiscsBroken: 0,
     });
   });
 
@@ -105,6 +117,7 @@ describe('persistent game stats', () => {
     test('persists stats for a mode through real document.cookie', () => {
       const stats: GameStats = {
         highScore: 750, longestStreak: 9, averageScore: 250, gamesPlayed: 3, totalScore: 750,
+        totalPlayTimeMs: 180_000, totalDiscsDropped: 30, totalDiscsBroken: 12,
       };
 
       saveStats('classic', stats);
@@ -115,9 +128,11 @@ describe('persistent game stats', () => {
     test('keeps distinct modes from cross-contaminating each other', () => {
       const classicStats: GameStats = {
         highScore: 750, longestStreak: 9, averageScore: 250, gamesPlayed: 3, totalScore: 750,
+        totalPlayTimeMs: 180_000, totalDiscsDropped: 30, totalDiscsBroken: 12,
       };
       const gravityStats: GameStats = {
         highScore: 120, longestStreak: 2, averageScore: 40, gamesPlayed: 3, totalScore: 120,
+        totalPlayTimeMs: 90_000, totalDiscsDropped: 15, totalDiscsBroken: 4,
       };
 
       saveStats('classic', classicStats);
@@ -150,6 +165,7 @@ describe('persistent game stats', () => {
         expect(loadStats('classic')).toEqual(emptyStats());
         expect(() => saveStats('classic', {
           highScore: 1, longestStreak: 1, averageScore: 1, gamesPlayed: 1, totalScore: 1,
+          totalPlayTimeMs: 1, totalDiscsDropped: 1, totalDiscsBroken: 1,
         })).not.toThrow();
       } finally {
         // Remove the instance-level override so cookie access falls back to

@@ -115,7 +115,10 @@ function makeGravity(overrides: Partial<GravityState> = {}): GravityState {
 }
 
 function makeStats(overrides: Partial<GameStats> = {}): GameStats {
-  return { highScore: 0, longestStreak: 0, averageScore: 0, gamesPlayed: 0, totalScore: 0, ...overrides };
+  return {
+    highScore: 0, longestStreak: 0, averageScore: 0, gamesPlayed: 0, totalScore: 0,
+    totalPlayTimeMs: 0, totalDiscsDropped: 0, totalDiscsBroken: 0, ...overrides,
+  };
 }
 
 // draw()'s optional trailing params, always passed explicitly for clarity.

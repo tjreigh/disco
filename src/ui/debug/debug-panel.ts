@@ -176,6 +176,8 @@ export function snapshotTurnHistory(
 
 export class DebugPanel {
   readonly root: HTMLElement;
+  onForceGameOver?: () => void;
+  canForceGameOver?: () => boolean;
   private readonly content: HTMLElement;
   private readonly access: DebugPanelAccess;
   private lastResult: TurnResult | null = null;
@@ -213,6 +215,7 @@ export class DebugPanel {
   }
 
   open(): void {
+    this.render();
     this.root.classList.add('debug-panel--open');
     this.root.setAttribute('aria-hidden', 'false');
   }
@@ -309,6 +312,27 @@ export class DebugPanel {
     return report;
   }
 
+  private renderDebugActions(): HTMLElement {
+    const section = document.createElement('section');
+    section.className = 'debug-actions';
+    const heading = this.heading('Game controls');
+    const help = document.createElement('p');
+    help.className = 'debug-muted';
+    help.textContent = 'Runs the normal game-over flow immediately, including completed-game stats.';
+    const forceGameOver = document.createElement('button');
+    forceGameOver.type = 'button';
+    forceGameOver.className = 'debug-action debug-action--danger';
+    forceGameOver.textContent = 'FORCE GAME OVER';
+    forceGameOver.disabled = !(this.canForceGameOver?.() ?? false);
+    forceGameOver.addEventListener('click', () => {
+      if (forceGameOver.disabled) return;
+      this.close();
+      this.onForceGameOver?.();
+    });
+    section.append(heading, help, forceGameOver);
+    return section;
+  }
+
   private exportReport(): void {
     const report = buildDebugReport(
       this.state,
@@ -343,6 +367,7 @@ export class DebugPanel {
     summary.textContent = `phase=${this.state.phase}  score=${this.state.score}  drops=${this.state.dropCount}  level=${this.state.level}  turnsLeft=${this.state.turnsRemaining}/${this.state.turnsPerLevel}`;
     this.content.append(
       summary,
+      this.renderDebugActions(),
       this.heading('Committed board'),
       makeBoardGrid(this.state.board, {
         flagPrefix: 'committed-board',

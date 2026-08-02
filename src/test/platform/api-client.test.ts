@@ -156,6 +156,7 @@ describe('putStats', () => {
   test('puts stats for a mode and returns the parsed result', async () => {
     const stats: GameStats = {
       highScore: 500, longestStreak: 4, averageScore: 200, gamesPlayed: 3, totalScore: 600,
+      totalPlayTimeMs: 120_000, totalDiscsDropped: 20, totalDiscsBroken: 8,
     };
     const returned = {
       ...stats, accountId: 'acct_1', modeId: 'classic', updatedAt: '2026-07-13T00:00:00.000Z',
@@ -180,6 +181,7 @@ describe('submitScore', () => {
   test('submits a score with the client stats and returns the parsed result', async () => {
     const stats: GameStats = {
       highScore: 500, longestStreak: 4, averageScore: 200, gamesPlayed: 3, totalScore: 600,
+      totalPlayTimeMs: 120_000, totalDiscsDropped: 20, totalDiscsBroken: 8,
     };
     const returned = {
       ...stats, accountId: 'acct_1', modeId: 'classic', updatedAt: '2026-07-13T00:00:00.000Z',

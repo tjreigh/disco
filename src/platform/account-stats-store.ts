@@ -41,6 +41,10 @@ function cloneStats(stats: GameStats): GameStats {
     averageScore: stats.averageScore,
     gamesPlayed: stats.gamesPlayed,
     totalScore: stats.totalScore,
+    // Tolerate responses from an older API during a backend-first rollout.
+    totalPlayTimeMs: stats.totalPlayTimeMs ?? 0,
+    totalDiscsDropped: stats.totalDiscsDropped ?? 0,
+    totalDiscsBroken: stats.totalDiscsBroken ?? 0,
   };
 }
 
@@ -52,6 +56,9 @@ export function mergeLocalAndRemoteStats(local: GameStats, remote: GameStats): G
     longestStreak: Math.max(local.longestStreak, remote.longestStreak),
     gamesPlayed,
     totalScore,
+    totalPlayTimeMs: local.totalPlayTimeMs + remote.totalPlayTimeMs,
+    totalDiscsDropped: local.totalDiscsDropped + remote.totalDiscsDropped,
+    totalDiscsBroken: local.totalDiscsBroken + remote.totalDiscsBroken,
     averageScore: gamesPlayed > 0 ? Math.round(totalScore / gamesPlayed) : 0,
   };
 }

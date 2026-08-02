@@ -137,6 +137,8 @@ vi.mock('../../ui/saved-game-dialog.js', () => ({
 
 vi.mock('../../ui/debug/debug-panel.js', () => ({
   DebugPanel: class {
+    onForceGameOver?: () => void;
+    canForceGameOver?: () => boolean;
     open = vi.fn();
     reset = vi.fn();
     recordTurn = vi.fn();
@@ -150,7 +152,10 @@ vi.mock('../../ui/debug/debug-panel.js', () => ({
 
 vi.mock('../../platform/account-stats-store.js', () => ({
   AccountStatsStore: class {
-    loadStats = vi.fn(() => ({ highScore: 0, longestStreak: 0, averageScore: 0, gamesPlayed: 0, totalScore: 0 }));
+    loadStats = vi.fn(() => ({
+      highScore: 0, longestStreak: 0, averageScore: 0, gamesPlayed: 0, totalScore: 0,
+      totalPlayTimeMs: 0, totalDiscsDropped: 0, totalDiscsBroken: 0,
+    }));
     subscribe = vi.fn(() => vi.fn());
     getState = vi.fn(() => ({ account: null, identities: [], loading: false, apiAvailable: true }));
     login = vi.fn();
@@ -294,6 +299,23 @@ describe('constructor / home state', () => {
     homeScreen.onRequestDebug?.();
     expect(homeScreen.closeGameMenu).toHaveBeenCalledOnce();
     expect(debugPanel.open).toHaveBeenCalledTimes(2);
+  });
+
+  test('allows the full debugger to force an active run through normal game over', () => {
+    const { game } = createGame();
+    const homeScreen = lastOf(homeScreenInstances);
+    const debugPanel = lastOf(debugPanelInstances);
+
+    expect(debugPanel.canForceGameOver()).toBe(false);
+    homeScreen.onSelectMode(CLASSIC_MODE);
+    expect(debugPanel.canForceGameOver()).toBe(true);
+
+    debugPanel.onForceGameOver();
+
+    expect(boardSession(game).state.phase).toBe(GamePhase.GameOver);
+    expect(debugPanel.canForceGameOver()).toBe(false);
+    expect(lastOf(statsStoreInstances).recordCompletedGame).toHaveBeenCalledOnce();
+    expect(document.querySelector('.game-over-screen--open')).not.toBeNull();
   });
 
   test('destroy cancels the rAF loop and destroys the input handler', () => {
@@ -756,6 +778,8 @@ describe('Paradox playable rewind flow', () => {
 // hits it.
 describe('game over during the final turn\'s animation', () => {
   test('a drop that fills the last empty cell ends the game without the render loop throwing', () => {
+    let clock = 100;
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => clock);
     const { game } = createGame();
     const homeScreen = lastOf(homeScreenInstances);
     homeScreen.onSelectMode(CLASSIC_MODE);
@@ -777,9 +801,12 @@ describe('game over during the final turn\'s animation', () => {
     engine.state.score = 250;
 
     const input = lastOf(inputHandlerInstances);
+    clock = 1_100;
     input.onIntent({ kind: 'drop', col: 0 });
     frame(0);
+    expect(lastOf(statsStoreInstances).recordCompletedGame).not.toHaveBeenCalled();
 
+    clock = 5_100;
     expect(() => drainAnimations()).not.toThrow();
 
     const renderer = lastOf(rendererInstances);
@@ -791,12 +818,17 @@ describe('game over during the final turn\'s animation', () => {
     expect(gameOverScreen?.textContent).toContain('HOME');
     expect(gameOverScreen?.textContent).toContain('NEW HIGH SCORE');
     expect(gameOverScreen?.textContent).toContain('The board filled with no legal moves left.');
+    expect(lastOf(statsStoreInstances).recordCompletedGame.mock.calls[0]![1]).toMatchObject({
+      totalPlayTimeMs: 5_000,
+      totalDiscsDropped: 1,
+    });
 
     const newGameButton = Array.from(gameOverScreen!.querySelectorAll<HTMLButtonElement>('button'))
       .find(button => button.textContent === 'NEW GAME')!;
     newGameButton.click();
     expect(state.phase).toBe(GamePhase.WaitingForDrop);
     expect(document.querySelector('.game-over-screen--open')).toBeNull();
+    now.mockRestore();
   });
 });
 
@@ -945,9 +977,16 @@ describe('restart', () => {
 
 describe('saved game resume', () => {
   test('opens the mode dialog and restores its save, streak, and clean presentation', () => {
+    let clock = 100;
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => clock);
     const source = new GameEngine({ rules: STACK_MODE.rules, seed: 91 });
     source.drop(2);
-    const save = source.exportSave({ longestStreak: 7, savedAt: 123 });
+    const save = source.exportSave({
+      longestStreak: 7,
+      playTimeMs: 120_000,
+      discsBroken: 42,
+      savedAt: 123,
+    });
     saveStoreState.byMode.set(STACK_MODE.id, save);
 
     const { game } = createGame();
@@ -975,6 +1014,13 @@ describe('saved game resume', () => {
     expect(call[9]).toBeNull();
     expect(boardSession(game).view.longestStreak).toBe(7);
     expect(homeScreen.close).toHaveBeenCalled();
+    clock = 1_100;
+    homeScreen.onRequestGameMenu?.();
+    expect(lastOf(saveStoreInstances).write.mock.calls.at(-1)![1].session).toMatchObject({
+      playTimeMs: 121_000,
+      discsBroken: 42,
+    });
+    now.mockRestore();
   });
 
   test('a mode without a save starts immediately', () => {

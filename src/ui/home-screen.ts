@@ -31,6 +31,7 @@ export class HomeScreen {
   onRequestHome?: () => void;
   onRequestToggleSound?: () => void;
   onRequestDebug?: () => void;
+  onRequestAdvancedStats?: (modeId?: string) => void;
   onRequestTutorial?: (mode: SoloModeDefinition) => void;
   onRequestCreateMultiplayer?: () => void;
   onRequestJoinMultiplayer?: (roomId: string) => void;
@@ -59,6 +60,10 @@ export class HomeScreen {
     const report = mustQuery<HTMLButtonElement>(mainFragment, '.home-footer__button');
     report.addEventListener('click', () => this.onRequestDebug?.());
     blurOnClick(report);
+
+    const advancedStats = mustQuery<HTMLButtonElement>(mainFragment, '[data-home-action="advanced-stats"]');
+    advancedStats.addEventListener('click', () => this.onRequestAdvancedStats?.());
+    blurOnClick(advancedStats);
 
     const createRoomButton = mustQuery<HTMLButtonElement>(mainFragment, '[data-multiplayer-action="create"]');
     createRoomButton.addEventListener('click', () => this.onRequestCreateMultiplayer?.());
@@ -304,7 +309,18 @@ export class HomeScreen {
       best.textContent = stats.gamesPlayed > 0 ? `HIGH ${stats.highScore}` : 'NEW';
 
       card.append(name, best);
-      this.cardsContainer.append(card);
+
+      const item = document.createElement('div');
+      item.className = 'home-mode-card-item';
+      const statsButton = document.createElement('button');
+      statsButton.type = 'button';
+      statsButton.className = 'home-mode-card-stats';
+      statsButton.textContent = 'STATS';
+      statsButton.setAttribute('aria-label', `${mode.name} advanced stats`);
+      statsButton.addEventListener('click', () => this.onRequestAdvancedStats?.(mode.id));
+      blurOnClick(statsButton);
+      item.append(card, statsButton);
+      this.cardsContainer.append(item);
     });
 
     this.renderModeDetails(selectedMode, this.loadStats(selectedMode.id));

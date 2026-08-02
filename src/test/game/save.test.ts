@@ -108,6 +108,21 @@ describe('save disc and board serialization', () => {
     });
   });
 
+  test('completed-run analytics round-trip while older v1 saves default them at the controller', () => {
+    const save = validSave();
+    save.session.playTimeMs = 123_456;
+    save.session.discsBroken = 42;
+
+    expect(parseSaveGame(jsonClone(save), CLASSIC_RULES)?.session).toEqual({
+      longestStreak: 4,
+      playTimeMs: 123_456,
+      discsBroken: 42,
+    });
+
+    const legacy = validSave();
+    expect(parseSaveGame(jsonClone(legacy), CLASSIC_RULES)?.session).toEqual({ longestStreak: 4 });
+  });
+
   test('boards round-trip independently with fresh disc IDs', () => {
     const original = [
       [makeDisc(1, DiscKind.Numbered), null],

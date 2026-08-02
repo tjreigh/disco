@@ -33,6 +33,9 @@ export interface AccountModeStats {
   longestStreak: number;
   gamesPlayed: number;
   totalScore: number;
+  totalPlayTimeMs: number;
+  totalDiscsDropped: number;
+  totalDiscsBroken: number;
   averageScore: number;
   updatedAt: string;
 }
@@ -82,6 +85,9 @@ export interface StatsInput {
   longestStreak: number;
   gamesPlayed: number;
   totalScore: number;
+  totalPlayTimeMs: number;
+  totalDiscsDropped: number;
+  totalDiscsBroken: number;
   averageScore: number;
 }
 
@@ -142,6 +148,9 @@ function mapStats(row: unknown): AccountModeStats {
     longest_streak: number;
     games_played: number;
     total_score: number;
+    total_play_time_ms: number;
+    total_discs_dropped: number;
+    total_discs_broken: number;
     average_score: number;
     updated_at: string;
   };
@@ -152,6 +161,9 @@ function mapStats(row: unknown): AccountModeStats {
     longestStreak: record.longest_streak,
     gamesPlayed: record.games_played,
     totalScore: record.total_score,
+    totalPlayTimeMs: record.total_play_time_ms,
+    totalDiscsDropped: record.total_discs_dropped,
+    totalDiscsBroken: record.total_discs_broken,
     averageScore: record.average_score,
     updatedAt: record.updated_at,
   };
@@ -388,14 +400,18 @@ export class Repositories {
     const averageScore = input.gamesPlayed > 0 ? Math.round(input.totalScore / input.gamesPlayed) : 0;
     this.db.prepare(`
       INSERT INTO account_mode_stats (
-        account_id, mode_id, high_score, longest_streak, games_played, total_score, average_score, updated_at
+        account_id, mode_id, high_score, longest_streak, games_played, total_score,
+        total_play_time_ms, total_discs_dropped, total_discs_broken, average_score, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
       ON CONFLICT(account_id, mode_id) DO UPDATE SET
         high_score = excluded.high_score,
         longest_streak = excluded.longest_streak,
         games_played = excluded.games_played,
         total_score = excluded.total_score,
+        total_play_time_ms = excluded.total_play_time_ms,
+        total_discs_dropped = excluded.total_discs_dropped,
+        total_discs_broken = excluded.total_discs_broken,
         average_score = excluded.average_score,
         updated_at = datetime('now')
     `).run(
@@ -405,6 +421,9 @@ export class Repositories {
       input.longestStreak,
       input.gamesPlayed,
       input.totalScore,
+      input.totalPlayTimeMs,
+      input.totalDiscsDropped,
+      input.totalDiscsBroken,
       averageScore,
     );
 
@@ -445,6 +464,9 @@ export class Repositories {
         longestStreak: 0,
         gamesPlayed: 0,
         totalScore: 0,
+        totalPlayTimeMs: 0,
+        totalDiscsDropped: 0,
+        totalDiscsBroken: 0,
         averageScore: 0,
         updatedAt: new Date().toISOString(),
       };
@@ -455,6 +477,9 @@ export class Repositories {
         longestStreak: Math.max(currentStats.longestStreak, input.longestStreak),
         gamesPlayed: currentStats.gamesPlayed + 1,
         totalScore: currentStats.totalScore + input.score,
+        totalPlayTimeMs: currentStats.totalPlayTimeMs,
+        totalDiscsDropped: currentStats.totalDiscsDropped,
+        totalDiscsBroken: currentStats.totalDiscsBroken,
         averageScore: 0,
       };
 

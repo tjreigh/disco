@@ -208,9 +208,10 @@ export class LocalBoardSession {
     this.longestStreak = 0;
   }
 
-  exportSave(): SaveGameV1 {
+  exportSave(analytics?: { playTimeMs: number; discsBroken: number }): SaveGameV1 {
     return this.engine.exportSave({
       longestStreak: this.longestStreak,
+      ...(analytics ? analytics : {}),
       ...(this.rewindLongestStreaks.length > 0
         ? { rewindLongestStreaks: this.rewindLongestStreaks }
         : {}),
