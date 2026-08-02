@@ -1,6 +1,7 @@
 import {
   createHash,
   randomBytes,
+  randomInt,
   randomUUID,
   timingSafeEqual,
 } from 'node:crypto';
@@ -164,9 +165,10 @@ interface Room {
 
 const defaultValues: RoomValueFactory = {
   createRoomId: () => {
-    const bytes = randomBytes(ROOM_ID_LENGTH);
     let id = '';
-    for (const byte of bytes) id += ROOM_ID_ALPHABET[byte % ROOM_ID_ALPHABET.length];
+    for (let index = 0; index < ROOM_ID_LENGTH; index++) {
+      id += ROOM_ID_ALPHABET[randomInt(ROOM_ID_ALPHABET.length)];
+    }
     return id;
   },
   createPlayerId: () => randomUUID(),
