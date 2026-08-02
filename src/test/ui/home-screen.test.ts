@@ -92,7 +92,7 @@ describe('HomeScreen', () => {
     expect(onRequestDebug).toHaveBeenCalledOnce();
   });
 
-  test('opens advanced stats from the Solo section and from a mode-specific sibling button', () => {
+  test('opens advanced stats globally and for the selected mode from its detail card', () => {
     const home = createHome();
     const onRequestAdvancedStats = vi.fn();
     home.onRequestAdvancedStats = onRequestAdvancedStats;
@@ -100,15 +100,16 @@ describe('HomeScreen', () => {
     const advancedStats = document.querySelector<HTMLButtonElement>('[data-home-action="advanced-stats"]')!;
     expect(advancedStats.closest('.home-mode-section-header')).not.toBeNull();
     expect(advancedStats.closest('.home-footer')).toBeNull();
-    expect(advancedStats.textContent).toBe('VIEW ADVANCED STATS');
+    expect(advancedStats.textContent).toBe('ADVANCED STATS');
     advancedStats.click();
-    document.querySelector<HTMLButtonElement>('.home-mode-card-stats')!.click();
+    const modeStats = document.querySelector<HTMLButtonElement>('.home-mode-detail-stats')!;
+    expect(modeStats.closest('.home-mode-detail')).not.toBeNull();
+    expect(modeStats.textContent).toBe('MODE STATS');
+    modeStats.click();
 
     expect(onRequestAdvancedStats).toHaveBeenNthCalledWith(1);
     expect(onRequestAdvancedStats).toHaveBeenNthCalledWith(2, CLASSIC_MODE.id);
-    const card = document.querySelector('.home-mode-card')!;
-    expect(card.querySelector('button')).toBeNull();
-    expect(card.parentElement?.querySelector('.home-mode-card-stats')).not.toBeNull();
+    expect(document.querySelector('.home-mode-card-stats')).toBeNull();
   });
 
   test('selects a mode separately from starting it', () => {
@@ -132,6 +133,24 @@ describe('HomeScreen', () => {
     expect(onSelectMode).toHaveBeenCalledOnce();
     expect(onSelectMode).toHaveBeenCalledWith(GRAVITY_MODE);
     expect(playButton.textContent).toBe('PLAY');
+  });
+
+  test('starts a mode when the same card is clicked twice within 400ms', () => {
+    const onSelectMode = vi.fn();
+    createHome({ onSelectMode });
+    const now = vi.spyOn(performance, 'now')
+      .mockReturnValueOnce(1_000)
+      .mockReturnValueOnce(1_350);
+
+    document.querySelector<HTMLButtonElement>('[data-mode-id="gravity"]')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    expect(onSelectMode).not.toHaveBeenCalled();
+
+    document.querySelector<HTMLButtonElement>('[data-mode-id="gravity"]')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    expect(onSelectMode).toHaveBeenCalledOnce();
+    expect(onSelectMode).toHaveBeenCalledWith(GRAVITY_MODE);
+    now.mockRestore();
   });
 
   test('supports roving keyboard navigation across mode choices', () => {
@@ -385,7 +404,7 @@ describe('HomeScreen', () => {
       expect(card.getAttribute('role')).toBe('radio');
       expect(card.querySelector('button')).toBeNull();
     }
-    expect(document.querySelector('.home-mode-detail')?.querySelectorAll('button')).toHaveLength(2);
+    expect(document.querySelector('.home-mode-detail')?.querySelectorAll('button')).toHaveLength(3);
   });
 
   test('disables play while cloud saves are loading without disabling tutorials', () => {
@@ -425,7 +444,7 @@ describe('HomeScreen', () => {
     document.querySelector<HTMLButtonElement>('[data-mode-id="paradox"]')!.click();
 
     const detailButtons = Array.from(document.querySelector('.home-mode-detail')!.querySelectorAll<HTMLButtonElement>('button'));
-    expect(detailButtons).toHaveLength(1);
+    expect(detailButtons).toHaveLength(2);
     expect(detailButtons.some(button => button.textContent === 'TUTORIAL')).toBe(false);
     expect(detailButtons.some(button => button.textContent === 'PLAY')).toBe(true);
   });

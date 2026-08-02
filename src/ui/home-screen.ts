@@ -4,6 +4,8 @@ import type { AccountStatsState } from '../platform/account-stats-store.js';
 import { blurOnClick, cloneTemplate, mustQuery } from './dom-utils.js';
 import { ModalController } from './modal-controller.js';
 
+const MODE_DOUBLE_CLICK_MS = 400;
+
 // DOM overlay for mode selection. It mounts into the shared UI layer and
 // covers the canvas entirely while open.
 export class HomeScreen {
@@ -22,6 +24,7 @@ export class HomeScreen {
   private readonly homePriorInert = new Map<HTMLElement, boolean>();
   private saveLoading = false;
   private selectedModeId: string;
+  private lastModeClick: { modeId: string; at: number } | undefined;
 
   // Set by Game after construction, avoiding a constructor-time forward
   // reference to a not-yet-defined method.
@@ -146,6 +149,7 @@ export class HomeScreen {
   }
 
   open(): void {
+    this.lastModeClick = undefined;
     this.renderCards(); // refresh per-mode high scores every time the menu opens
     this.closeGameMenu();
     this.overlay.classList.add('home-screen--open');
@@ -287,7 +291,17 @@ export class HomeScreen {
       card.setAttribute('aria-controls', this.modeDetails.id);
       card.tabIndex = selected ? 0 : -1;
       card.addEventListener('click', event => {
-        this.selectMode(mode.id, event.detail === 0);
+        if (event.detail === 0) {
+          this.lastModeClick = undefined;
+          this.selectMode(mode.id, true);
+          return;
+        }
+        const now = performance.now();
+        const startsMode = this.lastModeClick?.modeId === mode.id
+          && now - this.lastModeClick.at <= MODE_DOUBLE_CLICK_MS;
+        this.lastModeClick = startsMode ? undefined : { modeId: mode.id, at: now };
+        this.selectMode(mode.id, false);
+        if (startsMode) this.requestModeStart(mode);
       });
       card.addEventListener('keydown', event => {
         let nextIndex: number | undefined;
@@ -310,17 +324,7 @@ export class HomeScreen {
 
       card.append(name, best);
 
-      const item = document.createElement('div');
-      item.className = 'home-mode-card-item';
-      const statsButton = document.createElement('button');
-      statsButton.type = 'button';
-      statsButton.className = 'home-mode-card-stats';
-      statsButton.textContent = 'STATS';
-      statsButton.setAttribute('aria-label', `${mode.name} advanced stats`);
-      statsButton.addEventListener('click', () => this.onRequestAdvancedStats?.(mode.id));
-      blurOnClick(statsButton);
-      item.append(card, statsButton);
-      this.cardsContainer.append(item);
+      this.cardsContainer.append(card);
     });
 
     this.renderModeDetails(selectedMode, this.loadStats(selectedMode.id));
@@ -337,6 +341,12 @@ export class HomeScreen {
   }
 
   private renderModeDetails(mode: SoloModeDefinition, stats: GameStats): void {
+    const header = document.createElement('div');
+    header.className = 'home-mode-detail-header';
+
+    const heading = document.createElement('div');
+    heading.className = 'home-mode-detail-heading';
+
     const eyebrow = document.createElement('span');
     eyebrow.className = 'home-mode-detail-eyebrow';
     eyebrow.textContent = 'SELECTED MODE';
@@ -345,6 +355,17 @@ export class HomeScreen {
     title.id = 'home-mode-detail-title';
     title.textContent = mode.name;
     this.modeDetails.setAttribute('aria-labelledby', title.id);
+
+    const statsButton = document.createElement('button');
+    statsButton.type = 'button';
+    statsButton.className = 'home-mode-detail-stats';
+    statsButton.textContent = 'MODE STATS';
+    statsButton.setAttribute('aria-label', `${mode.name} advanced stats`);
+    statsButton.addEventListener('click', () => this.onRequestAdvancedStats?.(mode.id));
+    blurOnClick(statsButton);
+
+    heading.append(eyebrow, title);
+    header.append(heading, statsButton);
 
     const tagline = document.createElement('p');
     tagline.className = 'home-mode-tagline';
@@ -369,7 +390,7 @@ export class HomeScreen {
     playButton.className = 'home-mode-action home-mode-action--play';
     playButton.textContent = this.saveLoading ? 'CHECKING SAVES…' : 'PLAY';
     playButton.disabled = this.saveLoading;
-    playButton.addEventListener('click', () => this.onSelectMode(mode));
+    playButton.addEventListener('click', () => this.requestModeStart(mode));
     blurOnClick(playButton);
     actions.append(playButton);
 
@@ -383,7 +404,12 @@ export class HomeScreen {
       actions.append(tutorialButton);
     }
 
-    this.modeDetails.append(eyebrow, title, tagline, records, actions);
+    this.modeDetails.append(header, tagline, records, actions);
+  }
+
+  private requestModeStart(mode: SoloModeDefinition): void {
+    if (this.saveLoading) return;
+    this.onSelectMode(mode);
   }
 
   private appendRecord(list: HTMLDListElement, label: string, value: string): void {
