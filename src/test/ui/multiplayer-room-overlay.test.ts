@@ -84,7 +84,6 @@ describe('MultiplayerRoomOverlay', () => {
       ...completedView(),
       phase: 'playing',
       connection: 'connected',
-      remainingMs: 120_000,
       result: null,
     }, null);
 

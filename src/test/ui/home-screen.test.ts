@@ -210,7 +210,7 @@ describe('HomeScreen', () => {
     expect(onSelectMode).not.toHaveBeenCalled();
   });
 
-  test('starts or joins a private Score Race from the multiplayer section', () => {
+  test('starts or joins a private Score Race from the multiplayer section by default', () => {
     const home = createHome();
     const onCreate = vi.fn();
     const onJoin = vi.fn();
@@ -224,13 +224,43 @@ describe('HomeScreen', () => {
       .find(button => button.textContent === 'JOIN')!;
     const input = section.querySelector<HTMLInputElement>('input')!;
 
-    expect(section.textContent).toContain('MULTIPLAYER · SCORE RACE');
+    expect(section.textContent).toContain('MULTIPLAYER');
+    expect(section.querySelector('[data-multiplayer-mode-id="score-race"]')?.getAttribute('aria-checked'))
+      .toBe('true');
     create.click();
     input.value = 'abcd2345';
     join.click();
 
-    expect(onCreate).toHaveBeenCalledOnce();
-    expect(onJoin).toHaveBeenCalledWith('ABCD2345');
+    expect(onCreate).toHaveBeenCalledWith('score-race');
+    expect(onJoin).toHaveBeenCalledWith('ABCD2345', 'score-race');
+  });
+
+  test('switches the multiplayer mode picker before creating or joining a room', () => {
+    const home = createHome();
+    const onCreate = vi.fn();
+    const onJoin = vi.fn();
+    home.onRequestCreateMultiplayer = onCreate;
+    home.onRequestJoinMultiplayer = onJoin;
+
+    const section = document.querySelector<HTMLElement>('.home-multiplayer')!;
+    const duelButton = section.querySelector<HTMLButtonElement>('[data-multiplayer-mode-id="shared-duel"]')!;
+    const scoreRaceButton = section.querySelector<HTMLButtonElement>('[data-multiplayer-mode-id="score-race"]')!;
+    const create = Array.from(section.querySelectorAll<HTMLButtonElement>('button'))
+      .find(button => button.textContent === 'CREATE ROOM')!;
+    const join = Array.from(section.querySelectorAll<HTMLButtonElement>('button'))
+      .find(button => button.textContent === 'JOIN')!;
+    const input = section.querySelector<HTMLInputElement>('input')!;
+
+    duelButton.click();
+    expect(duelButton.getAttribute('aria-checked')).toBe('true');
+    expect(scoreRaceButton.getAttribute('aria-checked')).toBe('false');
+
+    create.click();
+    input.value = 'abcd2345';
+    join.click();
+
+    expect(onCreate).toHaveBeenCalledWith('shared-duel');
+    expect(onJoin).toHaveBeenCalledWith('ABCD2345', 'shared-duel');
   });
 
   test('auth button calls login or logout based on account state', () => {

@@ -1,10 +1,42 @@
 import type {
-  MultiplayerSessionView,
-} from '../app/multiplayer-session-controller.js';
+  MultiplayerConnectionState,
+  MultiplayerLocalResult,
+} from '../shared/multiplayer-contracts.js';
 import type {
   MultiplayerTransportError,
 } from '../platform/websocket-multiplayer-transport.js';
 import { blurOnClick, cloneTemplate, mustQuery } from './dom-utils.js';
+
+// Score Race and Disco Duel sessions both project this exact phase/error
+// shape (see MultiplayerLocalPhase / MultiplayerCompatibilityError in
+// multiplayer-session-controller.ts and SharedBoardPhase /
+// SharedBoardCompatibilityError in shared-board-session-controller.ts).
+// Defined independently here, rather than imported from either controller,
+// so this overlay stays a shared, mode-agnostic UI component.
+export type RoomOverlayPhase =
+  | 'lobby'
+  | 'ready'
+  | 'countdown'
+  | 'playing'
+  | 'finished'
+  | 'disconnected'
+  | 'reconnecting';
+
+export type RoomOverlayCompatibilityError =
+  | 'invalid-message'
+  | 'protocol-mismatch'
+  | 'rules-mismatch'
+  | 'session-mismatch';
+
+export interface RoomOverlayView {
+  readonly phase: RoomOverlayPhase;
+  readonly connection: MultiplayerConnectionState;
+  readonly roomId: string;
+  readonly localReady: boolean;
+  readonly opponentReady: boolean;
+  readonly result: MultiplayerLocalResult | null;
+  readonly compatibilityError: RoomOverlayCompatibilityError | null;
+}
 
 /** Lobby, invite, terminal-result, and transport-error presentation. */
 export class MultiplayerRoomOverlay {
@@ -21,7 +53,10 @@ export class MultiplayerRoomOverlay {
   private onReady: ((ready: boolean) => void) | null = null;
   private copied = false;
 
-  constructor(mount: HTMLElement = document.body) {
+  constructor(
+    private readonly modeLabel: string = 'SCORE RACE',
+    mount: HTMLElement = document.body,
+  ) {
     const fragment = cloneTemplate('tpl-multiplayer-room-overlay');
     this.root = mustQuery(fragment, '.multiplayer-room');
     this.eyebrow = mustQuery(fragment, '.multiplayer-room__eyebrow');
@@ -55,7 +90,7 @@ export class MultiplayerRoomOverlay {
   renderLoading(message = 'Opening a private room…'): void {
     this.root.hidden = false;
     this.root.dataset.state = 'loading';
-    this.eyebrow.textContent = 'MULTIPLAYER · SCORE RACE';
+    this.eyebrow.textContent = `MULTIPLAYER · ${this.modeLabel}`;
     this.title.textContent = 'CONNECTING';
     this.message.textContent = message;
     this.roomCode.textContent = '';
@@ -63,7 +98,7 @@ export class MultiplayerRoomOverlay {
     this.copyButton.hidden = true;
   }
 
-  render(view: MultiplayerSessionView, error: MultiplayerTransportError | null): void {
+  render(view: RoomOverlayView, error: MultiplayerTransportError | null): void {
     // A result is authoritative and terminal. A transport error can race in
     // immediately afterward (for example, when both deadline timers fire), but
     // it must never replace the winner presentation the player already earned.
@@ -100,7 +135,7 @@ export class MultiplayerRoomOverlay {
     if (view.phase === 'finished') {
       this.root.hidden = false;
       this.root.dataset.state = 'finishing';
-      this.eyebrow.textContent = 'SCORE RACE';
+      this.eyebrow.textContent = this.modeLabel;
       this.title.textContent = 'RUN COMPLETE';
       this.message.textContent = 'Waiting for the other player’s final score…';
       this.roomCode.textContent = '';
@@ -115,7 +150,7 @@ export class MultiplayerRoomOverlay {
 
     this.root.hidden = false;
     this.root.dataset.state = 'lobby';
-    this.eyebrow.textContent = 'PRIVATE SCORE RACE';
+    this.eyebrow.textContent = `PRIVATE ${this.modeLabel}`;
     this.title.textContent = 'ROOM CODE';
     this.message.textContent = view.localReady
       ? 'You’re ready. Share the invite and wait for the other player.'

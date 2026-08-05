@@ -282,6 +282,28 @@
   color: #829ab1;
   font-size: 11px;
 }
+.home-multiplayer__modes {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.home-multiplayer__mode-button {
+  border: 1px solid #486581;
+  border-radius: 999px;
+  padding: 5px 10px;
+  background: #0b2034;
+  color: #d9e2ec;
+  font: 700 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .06em;
+  cursor: pointer;
+}
+.home-multiplayer__mode-button:hover { border-color: #62b0e8; background: #16324f; }
+.home-multiplayer__mode-button:focus-visible { outline: 2px solid #9ed7ff; outline-offset: 2px; }
+.home-multiplayer__mode-button[aria-checked="true"] {
+  border-color: #62b0e8;
+  background: #1769aa;
+  color: #ffffff;
+}
 .home-multiplayer__actions {
   display: flex;
   align-items: flex-end;

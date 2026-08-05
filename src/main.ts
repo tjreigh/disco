@@ -1,8 +1,10 @@
 import { UiRoot } from './ui/ui-root.js';
+import { SHARED_DUEL_MODE_ID } from './shared/multiplayer-contracts.js';
 
 const params = new URLSearchParams(window.location.search);
 const demoMode = params.has('demo');
 const multiplayerMode = params.has('room') || params.get('multiplayer') === 'create';
+const sharedDuelMode = multiplayerMode && params.get('mode') === SHARED_DUEL_MODE_ID;
 if (demoMode) document.documentElement.classList.add('demo-mode');
 const ui = new UiRoot();
 
@@ -15,6 +17,13 @@ if (demoMode) {
   const demo = new DemoController(ui.canvas);
   new DemoOverlay(ui.mounts.utilities);
   window.addEventListener('resize', () => demo.handleResize());
+} else if (sharedDuelMode) {
+  const { SharedBoardGame } = await import('./app/shared-board-game-controller.js');
+  const game = await SharedBoardGame.create(ui.canvas, ui.mounts);
+
+  window.addEventListener('resize', () => {
+    game.handleResize();
+  });
 } else if (multiplayerMode) {
   const { MultiplayerGame } = await import('./app/multiplayer-game-controller.js');
   const game = await MultiplayerGame.create(ui.canvas, ui.mounts);

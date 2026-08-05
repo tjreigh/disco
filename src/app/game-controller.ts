@@ -148,11 +148,11 @@ export class SoloSessionController {
       ...(modeId ? { modeId } : {}),
     });
     this.homeScreen.onRequestTutorial = mode => this.startTutorial(mode);
-    this.homeScreen.onRequestCreateMultiplayer = () => {
-      location.search = '?multiplayer=create';
+    this.homeScreen.onRequestCreateMultiplayer = modeId => {
+      location.search = `?multiplayer=create&mode=${encodeURIComponent(modeId)}`;
     };
-    this.homeScreen.onRequestJoinMultiplayer = roomId => {
-      location.search = `?room=${encodeURIComponent(roomId)}`;
+    this.homeScreen.onRequestJoinMultiplayer = (roomId, modeId) => {
+      location.search = `?room=${encodeURIComponent(roomId)}&mode=${encodeURIComponent(modeId)}`;
     };
     this.gameOverScreen.onRequestRewind = () => this.requestRewind();
     this.gameOverScreen.onRequestNewGame = () => this.restart();

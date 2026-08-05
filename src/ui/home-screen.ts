@@ -1,4 +1,5 @@
-import type { SoloModeDefinition } from '../game/modes/mode.js';
+import { MULTIPLAYER_MODES } from '../game/modes/index.js';
+import type { MultiplayerModeDefinition, SoloModeDefinition } from '../game/modes/mode.js';
 import type { GameStats } from '../game/stats.js';
 import type { AccountStatsState } from '../platform/account-stats-store.js';
 import { blurOnClick, cloneTemplate, mustQuery } from './dom-utils.js';
@@ -22,9 +23,12 @@ export class HomeScreen {
   private readonly saveExitButton: HTMLButtonElement;
   private readonly gameMenuModal: ModalController;
   private readonly restartDialogModal: ModalController;
+  private readonly multiplayerModesContainer: HTMLElement;
+  private readonly multiplayerTagline: HTMLElement;
   private readonly homePriorInert = new Map<HTMLElement, boolean>();
   private saveLoading = false;
   private selectedModeId: string;
+  private selectedMultiplayerModeId: string;
   private lastModeClick: { modeId: string; at: number } | undefined;
 
   // Set by Game after construction, avoiding a constructor-time forward
@@ -38,8 +42,8 @@ export class HomeScreen {
   onRequestDebug?: () => void;
   onRequestAdvancedStats?: (modeId?: string) => void;
   onRequestTutorial?: (mode: SoloModeDefinition) => void;
-  onRequestCreateMultiplayer?: () => void;
-  onRequestJoinMultiplayer?: (roomId: string) => void;
+  onRequestCreateMultiplayer?: (modeId: string) => void;
+  onRequestJoinMultiplayer?: (roomId: string, modeId: string) => void;
 
   constructor(
     private readonly modes: readonly SoloModeDefinition[],
@@ -54,10 +58,13 @@ export class HomeScreen {
     const mainFragment = cloneTemplate('tpl-home-screen-main');
     this.overlay = mustQuery(mainFragment, '.home-screen');
     this.selectedModeId = this.modes[0]?.id ?? '';
+    this.selectedMultiplayerModeId = MULTIPLAYER_MODES[0]?.id ?? '';
     this.authBar = mustQuery(mainFragment, '.home-auth');
     this.cardsContainer = mustQuery(mainFragment, '.home-mode-list');
     this.modeDetails = mustQuery(mainFragment, '.home-mode-detail');
     this.footer = mustQuery(mainFragment, '.home-footer');
+    this.multiplayerModesContainer = mustQuery(mainFragment, '.home-multiplayer__modes');
+    this.multiplayerTagline = mustQuery(mainFragment, '.home-multiplayer__tagline');
 
     const copyright = mustQuery<HTMLElement>(mainFragment, '.home-footer__copyright');
     copyright.textContent = `© ${new Date().getFullYear()} Trevor Reigh`;
@@ -70,8 +77,10 @@ export class HomeScreen {
     advancedStats.addEventListener('click', () => this.onRequestAdvancedStats?.());
     blurOnClick(advancedStats);
 
+    this.renderMultiplayerModes();
+
     const createRoomButton = mustQuery<HTMLButtonElement>(mainFragment, '[data-multiplayer-action="create"]');
-    createRoomButton.addEventListener('click', () => this.onRequestCreateMultiplayer?.());
+    createRoomButton.addEventListener('click', () => this.onRequestCreateMultiplayer?.(this.selectedMultiplayerModeId));
     blurOnClick(createRoomButton);
 
     const roomInput = mustQuery<HTMLInputElement>(mainFragment, '.home-multiplayer__join input');
@@ -79,7 +88,7 @@ export class HomeScreen {
     const join = (): void => {
       const roomId = roomInput.value.trim().toUpperCase();
       if (!roomId) return;
-      this.onRequestJoinMultiplayer?.(roomId);
+      this.onRequestJoinMultiplayer?.(roomId, this.selectedMultiplayerModeId);
     };
     joinButton.addEventListener('click', join);
     roomInput.addEventListener('keydown', event => {
@@ -349,6 +358,39 @@ export class HomeScreen {
     if (focusSelected) {
       this.cardsContainer.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus();
     }
+  }
+
+  private renderMultiplayerModes(): void {
+    this.multiplayerModesContainer.replaceChildren();
+    for (const mode of MULTIPLAYER_MODES) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'home-multiplayer__mode-button';
+      button.textContent = mode.name.toUpperCase();
+      button.setAttribute('role', 'radio');
+      button.dataset.multiplayerModeId = mode.id;
+      button.addEventListener('click', () => this.selectMultiplayerMode(mode));
+      blurOnClick(button);
+      this.multiplayerModesContainer.append(button);
+    }
+    this.updateMultiplayerModeSelection();
+  }
+
+  private selectMultiplayerMode(mode: MultiplayerModeDefinition): void {
+    this.selectedMultiplayerModeId = mode.id;
+    this.updateMultiplayerModeSelection();
+  }
+
+  private updateMultiplayerModeSelection(): void {
+    const selectedMode = MULTIPLAYER_MODES.find(mode => mode.id === this.selectedMultiplayerModeId)
+      ?? MULTIPLAYER_MODES[0];
+    for (const button of this.multiplayerModesContainer.querySelectorAll<HTMLButtonElement>('button')) {
+      button.setAttribute(
+        'aria-checked',
+        String(button.dataset.multiplayerModeId === this.selectedMultiplayerModeId),
+      );
+    }
+    this.multiplayerTagline.textContent = selectedMode?.tagline ?? '';
   }
 
   private renderModeDetails(mode: SoloModeDefinition, stats: GameStats): void {

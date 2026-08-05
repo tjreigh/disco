@@ -62,7 +62,7 @@ export class MultiplayerGame {
   private constructor(canvas: HTMLCanvasElement, mounts: UiMounts) {
     this.canvas = canvas;
     this.mounts = mounts;
-    this.roomOverlay = new MultiplayerRoomOverlay(mounts.overlays);
+    this.roomOverlay = new MultiplayerRoomOverlay('SCORE RACE', mounts.overlays);
     document.title = 'Disco — Score Race';
   }
 
