@@ -8,6 +8,8 @@ export interface Disc {
   readonly id: number;
   value: number;
   kind: DiscKind;
+  /** Player who placed this disc. undefined for solo modes and neutral discs. */
+  ownerId?: string;
   /** Present while a Paradox rewind fracture is still covered. */
   temporalFracture?: {
     createdAtInstability: number;

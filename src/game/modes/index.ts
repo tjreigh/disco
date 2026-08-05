@@ -7,12 +7,14 @@ import { CLASSIC_MODE, CLASSIC_RULES } from './classic.js';
 import { GRAVITY_MODE, GRAVITY_RULES } from './gravity.js';
 import { PARADOX_MODE, PARADOX_RULES } from './paradox.js';
 import { SCORE_RACE_MODE, SCORE_RACE_RULES } from './score-race.js';
+import { SHARED_DUEL_MODE, SHARED_DUEL_RULES } from './shared-duel.js';
 import { STACK_MODE, STACK_RULES } from './stack.js';
 
 export { CLASSIC_MODE, CLASSIC_RULES } from './classic.js';
 export { GRAVITY_MODE, GRAVITY_RULES } from './gravity.js';
 export { PARADOX_MODE, PARADOX_RULES } from './paradox.js';
 export { SCORE_RACE_MODE, SCORE_RACE_RULES } from './score-race.js';
+export { SHARED_DUEL_MODE, SHARED_DUEL_RULES } from './shared-duel.js';
 export { STACK_MODE, STACK_RULES } from './stack.js';
 export type {
   BoardRules,
@@ -40,6 +42,7 @@ export const SOLO_MODES: readonly SoloModeDefinition[] = [
 
 export const MULTIPLAYER_MODES: readonly MultiplayerModeDefinition[] = [
   SCORE_RACE_MODE,
+  SHARED_DUEL_MODE,
 ];
 
 export const GAME_RULESETS: readonly GameRulesConfig[] = [
@@ -48,6 +51,7 @@ export const GAME_RULESETS: readonly GameRulesConfig[] = [
   STACK_RULES,
   PARADOX_RULES,
   SCORE_RACE_RULES,
+  SHARED_DUEL_RULES,
 ];
 
 export function validateModeRegistries(

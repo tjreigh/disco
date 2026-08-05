@@ -202,6 +202,7 @@ export function computeDropSteps(
   trace?: PhysicsTrace,
   settle: SettleFn = applyGravity,
   startingChainLevel = 0,
+  ownerId?: string,
 ): PhysicsStep[] {
   const steps: PhysicsStep[] = [];
   const scratch = cloneBoard(board);
@@ -209,11 +210,14 @@ export function computeDropSteps(
   const row = landingRow(scratch, col);
   if (row === null) return steps; // column full — game over handled by caller
 
-  placeDisc(scratch, row, col, disc);
+  const placedDisc: Disc = ownerId !== undefined
+    ? { ...disc, ownerId }
+    : disc;
+  placeDisc(scratch, row, col, placedDisc);
   // The dropped board object may be revealed later in this same synchronous turn.
   // Preserve how it looked at drop time for animation playback.
   steps.push({
-    kind: StepKind.Drop, disc: { ...disc },
+    kind: StepKind.Drop, disc: { ...placedDisc },
     entryPos: { row: -1, col }, landPos: { row, col },
   } satisfies DropStep);
   trace?.frames.push({ label: `Drop #${disc.id} into r${row + 1}c${col + 1}`, board: deepCloneBoard(scratch) });

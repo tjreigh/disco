@@ -171,9 +171,10 @@ export interface SoloModeDefinition {
 export type MultiplayerFairnessRules =
   | { readonly kind: 'identical-sequence' }
   | { readonly kind: 'same-seed-adaptive' }
-  | { readonly kind: 'independent' };
+  | { readonly kind: 'independent' }
+  | { readonly kind: 'shared-board-seeded' };
 
-export interface MultiplayerSessionRules {
+export interface TimedScoreRaceSessionRules {
   readonly kind: 'timed-score-race@1';
   readonly durationMs: number;
   readonly fairness: MultiplayerFairnessRules;
@@ -182,6 +183,21 @@ export interface MultiplayerSessionRules {
     readonly tie: 'tie';
   };
 }
+
+export interface SharedBoardDuelSessionRules {
+  readonly kind: 'shared-board-duel@1';
+  readonly turnTimeoutMs: number;
+  readonly disruptionThreshold: number;
+  readonly fairness: MultiplayerFairnessRules;
+  readonly result: {
+    readonly kind: 'highest-score-wins@1';
+    readonly tie: 'tie';
+  };
+}
+
+export type MultiplayerSessionRules =
+  | TimedScoreRaceSessionRules
+  | SharedBoardDuelSessionRules;
 
 export interface MultiplayerModeDefinition {
   readonly kind: 'multiplayer';
@@ -343,10 +359,22 @@ export function defineMultiplayerMode(
       `Multiplayer mode ${definition.id} promises identical sequences with a board-adaptive generator`,
     );
   }
-  assertPositiveInteger(
-    definition.session.durationMs,
-    `Match duration for ${definition.id}`,
-  );
+  if (definition.session.kind === 'timed-score-race@1') {
+    assertPositiveInteger(
+      definition.session.durationMs,
+      `Match duration for ${definition.id}`,
+    );
+  }
+  if (definition.session.kind === 'shared-board-duel@1') {
+    assertPositiveInteger(
+      definition.session.turnTimeoutMs,
+      `Turn timeout for ${definition.id}`,
+    );
+    assertPositiveInteger(
+      definition.session.disruptionThreshold,
+      `Disruption threshold for ${definition.id}`,
+    );
+  }
   return deepFreeze(definition);
 }
 

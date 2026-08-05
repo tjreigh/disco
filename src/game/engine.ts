@@ -353,7 +353,7 @@ export class GameEngine {
   // Drops a disc into a lane. Classic resolves immediately. Gravity turns are
   // staged through stageGravityDrop() and commitTilt(), so every gravity drop
   // changes direction before it can settle.
-  drop(lane: number): TurnResult {
+  drop(lane: number, ownerId?: string): TurnResult {
     const boardBefore = deepCloneBoard(this.state.board);
     const trace: PhysicsTrace = { scans: [], frames: [] };
     const reject = (reason: RejectedTurnReason, gameOver = false): TurnResult => {
@@ -371,7 +371,7 @@ export class GameEngine {
 
     const checkpoint = this.captureRewindCheckpoint();
     this.state.cursorCol = lane;
-    const steps = computeDropSteps(this.state.board, this.queue.peek(), lane, this.rules, trace);
+    const steps = computeDropSteps(this.state.board, this.queue.peek(), lane, this.rules, trace, undefined, 0, ownerId);
     const drop = steps.find(step => step.kind === StepKind.Drop);
     if (checkpoint && drop?.kind === StepKind.Drop) checkpoint.anchor = { ...drop.landPos };
     return this.finishTurn(steps, boardBefore, trace);

@@ -13,6 +13,8 @@ import {
   PARADOX_RULES,
   SCORE_RACE_MODE,
   SCORE_RACE_RULES,
+  SHARED_DUEL_MODE,
+  SHARED_DUEL_RULES,
   SOLO_MODES,
   STACK_MODE,
   STACK_RULES,
@@ -180,13 +182,14 @@ describe('mode definitions and registries', () => {
       STACK_MODE,
       PARADOX_MODE,
     ]);
-    expect(MULTIPLAYER_MODES).toEqual([SCORE_RACE_MODE]);
+    expect(MULTIPLAYER_MODES).toEqual([SCORE_RACE_MODE, SHARED_DUEL_MODE]);
     expect(GAME_RULESETS).toEqual([
       CLASSIC_RULES,
       GRAVITY_RULES,
       STACK_RULES,
       PARADOX_RULES,
       SCORE_RACE_RULES,
+      SHARED_DUEL_RULES,
     ]);
   });
 
@@ -255,5 +258,69 @@ describe('rule definition validation', () => {
         result: { kind: 'highest-score-wins@1', tie: 'tie' },
       },
     })).toThrow(/board-adaptive generator/i);
+  });
+
+  test('shared-board-duel rejects a non-positive turn timeout', () => {
+    expect(() => defineMultiplayerMode({
+      kind: 'multiplayer',
+      id: 'shared-duel',
+      version: 1,
+      name: 'Invalid duel',
+      tagline: 'Invalid turn timeout fixture.',
+      rules: SHARED_DUEL_RULES,
+      session: {
+        kind: 'shared-board-duel@1',
+        turnTimeoutMs: 0,
+        disruptionThreshold: 3,
+        fairness: { kind: 'shared-board-seeded' },
+        result: { kind: 'highest-score-wins@1', tie: 'tie' },
+      },
+    })).toThrow(/turn timeout/i);
+  });
+
+  test('shared-board-duel rejects a non-positive disruption threshold', () => {
+    expect(() => defineMultiplayerMode({
+      kind: 'multiplayer',
+      id: 'shared-duel',
+      version: 1,
+      name: 'Invalid duel',
+      tagline: 'Invalid disruption threshold fixture.',
+      rules: SHARED_DUEL_RULES,
+      session: {
+        kind: 'shared-board-duel@1',
+        turnTimeoutMs: 15_000,
+        disruptionThreshold: 0,
+        fairness: { kind: 'shared-board-seeded' },
+        result: { kind: 'highest-score-wins@1', tie: 'tie' },
+      },
+    })).toThrow(/disruption threshold/i);
+  });
+});
+
+describe('Disco Duel (shared-board-duel) mode definition', () => {
+  test('composes Classic-adjacent rules with no Gravity or Paradox', () => {
+    expect(SHARED_DUEL_RULES.board).toBe(CLASSIC_RULES.board);
+    expect(SHARED_DUEL_RULES.placement).toBe(CLASSIC_RULES.placement);
+    expect(SHARED_DUEL_RULES.clearing).toBe(CLASSIC_RULES.clearing);
+    expect(SHARED_DUEL_RULES.revealing).toBe(CLASSIC_RULES.revealing);
+    expect(SHARED_DUEL_RULES.progression).toBe(CLASSIC_RULES.progression);
+    expect(SHARED_DUEL_RULES.failure).toBe(CLASSIC_RULES.failure);
+    expect(SHARED_DUEL_RULES.modifiers).toEqual([]);
+  });
+
+  test('session rules match the design defaults', () => {
+    expect(SHARED_DUEL_MODE.session).toEqual({
+      kind: 'shared-board-duel@1',
+      turnTimeoutMs: 15_000,
+      disruptionThreshold: 3,
+      fairness: { kind: 'shared-board-seeded' },
+      result: { kind: 'highest-score-wins@1', tie: 'tie' },
+    });
+  });
+
+  test('mode and rules identities line up with the registry', () => {
+    expect(SHARED_DUEL_MODE.id).toBe('shared-duel');
+    expect(SHARED_DUEL_MODE.rules).toBe(SHARED_DUEL_RULES);
+    expect(getMultiplayerMode('shared-duel')).toBe(SHARED_DUEL_MODE);
   });
 });

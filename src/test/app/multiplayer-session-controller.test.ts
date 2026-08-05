@@ -8,7 +8,9 @@ import {
 import {
   defineMultiplayerMode,
 } from '../../game/modes/mode.js';
-import type { MultiplayerModeDefinition } from '../../game/modes/mode.js';
+import type {
+  MultiplayerModeDefinition,
+} from '../../game/modes/mode.js';
 import {
   determineScoreRaceResult,
   multiplayerModeIdentity,
@@ -62,6 +64,13 @@ function createSession(mode: MultiplayerModeDefinition = SCORE_RACE_MODE): {
   return { clock, transport, controller };
 }
 
+function scoreRaceDurationMs(mode: MultiplayerModeDefinition): number {
+  if (mode.session.kind !== 'timed-score-race@1') {
+    throw new Error(`Expected a timed-score-race session, got ${mode.session.kind}`);
+  }
+  return mode.session.durationMs;
+}
+
 function startMatch(
   transport: FakeMultiplayerTransport,
   startsAt = 0,
@@ -72,7 +81,7 @@ function startMatch(
     type: 'match-countdown',
     matchId,
     startsAt,
-    deadline: startsAt + mode.session.durationMs,
+    deadline: startsAt + scoreRaceDurationMs(mode),
     seed: 1,
   }, multiplayerModeIdentity(mode)));
 }
@@ -146,7 +155,7 @@ describe('MultiplayerSessionController lifecycle', () => {
       }),
     ]);
 
-    clock.value = 1_000 + SCORE_RACE_MODE.session.durationMs;
+    clock.value = 1_000 + scoreRaceDurationMs(SCORE_RACE_MODE);
     controller.tick();
     expect(controller.view.phase).toBe('finished');
     expect(controller.drop(2)).toBeNull();
@@ -266,7 +275,7 @@ describe('MultiplayerSessionController lifecycle', () => {
     startMatch(transport);
     transport.setConnection('disconnected');
     transport.setConnection('reconnecting');
-    clock.value = SCORE_RACE_MODE.session.durationMs;
+    clock.value = scoreRaceDurationMs(SCORE_RACE_MODE);
     const sentBeforeReconnect = transport.sent.length;
 
     transport.setConnection('connected');

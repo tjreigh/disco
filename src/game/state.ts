@@ -51,6 +51,12 @@ export interface GameState {
   /** Column cursor for top/bottom entry; reinterpreted as a row cursor for left/right entry (Gravity mode only) — the axis is determined by the mode's current entry edge, not by this field's name. */
   cursorCol: number;
   score: number;
+  /** Shared-board multiplayer: score for player 1. undefined in solo modes. */
+  scorePlayer1?: number;
+  /** Shared-board multiplayer: score for player 2. undefined in solo modes. */
+  scorePlayer2?: number;
+  /** Shared-board multiplayer: which player ID's turn it is. undefined in solo modes. */
+  activePlayerId?: string;
   dropCount: number;
   level: number;
   /** Total turn budget for the current level (fixed until the level changes). */

@@ -5,6 +5,12 @@ export const SCORE_RACE_MODE_VERSION = 1 as const;
 export const SCORE_RACE_RULES_VERSION = 1 as const;
 export const SCORE_RACE_DURATION_MS = 3 * 60 * 1_000;
 
+export const SHARED_DUEL_MODE_ID = 'shared-duel' as const;
+export const SHARED_DUEL_MODE_VERSION = 1 as const;
+export const SHARED_DUEL_RULES_VERSION = 1 as const;
+export const SHARED_DUEL_TURN_TIMEOUT_MS = 15_000 as const;
+export const SHARED_DUEL_DISRUPTION_THRESHOLD = 3 as const;
+
 export type MultiplayerProtocolVersion = typeof MULTIPLAYER_PROTOCOL_VERSION;
 
 export interface RulesIdentity {
@@ -73,6 +79,11 @@ export type MultiplayerClientMessage =
       readonly type: 'resume-session';
       readonly matchId: string | null;
       readonly lastProgressSequence: number;
+    })
+  | (ClientMessageBase & {
+      readonly type: 'play-turn';
+      readonly matchId: string;
+      readonly column: number;
     });
 
 interface ServerMessageBase {
@@ -103,9 +114,108 @@ export type MultiplayerServerMessage =
       readonly type: 'match-finished';
       readonly matchId: string;
       readonly result: MultiplayerMatchResult;
+    })
+  | (ServerMessageBase & {
+      readonly type: 'turn-assigned';
+      readonly matchId: string;
+      readonly playerId: string;
+      readonly turnDeadline: number;
+      readonly board: WireBoard;
+    })
+  | (ServerMessageBase & {
+      readonly type: 'turn-played';
+      readonly matchId: string;
+      readonly board: WireBoard;
+      readonly turnResult: TurnResultWire;
+      readonly nextPlayerId: string;
+    })
+  | (ServerMessageBase & {
+      readonly type: 'turn-expired';
+      readonly matchId: string;
+      readonly board: WireBoard;
+      readonly turnResult: TurnResultWire;
+      readonly nextPlayerId: string;
     });
 
 export type MultiplayerConnectionState = 'connected' | 'disconnected' | 'reconnecting';
+
+export interface WireGridPos {
+  readonly row: number;
+  readonly col: number;
+}
+
+export interface WireDisc {
+  readonly id: number;
+  readonly value: number;
+  readonly kind: string;
+  readonly ownerId?: string;
+}
+
+export type WireCell = WireDisc | null;
+export type WireBoard = WireCell[][];
+
+export interface WireDropStep {
+  readonly kind: 'drop';
+  readonly disc: WireDisc;
+  readonly entryPos: WireGridPos;
+  readonly landPos: WireGridPos;
+}
+
+export interface WireClearStep {
+  readonly kind: 'clear';
+  readonly cleared: WireGridPos[];
+  readonly discs: WireDisc[];
+  readonly chainLevel: number;
+  readonly pointsAwarded: number;
+}
+
+export interface WireFallMove {
+  readonly from: WireGridPos;
+  readonly to: WireGridPos;
+  readonly disc: WireDisc;
+}
+
+export interface WireFallStep {
+  readonly kind: 'fall';
+  readonly moves: WireFallMove[];
+}
+
+export interface WireRevealStep {
+  readonly kind: 'reveal';
+  readonly positions: WireGridPos[];
+  readonly discs: WireDisc[];
+}
+
+export interface WirePushStep {
+  readonly kind: 'push';
+  readonly edge: string;
+  readonly newDiscs: WireDisc[];
+}
+
+export interface WireBonusStep {
+  readonly kind: 'bonus';
+  readonly bonusKind: string;
+  readonly pointsAwarded: number;
+}
+
+export type WireStep =
+  | WireDropStep
+  | WireClearStep
+  | WireFallStep
+  | WireRevealStep
+  | WirePushStep
+  | WireBonusStep;
+
+export interface TurnResultWire {
+  readonly playerId: string;
+  readonly column: number;
+  readonly triggerScoreDelta: number;
+  readonly opponentScoreDelta: number;
+  readonly stackSize: number;
+  readonly steps: readonly WireStep[];
+  readonly gameOver: boolean;
+  readonly gameOverReason?: 'push-overflow' | 'board-full';
+}
 
 export function rulesIdentity(value: RulesIdentity): RulesIdentity {
   return { id: value.id, version: value.version };

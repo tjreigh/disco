@@ -6,6 +6,18 @@ import type {
   MultiplayerPlayerProgress,
   MultiplayerProgress,
   MultiplayerServerMessage,
+  TurnResultWire,
+  WireBoard,
+  WireCell,
+  WireClearStep,
+  WireDisc,
+  WireDropStep,
+  WireFallMove,
+  WireFallStep,
+  WireGridPos,
+  WirePushStep,
+  WireRevealStep,
+  WireStep,
 } from './multiplayer-contracts.js';
 
 export type MultiplayerMessageError = 'invalid-message' | 'protocol-mismatch';
@@ -66,6 +78,18 @@ export function parseMultiplayerClientMessage(
           matchId: value.matchId,
           lastProgressSequence: value.lastProgressSequence,
         },
+      };
+    case 'play-turn':
+      if (!hasExactKeys(value, [
+        'protocolVersion', 'roomId', 'playerId', 'type', 'matchId', 'column',
+      ])
+        || !isNonEmptyString(value.matchId)
+        || !isLaneIndex(value.column)) {
+        return invalidMessage();
+      }
+      return {
+        ok: true,
+        message: { ...base, type: value.type, matchId: value.matchId, column: value.column },
       };
     default:
       return invalidMessage();
@@ -159,6 +183,52 @@ export function parseMultiplayerServerMessage(
         message: { ...base, type: value.type, matchId: value.matchId, result },
       };
     }
+    case 'turn-assigned': {
+      if (!hasExactKeys(value, [
+        'protocolVersion', 'roomId', 'mode', 'type',
+        'matchId', 'playerId', 'turnDeadline', 'board',
+      ])
+        || !isNonEmptyString(value.matchId)
+        || !isNonEmptyString(value.playerId)
+        || !isNonNegativeInteger(value.turnDeadline)) return invalidMessage();
+      const board = parseWireBoard(value.board);
+      if (!board) return invalidMessage();
+      return {
+        ok: true,
+        message: {
+          ...base,
+          type: value.type,
+          matchId: value.matchId,
+          playerId: value.playerId,
+          turnDeadline: value.turnDeadline,
+          board,
+        },
+      };
+    }
+    case 'turn-played':
+    case 'turn-expired': {
+      if (!hasExactKeys(value, [
+        'protocolVersion', 'roomId', 'mode', 'type',
+        'matchId', 'board', 'turnResult', 'nextPlayerId',
+      ])
+        || !isNonEmptyString(value.matchId)
+        || !isNonEmptyString(value.nextPlayerId)) return invalidMessage();
+      const board = parseWireBoard(value.board);
+      if (!board) return invalidMessage();
+      const turnResult = parseTurnResultWire(value.turnResult);
+      if (!turnResult) return invalidMessage();
+      return {
+        ok: true,
+        message: {
+          ...base,
+          type: value.type,
+          matchId: value.matchId,
+          board,
+          turnResult,
+          nextPlayerId: value.nextPlayerId,
+        },
+      };
+    }
     default:
       return invalidMessage();
   }
@@ -237,6 +307,167 @@ function parseMatchResult(value: unknown): MultiplayerMatchResult | null {
     winnerId: value.winnerId,
     scores: [first, second],
   };
+}
+
+function parseWireBoard(value: unknown): WireBoard | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const board: WireCell[][] = [];
+  for (const row of value) {
+    if (!Array.isArray(row) || row.length === 0) return null;
+    const parsedRow: WireCell[] = [];
+    for (const cell of row) {
+      if (cell === null) {
+        parsedRow.push(null);
+        continue;
+      }
+      const disc = parseWireDisc(cell);
+      if (!disc) return null;
+      parsedRow.push(disc);
+    }
+    board.push(parsedRow);
+  }
+  return board;
+}
+
+function isDiscValue(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= 1 && Number(value) <= 7;
+}
+
+// Positions may be -1 on one axis: entryPos for a Drop step lands one cell
+// beyond whichever edge the disc entered through (see animation-queue.ts).
+function isGridCoordinate(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= -1;
+}
+
+function parseWireDisc(value: unknown): WireDisc | null {
+  if (!isRecord(value)) return null;
+  if (!('id' in value) || !isNonNegativeInteger(value.id)) return null;
+  if (!('value' in value) || !isDiscValue(value.value)) return null;
+  if (!('kind' in value) || typeof value.kind !== 'string' || value.kind.trim().length === 0) return null;
+  const ownerId = 'ownerId' in value && typeof value.ownerId === 'string' && value.ownerId.trim().length > 0
+    ? value.ownerId
+    : undefined;
+  return {
+    id: value.id,
+    value: value.value,
+    kind: value.kind,
+    ...(ownerId !== undefined ? { ownerId } : {}),
+  };
+}
+
+function parseWireGridPos(value: unknown): WireGridPos | null {
+  if (!isRecord(value)) return null;
+  if (!isGridCoordinate(value.row) || !isGridCoordinate(value.col)) return null;
+  return { row: value.row, col: value.col };
+}
+
+function parseTurnResultWire(value: unknown): TurnResultWire | null {
+  if (!isRecord(value)
+    || !isNonEmptyString(value.playerId)
+    || !isLaneIndex(value.column)
+    || !isNonNegativeInteger(value.triggerScoreDelta)
+    || !isNonNegativeInteger(value.opponentScoreDelta)
+    || !isNonNegativeInteger(value.stackSize)
+    || !Array.isArray(value.steps)
+    || typeof value.gameOver !== 'boolean') return null;
+  const gameOverReason = value.gameOverReason !== undefined
+    && (value.gameOverReason === 'push-overflow' || value.gameOverReason === 'board-full')
+    ? value.gameOverReason
+    : undefined;
+  const steps: WireStep[] = [];
+  for (const step of value.steps) {
+    const parsed = parseWireStep(step);
+    if (!parsed) return null;
+    steps.push(parsed);
+  }
+  return {
+    playerId: value.playerId,
+    column: value.column,
+    triggerScoreDelta: value.triggerScoreDelta,
+    opponentScoreDelta: value.opponentScoreDelta,
+    stackSize: value.stackSize,
+    steps,
+    gameOver: value.gameOver,
+    ...(gameOverReason !== undefined ? { gameOverReason } : {}),
+  };
+}
+
+function parseWireStep(value: unknown): WireStep | null {
+  if (!isRecord(value) || typeof value.kind !== 'string') return null;
+  switch (value.kind) {
+    case 'drop': {
+      if (!('disc' in value) || !('entryPos' in value) || !('landPos' in value)) return null;
+      const disc = parseWireDisc(value.disc);
+      const entryPos = parseWireGridPos(value.entryPos);
+      const landPos = parseWireGridPos(value.landPos);
+      if (!disc || !entryPos || !landPos) return null;
+      return { kind: 'drop', disc, entryPos, landPos } satisfies WireDropStep;
+    }
+    case 'clear': {
+      if (!('cleared' in value) || !('discs' in value)
+        || !('chainLevel' in value) || !('pointsAwarded' in value)) return null;
+      if (!Array.isArray(value.cleared) || !Array.isArray(value.discs)) return null;
+      if (!isNonNegativeInteger(value.chainLevel) || !isNonNegativeInteger(value.pointsAwarded)) return null;
+      const cleared = value.cleared.map(parseWireGridPos);
+      const discs = value.discs.map(parseWireDisc);
+      if (cleared.some(p => p === null) || discs.some(d => d === null)) return null;
+      return {
+        kind: 'clear',
+        cleared: cleared as WireGridPos[],
+        discs: discs as WireDisc[],
+        chainLevel: value.chainLevel,
+        pointsAwarded: value.pointsAwarded,
+      } satisfies WireClearStep;
+    }
+    case 'fall': {
+      if (!('moves' in value) || !Array.isArray(value.moves)) return null;
+      const moves: WireFallMove[] = [];
+      for (const move of value.moves) {
+        if (!isRecord(move) || !('from' in move) || !('to' in move) || !('disc' in move)) return null;
+        const from = parseWireGridPos(move.from);
+        const to = parseWireGridPos(move.to);
+        const disc = parseWireDisc(move.disc);
+        if (!from || !to || !disc) return null;
+        moves.push({ from, to, disc });
+      }
+      return { kind: 'fall', moves } satisfies WireFallStep;
+    }
+    case 'reveal': {
+      if (!('positions' in value) || !('discs' in value)
+        || !Array.isArray(value.positions) || !Array.isArray(value.discs)) return null;
+      const positions = value.positions.map(parseWireGridPos);
+      const discs = value.discs.map(parseWireDisc);
+      if (positions.some(p => p === null) || discs.some(d => d === null)) return null;
+      return {
+        kind: 'reveal',
+        positions: positions as WireGridPos[],
+        discs: discs as WireDisc[],
+      } satisfies WireRevealStep;
+    }
+    case 'push': {
+      if (!('edge' in value) || !('newDiscs' in value)
+        || typeof value.edge !== 'string' || !Array.isArray(value.newDiscs)) return null;
+      const newDiscs = value.newDiscs.map(parseWireDisc);
+      if (newDiscs.some(d => d === null)) return null;
+      return {
+        kind: 'push',
+        edge: value.edge,
+        newDiscs: newDiscs as WireDisc[],
+      } satisfies WirePushStep;
+    }
+    case 'bonus': {
+      if (!('bonusKind' in value) || !('pointsAwarded' in value)
+        || typeof value.bonusKind !== 'string') return null;
+      if (!isNonNegativeInteger(value.pointsAwarded)) return null;
+      return { kind: 'bonus', bonusKind: value.bonusKind, pointsAwarded: value.pointsAwarded };
+    }
+    default:
+      return null;
+  }
+}
+
+function isLaneIndex(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= 6;
 }
 
 function protocolErrorFor(value: unknown): MultiplayerMessageError | null {

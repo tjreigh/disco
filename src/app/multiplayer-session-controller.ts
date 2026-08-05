@@ -262,7 +262,8 @@ export class MultiplayerSessionController {
         break;
       case 'match-countdown':
         if (this.lifecycle.kind !== 'lobby' && this.lifecycle.kind !== 'complete') return;
-        if (message.deadline - message.startsAt !== this.definition.session.durationMs) {
+        if (this.definition.session.kind === 'timed-score-race@1'
+          && message.deadline - message.startsAt !== this.definition.session.durationMs) {
           this.failCompatibility('session-mismatch');
           return;
         }

@@ -310,6 +310,8 @@ export class ScoreRaceRoomService {
           message.lastProgressSequence,
           deliveries,
         );
+      case 'play-turn':
+        return failure('invalid-state', deliveries);
     }
   }
 
