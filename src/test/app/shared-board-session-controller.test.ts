@@ -42,9 +42,9 @@ function emptyBoard(): WireBoard {
   return Array.from({ length: 7 }, () => Array.from({ length: 7 }, () => null));
 }
 
-const discA: WireDisc = { value: 3, kind: 'numbered' };
-const discB: WireDisc = { value: 7, kind: 'numbered' };
-const discC: WireDisc = { value: 2, kind: 'numbered' };
+const discA: WireDisc = { id: 101, value: 3, kind: 'numbered' };
+const discB: WireDisc = { id: 102, value: 7, kind: 'numbered' };
+const discC: WireDisc = { id: 103, value: 2, kind: 'numbered' };
 
 function startCountdown(transport: FakeMultiplayerTransport, startsAt = 0): void {
   transport.receive(serverMessage({
@@ -212,5 +212,227 @@ describe('SharedBoardSessionController', () => {
     }));
     expect(controller.view.matchId).toBe('match-9');
     expect(controller.view.startsAt).toBe(500);
+  });
+
+  // Regression: turn-played's steps used to be discarded entirely, so
+  // cascades never animated — the board just snapped to the post-turn state.
+  test('consumePendingTurnResult surfaces the pre-turn board and steps exactly once', () => {
+    const { transport, controller } = createSession();
+    startCountdown(transport);
+    transport.receive(serverMessage({
+      type: 'turn-assigned',
+      matchId: 'match-1',
+      playerId: 'local-player',
+      turnDeadline: 16_000,
+      board: emptyBoard(),
+      currentDisc: discA,
+      nextDisc: discB,
+      level: 1,
+      turnsPerLevel: 7,
+      turnsRemaining: 7,
+    }));
+    expect(controller.consumePendingTurnResult()).toBeNull();
+
+    const boardBefore = controller.view.board;
+    const postTurnBoard = emptyBoard();
+    postTurnBoard[6]![3] = discC;
+    const steps = [{
+      kind: 'drop' as const,
+      disc: discC,
+      entryPos: { row: -1, col: 3 },
+      landPos: { row: 6, col: 3 },
+    }];
+    transport.receive(serverMessage({
+      type: 'turn-played',
+      matchId: 'match-1',
+      board: postTurnBoard,
+      turnResult: {
+        playerId: 'local-player',
+        column: 3,
+        triggerScoreDelta: 0,
+        opponentScoreDelta: 0,
+        stackSize: 0,
+        steps,
+        gameOver: false,
+      },
+      nextPlayerId: 'opponent-player',
+      currentDisc: discC,
+      nextDisc: discA,
+      level: 1,
+      turnsPerLevel: 7,
+      turnsRemaining: 6,
+    }));
+
+    // The view's board is already the post-turn authoritative state...
+    expect(controller.view.board).toEqual(postTurnBoard);
+    // ...but the pending result still carries the pre-turn board to animate from.
+    const pending = controller.consumePendingTurnResult();
+    expect(pending?.boardBefore).toEqual(boardBefore);
+    expect(pending?.steps).toEqual(steps);
+    expect(controller.consumePendingTurnResult()).toBeNull();
+  });
+
+  // Regression: a turn-assigned arriving right behind turn-played (same
+  // broadcast) used to replace the lifecycle wholesale, discarding any
+  // not-yet-consumed pendingTurnResult before the game controller's next
+  // frame could pick it up.
+  test('preserves an unconsumed pendingTurnResult across a turn-assigned', () => {
+    const { transport, controller } = createSession();
+    startCountdown(transport);
+    transport.receive(serverMessage({
+      type: 'turn-assigned',
+      matchId: 'match-1',
+      playerId: 'local-player',
+      turnDeadline: 16_000,
+      board: emptyBoard(),
+      currentDisc: discA,
+      nextDisc: discB,
+      level: 1,
+      turnsPerLevel: 7,
+      turnsRemaining: 7,
+    }));
+    transport.receive(serverMessage({
+      type: 'turn-played',
+      matchId: 'match-1',
+      board: emptyBoard(),
+      turnResult: {
+        playerId: 'local-player',
+        column: 3,
+        triggerScoreDelta: 0,
+        opponentScoreDelta: 0,
+        stackSize: 0,
+        steps: [],
+        gameOver: false,
+      },
+      nextPlayerId: 'opponent-player',
+      currentDisc: discC,
+      nextDisc: discA,
+      level: 1,
+      turnsPerLevel: 7,
+      turnsRemaining: 6,
+    }));
+    transport.receive(serverMessage({
+      type: 'turn-assigned',
+      matchId: 'match-1',
+      playerId: 'opponent-player',
+      turnDeadline: 16_000,
+      board: emptyBoard(),
+      currentDisc: discA,
+      nextDisc: discB,
+      level: 1,
+      turnsPerLevel: 7,
+      turnsRemaining: 6,
+    }));
+    expect(controller.consumePendingTurnResult()).not.toBeNull();
+  });
+
+  test('moveCursor only sends when the clamped column actually changes', () => {
+    const { transport, controller } = createSession();
+    startCountdown(transport);
+    transport.receive(serverMessage({
+      type: 'turn-assigned',
+      matchId: 'match-1',
+      playerId: 'local-player',
+      turnDeadline: 16_000,
+      board: emptyBoard(),
+      currentDisc: discA,
+      nextDisc: discB,
+      level: 1,
+      turnsPerLevel: 7,
+      turnsRemaining: 7,
+    }));
+    expect(controller.view.columnCursor).toBe(3);
+
+    const sentBefore = transport.sent.length;
+    controller.moveCursor(3);
+    expect(transport.sent.length).toBe(sentBefore); // no-op, unchanged
+
+    controller.moveCursor(5);
+    expect(transport.sent.at(-1)).toMatchObject({
+      type: 'move-cursor', matchId: 'match-1', column: 5,
+    });
+    const sentAfterFirstMove = transport.sent.length;
+
+    controller.moveCursor(9); // clamps to 6, still a real change
+    expect(transport.sent.at(-1)).toMatchObject({ type: 'move-cursor', column: 6 });
+    expect(transport.sent.length).toBe(sentAfterFirstMove + 1);
+
+    controller.moveCursor(20); // clamps to 6 again — no-op
+    expect(transport.sent.length).toBe(sentAfterFirstMove + 1);
+  });
+
+  // Regression: the opponent's live cursor used to have no wire
+  // representation at all — the ghost preview couldn't exist.
+  test('tracks the opponent cursor from opponent-cursor messages and resets it each new turn', () => {
+    const { transport, controller } = createSession();
+    startCountdown(transport);
+    transport.receive(serverMessage({
+      type: 'turn-assigned',
+      matchId: 'match-1',
+      playerId: 'opponent-player',
+      turnDeadline: 16_000,
+      board: emptyBoard(),
+      currentDisc: discA,
+      nextDisc: discB,
+      level: 1,
+      turnsPerLevel: 7,
+      turnsRemaining: 7,
+    }));
+    expect(controller.view.opponentColumnCursor).toBeNull();
+
+    transport.receive(serverMessage({
+      type: 'opponent-cursor',
+      matchId: 'match-1',
+      playerId: 'opponent-player',
+      column: 4,
+    }));
+    expect(controller.view.opponentColumnCursor).toBe(4);
+
+    transport.receive(serverMessage({
+      type: 'opponent-cursor',
+      matchId: 'match-1',
+      playerId: 'opponent-player',
+      column: 2,
+    }));
+    expect(controller.view.opponentColumnCursor).toBe(2);
+
+    // A fresh turn-assigned clears it until the new active player moves again.
+    transport.receive(serverMessage({
+      type: 'turn-assigned',
+      matchId: 'match-1',
+      playerId: 'local-player',
+      turnDeadline: 16_000,
+      board: emptyBoard(),
+      currentDisc: discC,
+      nextDisc: discA,
+      level: 1,
+      turnsPerLevel: 7,
+      turnsRemaining: 6,
+    }));
+    expect(controller.view.opponentColumnCursor).toBeNull();
+  });
+
+  test('ignores an opponent-cursor message that echoes the local player\'s own id', () => {
+    const { transport, controller } = createSession();
+    startCountdown(transport);
+    transport.receive(serverMessage({
+      type: 'turn-assigned',
+      matchId: 'match-1',
+      playerId: 'local-player',
+      turnDeadline: 16_000,
+      board: emptyBoard(),
+      currentDisc: discA,
+      nextDisc: discB,
+      level: 1,
+      turnsPerLevel: 7,
+      turnsRemaining: 7,
+    }));
+    transport.receive(serverMessage({
+      type: 'opponent-cursor',
+      matchId: 'match-1',
+      playerId: 'local-player',
+      column: 4,
+    }));
+    expect(controller.view.opponentColumnCursor).toBeNull();
   });
 });

@@ -311,6 +311,7 @@ export class ScoreRaceRoomService {
           deliveries,
         );
       case 'play-turn':
+      case 'move-cursor':
         return failure('invalid-state', deliveries);
     }
   }

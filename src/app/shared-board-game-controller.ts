@@ -1,6 +1,8 @@
+import { StepKind } from '../game/events.js';
+import type { BonusKind, PhysicsStep } from '../game/events.js';
 import { SHARED_DUEL_MODE } from '../game/modes/index.js';
 import { DiscKind } from '../game/model.js';
-import type { Board, Disc } from '../game/model.js';
+import type { Board, Disc, EntryEdge, GridPos } from '../game/model.js';
 import type { GameState } from '../game/state.js';
 import { GamePhase } from '../game/state.js';
 import { emptyStats } from '../game/stats.js';
@@ -10,18 +12,23 @@ import { MultiplayerApiClient } from '../platform/multiplayer-api-client.js';
 import type { MultiplayerAdmission } from '../platform/multiplayer-api-client.js';
 import { WebSocketMultiplayerTransport } from '../platform/websocket-multiplayer-transport.js';
 import type { MultiplayerTransportError } from '../platform/websocket-multiplayer-transport.js';
-import type { WireBoard, WireDisc } from '../shared/multiplayer-contracts.js';
+import type { WireBoard, WireDisc, WireGridPos, WireStep } from '../shared/multiplayer-contracts.js';
 import { GameControls } from '../ui/game-controls.js';
 import { GameHud } from '../ui/game-hud.js';
 import { MultiplayerRoomOverlay } from '../ui/multiplayer-room-overlay.js';
 import { SharedBoardHud } from '../ui/shared-board-hud.js';
 import { setGridSize } from '../ui/rendering/layout.js';
+import { AnimationQueue } from '../ui/rendering/animation-queue.js';
 import { Renderer } from '../ui/rendering/renderer.js';
 import type { UiMounts } from '../ui/ui-root.js';
+import { applyStepToVisualBoard } from './visual-board.js';
 import { SharedBoardSessionController } from './shared-board-session-controller.js';
 import type { SharedBoardSessionView, SharedBoardPhase } from './shared-board-session-controller.js';
 
 const ADMISSION_STORAGE_PREFIX = 'disco_multiplayer_admission:';
+// Generous relative to any real animation (drop+clear+fall tops out around
+// 1-1.5s) — this only fires for a genuine throttled/backgrounded-tab gap.
+const STALE_FRAME_GAP_MS = 2_000;
 
 export class SharedBoardGame {
   readonly #canvas: HTMLCanvasElement;
@@ -36,6 +43,9 @@ export class SharedBoardGame {
   #input: InputHandler | null = null;
   #unsubTransportError: (() => void) | null = null;
   #transportError: MultiplayerTransportError | null = null;
+  #animQueue: AnimationQueue | null = null;
+  #visualBoard: Board | null = null;
+  #lastFrameTime: DOMHighResTimeStamp | null = null;
 
   constructor(canvas: HTMLCanvasElement, mounts: UiMounts) {
     this.#canvas = canvas;
@@ -117,12 +127,38 @@ export class SharedBoardGame {
     this.#roomOverlay.destroy();
   }
 
-  #loop = (): void => {
+  #loop = (now: DOMHighResTimeStamp): void => {
     const session = this.#session;
     if (!session) return;
 
     session.tick();
     const view = session.view;
+
+    // The server keeps the match moving regardless of whether this tab is
+    // in the foreground, and a backgrounded tab's requestAnimationFrame
+    // callbacks can be throttled to a near-stop by the browser — sometimes
+    // skipping several turns' worth of wall-clock time between two ticks.
+    // An in-flight animation left that stale is abandoned rather than
+    // played out: correctness (showing the real board) always wins over
+    // finishing a smooth replay of a turn that's long since resolved.
+    const sinceLastFrame = this.#lastFrameTime === null ? 0 : now - this.#lastFrameTime;
+    this.#lastFrameTime = now;
+    if (this.#animQueue && sinceLastFrame > STALE_FRAME_GAP_MS) {
+      this.#animQueue = null;
+      this.#visualBoard = null;
+    }
+
+    const pending = session.consumePendingTurnResult();
+    if (pending) {
+      this.#visualBoard = wireBoardToBoard(pending.boardBefore);
+      this.#animQueue = new AnimationQueue(
+        pending.steps.map(wireStepToPhysicsStep),
+        () => {},
+        step => applyStepToVisualBoard(this.#visualBoard!, step),
+        () => { this.#animQueue = null; },
+      );
+    }
+    this.#animQueue?.tick(now);
 
     this.#renderControls(view);
     this.#renderHud(view);
@@ -138,11 +174,22 @@ export class SharedBoardGame {
     this.#roomOverlay.render(view, this.#transportError);
 
     if (this.#renderer) {
-      const board = wireBoardToBoard(view.board);
+      const board = this.#animQueue && this.#visualBoard
+        ? this.#visualBoard
+        : wireBoardToBoard(view.board);
+      // The renderer only shows the local ghost/lane-hover for
+      // GamePhase.WaitingForDrop — during the opponent's turn (or while a
+      // cascade from either player's last drop is still animating), fall
+      // back to Animating so the local ghost doesn't linger at a stale
+      // column with nothing to act on.
+      const showLocalGhost = view.phase === 'playing' && view.isMyTurn && !this.#animQueue;
+      const rendererPhase = view.phase === 'playing' && !showLocalGhost
+        ? GamePhase.Animating
+        : viewPhaseToGamePhase(view.phase);
       const state: GameState = {
         generationSeed: 1,
         generationSource: 'seeded',
-        phase: viewPhaseToGamePhase(view.phase),
+        phase: rendererPhase,
         board,
         currentDisc: wireDiscToDisc(view.currentDisc),
         nextDisc: wireDiscToDisc(view.nextDisc),
@@ -155,7 +202,13 @@ export class SharedBoardGame {
         gravity: undefined,
         paradox: undefined,
       };
-      this.#renderer.draw(state, board, [], emptyStats(), [], []);
+      const opponentCursor = !view.isMyTurn && view.opponentColumnCursor !== null
+        ? { col: view.opponentColumnCursor, disc: state.currentDisc }
+        : null;
+      this.#renderer.draw(
+        state, board, this.#animQueue?.getActiveAnimations() ?? [], emptyStats(), [], [],
+        null, null, false, null, null, opponentCursor,
+      );
     }
 
     requestAnimationFrame(this.#loop);
@@ -294,13 +347,13 @@ function wireBoardToBoard(wire: WireBoard): Board {
 
 const KIND_MAP: Record<string, DiscKind> = {
   numbered: DiscKind.Numbered,
+  'single-cracked': DiscKind.SingleCracked,
+  'double-cracked': DiscKind.DoubleCracked,
 };
-
-let discIdCounter = 0;
 
 function wireDiscToDisc(wire: WireDisc): Disc {
   const base: Pick<Disc, 'id' | 'value' | 'kind'> = {
-    id: ++discIdCounter,
+    id: wire.id,
     value: wire.value,
     kind: KIND_MAP[wire.kind] ?? DiscKind.Numbered,
   };
@@ -308,6 +361,57 @@ function wireDiscToDisc(wire: WireDisc): Disc {
     return { ...base, ownerId: wire.ownerId };
   }
   return base;
+}
+
+function wireGridPosToGridPos(wire: WireGridPos): GridPos {
+  return { row: wire.row, col: wire.col };
+}
+
+function wireStepToPhysicsStep(wire: WireStep): PhysicsStep {
+  switch (wire.kind) {
+    case 'drop':
+      return {
+        kind: StepKind.Drop,
+        disc: wireDiscToDisc(wire.disc),
+        entryPos: wireGridPosToGridPos(wire.entryPos),
+        landPos: wireGridPosToGridPos(wire.landPos),
+      };
+    case 'clear':
+      return {
+        kind: StepKind.Clear,
+        cleared: wire.cleared.map(wireGridPosToGridPos),
+        discs: wire.discs.map(wireDiscToDisc),
+        chainLevel: wire.chainLevel,
+        pointsAwarded: wire.pointsAwarded,
+      };
+    case 'fall':
+      return {
+        kind: StepKind.Fall,
+        moves: wire.moves.map(move => ({
+          from: wireGridPosToGridPos(move.from),
+          to: wireGridPosToGridPos(move.to),
+          disc: wireDiscToDisc(move.disc),
+        })),
+      };
+    case 'reveal':
+      return {
+        kind: StepKind.Reveal,
+        positions: wire.positions.map(wireGridPosToGridPos),
+        discs: wire.discs.map(wireDiscToDisc),
+      };
+    case 'push':
+      return {
+        kind: StepKind.Push,
+        edge: wire.edge as EntryEdge,
+        newDiscs: wire.newDiscs.map(wireDiscToDisc),
+      };
+    case 'bonus':
+      return {
+        kind: StepKind.Bonus,
+        bonusKind: wire.bonusKind as BonusKind,
+        pointsAwarded: wire.pointsAwarded,
+      };
+  }
 }
 
 const GAME_PHASE_MAP: Record<SharedBoardPhase, GamePhase> = {

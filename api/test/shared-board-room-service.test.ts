@@ -350,6 +350,68 @@ describe('SharedBoardRoomService', () => {
     expect(assigned.playerId).toBe(opponentId);
   });
 
+  test('relays the active player\'s cursor move to their opponent only', () => {
+    const harness = setupRoom();
+    const { matchId, firstPlayerId } = startPlaying(harness);
+    const [connection, admission] = firstPlayerId === harness.host.playerId
+      ? [harness.hostConnection, harness.host]
+      : [harness.guestConnection, harness.guest];
+    const opponentId = firstPlayerId === harness.host.playerId
+      ? harness.guest.playerId
+      : harness.host.playerId;
+
+    const result = harness.service.receive(
+      connection,
+      message(admission, { type: 'move-cursor', matchId, column: 5 }),
+    );
+    valueOf(result);
+
+    const cursorDeliveries = result.deliveries.filter(d => d.message.type === 'opponent-cursor');
+    expect(cursorDeliveries).toHaveLength(1);
+    expect(cursorDeliveries[0]!.playerId).toBe(opponentId);
+    const cursorMessage = cursorDeliveries[0]!.message;
+    expect(cursorMessage.type).toBe('opponent-cursor');
+    if (cursorMessage.type !== 'opponent-cursor') throw new Error('Expected opponent-cursor');
+    expect(cursorMessage.playerId).toBe(firstPlayerId);
+    expect(cursorMessage.column).toBe(5);
+  });
+
+  test('rejects a cursor move from the player who is not currently assigned', () => {
+    const harness = setupRoom();
+    const { matchId, firstPlayerId } = startPlaying(harness);
+    const [connection, admission] = firstPlayerId === harness.host.playerId
+      ? [harness.guestConnection, harness.guest]
+      : [harness.hostConnection, harness.host];
+
+    expect(errorOf(harness.service.receive(
+      connection,
+      message(admission, { type: 'move-cursor', matchId, column: 5 }),
+    ))).toBe('invalid-state');
+  });
+
+  test('rejects a cursor move for the wrong matchId', () => {
+    const harness = setupRoom();
+    const { firstPlayerId } = startPlaying(harness);
+    const [connection, admission] = firstPlayerId === harness.host.playerId
+      ? [harness.hostConnection, harness.host]
+      : [harness.guestConnection, harness.guest];
+
+    expect(errorOf(harness.service.receive(
+      connection,
+      message(admission, { type: 'move-cursor', matchId: 'not-this-match', column: 5 }),
+    ))).toBe('match-mismatch');
+  });
+
+  test('rejects a cursor move before the countdown has elapsed', () => {
+    const harness = setupRoom();
+    startMatch(harness);
+
+    expect(errorOf(harness.service.receive(
+      harness.hostConnection,
+      message(harness.host, { type: 'move-cursor', matchId: 'match-1', column: 5 }),
+    ))).toBe('invalid-state');
+  });
+
   // Regression for the deterministic-auto-drop bug: a timed-out turn used to
   // always land in the leftmost open column. Across many independent
   // matches (different seeds), the auto-dropped column should vary.

@@ -212,6 +212,8 @@ export class SharedBoardRoomService {
         return this.setReady(room, player, message.ready, deliveries);
       case 'play-turn':
         return this.playTurn(room, player, message.matchId, message.column, deliveries);
+      case 'move-cursor':
+        return this.moveCursor(room, player, message.matchId, message.column, deliveries);
       default:
         return { ok: false, error: 'invalid-state', deliveries };
     }
@@ -308,6 +310,33 @@ export class SharedBoardRoomService {
       ));
     }
 
+    return { ok: true, value: null, deliveries };
+  }
+
+  // Lightweight, non-authoritative: relays the active player's in-progress
+  // column selection to their opponent so a ghost preview can track it live.
+  // Only the currently active player's cursor is meaningful — the server
+  // doesn't track a resting cursor for the player who isn't up.
+  private moveCursor(room: DuelRoom, player: RoomPlayer, matchId: string, column: number, priorDeliveries: RoomDelivery[]): RoomServiceResult<null> {
+    if (room.lifecycle.kind !== 'playing') {
+      return { ok: false, error: 'invalid-state', deliveries: priorDeliveries };
+    }
+    if (matchId !== room.lifecycle.match.id) {
+      return { ok: false, error: 'match-mismatch', deliveries: priorDeliveries };
+    }
+    if (!room.lifecycle.match.match.isCurrentPlayer(player.id)) {
+      return { ok: false, error: 'invalid-state', deliveries: priorDeliveries };
+    }
+
+    const deliveries = [...priorDeliveries, ...this.relayToOthers(room, player, () => ({
+      protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+      roomId: room.id,
+      mode: SHARED_DUEL_ROOM_MODE,
+      type: 'opponent-cursor' as const,
+      matchId,
+      playerId: player.id,
+      column,
+    }))];
     return { ok: true, value: null, deliveries };
   }
 
@@ -459,6 +488,13 @@ export class SharedBoardRoomService {
 
   private broadcast(room: DuelRoom, factory: () => MultiplayerServerMessage): RoomDelivery[] {
     return room.players.map(player => ({
+      playerId: player.id,
+      message: factory(),
+    }));
+  }
+
+  private relayToOthers(room: DuelRoom, sender: RoomPlayer, factory: () => MultiplayerServerMessage): RoomDelivery[] {
+    return room.players.filter(p => p.id !== sender.id).map(player => ({
       playerId: player.id,
       message: factory(),
     }));

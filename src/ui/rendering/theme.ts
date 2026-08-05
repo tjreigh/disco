@@ -24,6 +24,9 @@ export const COLOR_CRACK_LINE   = '#e2e8f0';
 export const COLOR_TEXT         = '#ffffff';
 export const COLOR_TEXT_DIM     = '#a0aec0';
 export const COLOR_GHOST        = 'rgba(255,255,255,0.18)';
+// Opponent's live column preview in Disco Duel — matches the orange used for
+// "OPPONENT" in the shared-board HUD, so the two read as the same signal.
+export const COLOR_OPPONENT_GHOST = 'rgba(246,173,85,0.35)';
 export const COLOR_SCORE_POPUP  = '#ffd700'; // warm gold — floating "+N" score popups
 export const COLOR_COL_HOVER    = 'rgba(255,255,255,0.07)';
 export const COLOR_GAMEOVER_BG  = 'rgba(0,0,0,0.75)';

@@ -58,6 +58,8 @@ export interface SharedBoardSessionView {
   readonly opponentScore: number;
   readonly board: WireBoard;
   readonly columnCursor: number;
+  /** The active player's live column selection, as seen by the other player. Null until they move it. */
+  readonly opponentColumnCursor: number | null;
   readonly currentDisc: WireDisc;
   readonly nextDisc: WireDisc;
   readonly level: number;
@@ -81,6 +83,12 @@ interface MatchContext {
   readonly seed: number;
 }
 
+/** The board as it stood right before a turn resolved, plus the steps to animate it forward. */
+export interface PendingTurnResult {
+  readonly boardBefore: WireBoard;
+  readonly steps: readonly WireStep[];
+}
+
 type MatchLifecycle =
   | { readonly kind: 'lobby'; localReady: boolean; opponentReady: boolean }
   | { readonly kind: 'countdown'; readonly match: MatchContext }
@@ -93,11 +101,14 @@ type MatchLifecycle =
       isMyTurn: boolean;
       turnDeadline: number;
       columnCursor: number;
+      opponentColumnCursor: number | null;
       currentDisc: WireDisc;
       nextDisc: WireDisc;
       level: number;
       turnsPerLevel: number;
       turnsRemaining: number;
+      /** A turn just resolved and hasn't been picked up for animation yet. */
+      pendingTurnResult: PendingTurnResult | null;
     }
   | {
       readonly kind: 'complete';
@@ -169,7 +180,26 @@ export class SharedBoardSessionController {
   moveCursor(column: number): void {
     const lifecycle = this.#lifecycle;
     if (lifecycle.kind !== 'playing' || !lifecycle.isMyTurn) return;
-    lifecycle.columnCursor = Math.max(0, Math.min(6, column));
+    const clamped = Math.max(0, Math.min(6, column));
+    if (clamped === lifecycle.columnCursor) return;
+    lifecycle.columnCursor = clamped;
+    this.#transport.send({
+      protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+      roomId: this.#roomId,
+      playerId: this.#playerId,
+      type: 'move-cursor',
+      matchId: lifecycle.match.matchId,
+      column: clamped,
+    });
+  }
+
+  /** One-shot: returns the most recent unconsumed turn result, if any, for the caller to animate. */
+  consumePendingTurnResult(): PendingTurnResult | null {
+    const lifecycle = this.#lifecycle;
+    if (lifecycle.kind !== 'playing' || !lifecycle.pendingTurnResult) return null;
+    const pending = lifecycle.pendingTurnResult;
+    lifecycle.pendingTurnResult = null;
+    return pending;
   }
 
   destroy(): void {
@@ -206,6 +236,9 @@ export class SharedBoardSessionController {
         break;
       case 'match-finished':
         this.#handleMatchFinished(message);
+        break;
+      case 'opponent-cursor':
+        this.#handleOpponentCursor(message);
         break;
       case 'opponent-progress':
         break;
@@ -247,11 +280,17 @@ export class SharedBoardSessionController {
       isMyTurn,
       turnDeadline: message.turnDeadline,
       columnCursor: lifecycle.kind === 'playing' ? lifecycle.columnCursor : 3,
+      // A fresh turn means the opponent hasn't hovered anywhere yet.
+      opponentColumnCursor: null,
       currentDisc: message.currentDisc,
       nextDisc: message.nextDisc,
       level: message.level,
       turnsPerLevel: message.turnsPerLevel,
       turnsRemaining: message.turnsRemaining,
+      // A turn-assigned right after turn-played can arrive before the game
+      // controller's next frame has drained the prior turn's animation —
+      // carry it over instead of dropping it on this lifecycle swap.
+      pendingTurnResult: lifecycle.kind === 'playing' ? lifecycle.pendingTurnResult : null,
     };
   }
 
@@ -259,7 +298,9 @@ export class SharedBoardSessionController {
     const lifecycle = this.#lifecycle;
     if (lifecycle.kind !== 'playing') return;
 
+    const boardBefore = lifecycle.board;
     lifecycle.board = message.board;
+    lifecycle.pendingTurnResult = { boardBefore, steps: message.turnResult.steps };
     if (message.turnResult.playerId === this.#playerId) {
       lifecycle.localScore += message.turnResult.triggerScoreDelta;
       lifecycle.opponentScore += message.turnResult.opponentScoreDelta;
@@ -275,6 +316,12 @@ export class SharedBoardSessionController {
     lifecycle.level = message.level;
     lifecycle.turnsPerLevel = message.turnsPerLevel;
     lifecycle.turnsRemaining = message.turnsRemaining;
+  }
+
+  #handleOpponentCursor(message: MultiplayerServerMessage & { type: 'opponent-cursor' }): void {
+    const lifecycle = this.#lifecycle;
+    if (lifecycle.kind !== 'playing' || message.playerId === this.#playerId) return;
+    lifecycle.opponentColumnCursor = message.column;
   }
 
   #handleMatchFinished(message: MultiplayerServerMessage & { type: 'match-finished' }): void {
@@ -305,11 +352,13 @@ export class SharedBoardSessionController {
         isMyTurn: false,
         turnDeadline: 0,
         columnCursor: 3,
+        opponentColumnCursor: null,
         currentDisc: NEUTRAL_DISC,
         nextDisc: NEUTRAL_DISC,
         level: 1,
         turnsPerLevel: 1,
         turnsRemaining: 1,
+        pendingTurnResult: null,
       };
     }
   }
@@ -352,6 +401,7 @@ export class SharedBoardSessionController {
       opponentScore: lifecycle.kind === 'playing' ? lifecycle.opponentScore : 0,
       board: lifecycle.kind === 'playing' ? lifecycle.board : emptyBoard(),
       columnCursor: lifecycle.kind === 'playing' ? lifecycle.columnCursor : 3,
+      opponentColumnCursor: lifecycle.kind === 'playing' ? lifecycle.opponentColumnCursor : null,
       currentDisc: lifecycle.kind === 'playing' ? lifecycle.currentDisc : NEUTRAL_DISC,
       nextDisc: lifecycle.kind === 'playing' ? lifecycle.nextDisc : NEUTRAL_DISC,
       level: lifecycle.kind === 'playing' ? lifecycle.level : 1,
@@ -380,4 +430,4 @@ function emptyBoard(): WireBoard {
 
 // Placeholder for phases before a real turn-assigned message has arrived
 // (lobby/ready/countdown); overwritten immediately once one does.
-const NEUTRAL_DISC: WireDisc = { value: 1, kind: 'numbered' };
+const NEUTRAL_DISC: WireDisc = { id: 0, value: 1, kind: 'numbered' };

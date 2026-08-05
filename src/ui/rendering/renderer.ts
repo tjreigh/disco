@@ -13,6 +13,7 @@ import {
   COLOR_CRACKED_FILL, COLOR_CRACKED_DARK, COLOR_CRACK_LINE,
   COLOR_TEXT, COLOR_TEXT_DIM, COLOR_GHOST, COLOR_COL_HOVER,
   COLOR_GAMEOVER_BG, COLOR_SCORE_POPUP, COLOR_GRAVITY_LANE,
+  COLOR_OPPONENT_GHOST,
 } from './theme.js';
 import {
   cellCenterX, cellCenterY, gridOriginX, gridOriginY,
@@ -119,6 +120,7 @@ export class Renderer {
     isStackMode = false,
     gravityShiftCue?: GravityShiftCue | null,
     rewind?: RewindVisualState | null,
+    opponentCursor?: { col: number; disc: Disc } | null,
   ): void {
     const { ctx } = this;
     // Build a set of disc IDs currently being animated. drawStaticDiscs uses
@@ -155,6 +157,9 @@ export class Renderer {
     this.drawScoreIndicators(scoreIndicators);
     if (showCursor) {
       this.drawGhost(state, board, previewLanding ?? null);
+    }
+    if (opponentCursor) {
+      this.drawOpponentGhost(opponentCursor.disc, opponentCursor.col, board);
     }
     if (state.phase === GamePhase.GameOver) {
       this.drawGameOver(state.score, stats, isStackMode);
@@ -621,6 +626,32 @@ export class Renderer {
     // Dashed guide line from the top of the grid down to just above the ghost.
     const { ctx } = this;
     ctx.strokeStyle = COLOR_GHOST;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 5]);
+    ctx.beginPath();
+    ctx.moveTo(cx, gridOriginY());
+    ctx.lineTo(cx, cy - discR() - 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Disco Duel only: the opponent's live column selection while it's their
+  // turn, so both players see the same preview a local ghost would show.
+  // Deliberately independent of drawGhost's gravity branch — Disco Duel has
+  // no gravity mode, so this only ever needs the straight-down scan.
+  private drawOpponentGhost(disc: Disc, col: number, board: Board): void {
+    let landRow = -1;
+    for (let r = board.length - 1; r >= 0; r--) {
+      if (board[r]![col] === null) { landRow = r; break; }
+    }
+    if (landRow < 0) return; // column full — no ghost
+
+    const cx = cellCenterX(col);
+    const cy = cellCenterY(landRow);
+    this.drawDisc(disc, cx, cy, discR(), 0.28, 1);
+
+    const { ctx } = this;
+    ctx.strokeStyle = COLOR_OPPONENT_GHOST;
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 5]);
     ctx.beginPath();

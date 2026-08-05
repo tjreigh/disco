@@ -80,6 +80,7 @@ export function parseMultiplayerClientMessage(
         },
       };
     case 'play-turn':
+    case 'move-cursor':
       if (!hasExactKeys(value, [
         'protocolVersion', 'roomId', 'playerId', 'type', 'matchId', 'column',
       ])
@@ -258,6 +259,25 @@ export function parseMultiplayerServerMessage(
         },
       };
     }
+    case 'opponent-cursor':
+      if (!hasExactKeys(value, [
+        'protocolVersion', 'roomId', 'mode', 'type', 'matchId', 'playerId', 'column',
+      ])
+        || !isNonEmptyString(value.matchId)
+        || !isNonEmptyString(value.playerId)
+        || !isLaneIndex(value.column)) {
+        return invalidMessage();
+      }
+      return {
+        ok: true,
+        message: {
+          ...base,
+          type: value.type,
+          matchId: value.matchId,
+          playerId: value.playerId,
+          column: value.column,
+        },
+      };
     default:
       return invalidMessage();
   }

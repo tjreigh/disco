@@ -17,8 +17,8 @@ function emptyBoard(): WireBoard {
   return Array.from({ length: 7 }, () => Array.from({ length: 7 }, () => null));
 }
 
-const currentDisc: WireDisc = { value: 4, kind: 'numbered' };
-const nextDisc: WireDisc = { value: 6, kind: 'numbered' };
+const currentDisc: WireDisc = { id: 201, value: 4, kind: 'numbered' };
+const nextDisc: WireDisc = { id: 202, value: 6, kind: 'numbered' };
 const discFields = {
   currentDisc,
   nextDisc,
@@ -41,6 +41,44 @@ describe('play-turn client message', () => {
   test('rejects a column outside the board', () => {
     const result = parseMultiplayerClientMessage({
       ...base, playerId: 'p1', type: 'play-turn', matchId: 'match-1', column: 7,
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+});
+
+describe('move-cursor client message', () => {
+  test('parses a valid cursor move', () => {
+    const result = parseMultiplayerClientMessage({
+      ...base, playerId: 'p1', type: 'move-cursor', matchId: 'match-1', column: 5,
+    });
+    expect(result).toEqual({
+      ok: true,
+      message: { ...base, playerId: 'p1', type: 'move-cursor', matchId: 'match-1', column: 5 },
+    });
+  });
+
+  test('rejects a column outside the board', () => {
+    const result = parseMultiplayerClientMessage({
+      ...base, playerId: 'p1', type: 'move-cursor', matchId: 'match-1', column: -1,
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+});
+
+describe('opponent-cursor server message', () => {
+  test('parses a valid broadcast', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base, mode, type: 'opponent-cursor', matchId: 'match-1', playerId: 'p1', column: 2,
+    });
+    expect(result).toEqual({
+      ok: true,
+      message: { ...base, mode, type: 'opponent-cursor', matchId: 'match-1', playerId: 'p1', column: 2 },
+    });
+  });
+
+  test('rejects a missing playerId', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base, mode, type: 'opponent-cursor', matchId: 'match-1', column: 2,
     });
     expect(result).toEqual({ ok: false, error: 'invalid-message' });
   });
@@ -131,7 +169,7 @@ describe('turn-assigned server message', () => {
       turnDeadline: 15_000,
       board: emptyBoard(),
       ...discFields,
-      nextDisc: { value: 0, kind: 'numbered' },
+      nextDisc: { id: 203, value: 0, kind: 'numbered' },
     });
     expect(result).toEqual({ ok: false, error: 'invalid-message' });
   });

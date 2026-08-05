@@ -84,6 +84,11 @@ export type MultiplayerClientMessage =
       readonly type: 'play-turn';
       readonly matchId: string;
       readonly column: number;
+    })
+  | (ClientMessageBase & {
+      readonly type: 'move-cursor';
+      readonly matchId: string;
+      readonly column: number;
     });
 
 interface ServerMessageBase {
@@ -150,6 +155,12 @@ export type MultiplayerServerMessage =
       readonly level: number;
       readonly turnsPerLevel: number;
       readonly turnsRemaining: number;
+    })
+  | (ServerMessageBase & {
+      readonly type: 'opponent-cursor';
+      readonly matchId: string;
+      readonly playerId: string;
+      readonly column: number;
     });
 
 export type MultiplayerConnectionState = 'connected' | 'disconnected' | 'reconnecting';
