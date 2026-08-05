@@ -10,6 +10,7 @@ import type {
   MultiplayerModeIdentity,
   MultiplayerServerMessage,
   WireBoard,
+  WireDisc,
   WireStep,
 } from '../shared/multiplayer-contracts.js';
 import { parseMultiplayerServerMessage } from '../shared/multiplayer-messages.js';
@@ -57,6 +58,11 @@ export interface SharedBoardSessionView {
   readonly opponentScore: number;
   readonly board: WireBoard;
   readonly columnCursor: number;
+  readonly currentDisc: WireDisc;
+  readonly nextDisc: WireDisc;
+  readonly level: number;
+  readonly turnsPerLevel: number;
+  readonly turnsRemaining: number;
   readonly result: MultiplayerLocalResult | null;
   readonly compatibilityError: SharedBoardCompatibilityError | null;
 }
@@ -87,6 +93,11 @@ type MatchLifecycle =
       isMyTurn: boolean;
       turnDeadline: number;
       columnCursor: number;
+      currentDisc: WireDisc;
+      nextDisc: WireDisc;
+      level: number;
+      turnsPerLevel: number;
+      turnsRemaining: number;
     }
   | {
       readonly kind: 'complete';
@@ -229,15 +240,18 @@ export class SharedBoardSessionController {
 
     this.#lifecycle = {
       kind: 'playing',
-      match: lifecycle.kind === 'countdown'
-        ? lifecycle.match
-        : lifecycle.match,
+      match: lifecycle.match,
       board,
       localScore: lifecycle.kind === 'playing' ? lifecycle.localScore : 0,
       opponentScore: lifecycle.kind === 'playing' ? lifecycle.opponentScore : 0,
       isMyTurn,
-      turnDeadline: isMyTurn ? message.turnDeadline : 0,
+      turnDeadline: message.turnDeadline,
       columnCursor: lifecycle.kind === 'playing' ? lifecycle.columnCursor : 3,
+      currentDisc: message.currentDisc,
+      nextDisc: message.nextDisc,
+      level: message.level,
+      turnsPerLevel: message.turnsPerLevel,
+      turnsRemaining: message.turnsRemaining,
     };
   }
 
@@ -256,6 +270,11 @@ export class SharedBoardSessionController {
 
     lifecycle.isMyTurn = message.nextPlayerId === this.#playerId;
     lifecycle.turnDeadline = 0;
+    lifecycle.currentDisc = message.currentDisc;
+    lifecycle.nextDisc = message.nextDisc;
+    lifecycle.level = message.level;
+    lifecycle.turnsPerLevel = message.turnsPerLevel;
+    lifecycle.turnsRemaining = message.turnsRemaining;
   }
 
   #handleMatchFinished(message: MultiplayerServerMessage & { type: 'match-finished' }): void {
@@ -286,6 +305,11 @@ export class SharedBoardSessionController {
         isMyTurn: false,
         turnDeadline: 0,
         columnCursor: 3,
+        currentDisc: NEUTRAL_DISC,
+        nextDisc: NEUTRAL_DISC,
+        level: 1,
+        turnsPerLevel: 1,
+        turnsRemaining: 1,
       };
     }
   }
@@ -304,6 +328,12 @@ export class SharedBoardSessionController {
   #buildView(): SharedBoardSessionView {
     const lifecycle = this.#lifecycle;
     const phase = this.#derivePhase();
+    const now = this.#clock.now();
+    const target = lifecycle.kind === 'countdown'
+      ? lifecycle.match.startsAt
+      : lifecycle.kind === 'playing'
+        ? lifecycle.turnDeadline
+        : null;
 
     return {
       phase,
@@ -315,13 +345,18 @@ export class SharedBoardSessionController {
       opponentReady: lifecycle.kind === 'lobby' || lifecycle.kind === 'complete' ? lifecycle.opponentReady : true,
       matchId: ('match' in lifecycle && lifecycle.match) ? lifecycle.match.matchId : null,
       startsAt: ('match' in lifecycle && lifecycle.match) ? lifecycle.match.startsAt : null,
-      remainingMs: null,
+      remainingMs: target === null ? null : Math.max(0, target - now),
       isMyTurn: lifecycle.kind === 'playing' ? lifecycle.isMyTurn : false,
       turnDeadline: lifecycle.kind === 'playing' ? lifecycle.turnDeadline : null,
       localScore: lifecycle.kind === 'playing' ? lifecycle.localScore : 0,
       opponentScore: lifecycle.kind === 'playing' ? lifecycle.opponentScore : 0,
       board: lifecycle.kind === 'playing' ? lifecycle.board : emptyBoard(),
       columnCursor: lifecycle.kind === 'playing' ? lifecycle.columnCursor : 3,
+      currentDisc: lifecycle.kind === 'playing' ? lifecycle.currentDisc : NEUTRAL_DISC,
+      nextDisc: lifecycle.kind === 'playing' ? lifecycle.nextDisc : NEUTRAL_DISC,
+      level: lifecycle.kind === 'playing' ? lifecycle.level : 1,
+      turnsPerLevel: lifecycle.kind === 'playing' ? lifecycle.turnsPerLevel : 1,
+      turnsRemaining: lifecycle.kind === 'playing' ? lifecycle.turnsRemaining : 1,
       result: lifecycle.kind === 'complete' ? lifecycle.result : null,
       compatibilityError: lifecycle.kind === 'incompatible' ? lifecycle.error : null,
     };
@@ -342,3 +377,7 @@ export class SharedBoardSessionController {
 function emptyBoard(): WireBoard {
   return Array.from({ length: 7 }, () => Array.from({ length: 7 }, () => null));
 }
+
+// Placeholder for phases before a real turn-assigned message has arrived
+// (lobby/ready/countdown); overwritten immediately once one does.
+const NEUTRAL_DISC: WireDisc = { value: 1, kind: 'numbered' };

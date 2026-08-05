@@ -255,6 +255,16 @@
 }
 .multiplayer-hud__result[hidden] { display: none; }
 .multiplayer-hud[data-result="true"] .multiplayer-hud__metric { display: none; }
+.multiplayer-hud__turn-value {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1;
+  color: #d9e2ec;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.multiplayer-hud[data-my-turn="true"] .multiplayer-hud__turn-value { color: #81e6b3; }
 .game-hud__instability--pressured {
   border-color: #d8b4fe;
   box-shadow: 0 0 12px rgba(168, 85, 247, .28);

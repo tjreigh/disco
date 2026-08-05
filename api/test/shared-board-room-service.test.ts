@@ -232,6 +232,27 @@ describe('SharedBoardRoomService', () => {
     expect([harness.host.playerId, harness.guest.playerId]).toContain(firstPlayerId);
   });
 
+  // Regression: turn-assigned used to carry no disc/level data at all, so
+  // the client always showed a fake, invalid disc (value 0).
+  test('turn-assigned carries the real current/next disc and level state', () => {
+    const harness = setupRoom();
+    const countdown = startMatch(harness);
+    harness.clock.time = countdown.startsAt;
+    const tickResult = harness.service.tick();
+    const assigned = tickResult.deliveries.find(d => d.message.type === 'turn-assigned')?.message;
+    expect(assigned?.type).toBe('turn-assigned');
+    if (assigned?.type !== 'turn-assigned') throw new Error('Expected turn-assigned');
+
+    expect(assigned.currentDisc.value).toBeGreaterThanOrEqual(1);
+    expect(assigned.currentDisc.value).toBeLessThanOrEqual(7);
+    expect(assigned.nextDisc.value).toBeGreaterThanOrEqual(1);
+    expect(assigned.nextDisc.value).toBeLessThanOrEqual(7);
+    expect(assigned.level).toBe(1);
+    expect(assigned.turnsPerLevel).toBeGreaterThan(0);
+    expect(assigned.turnsRemaining).toBeGreaterThan(0);
+    expect(assigned.turnsRemaining).toBeLessThanOrEqual(assigned.turnsPerLevel);
+  });
+
   test('a played turn broadcasts the result and hands the turn to the other player', () => {
     const harness = setupRoom();
     const { matchId, firstPlayerId } = startPlaying(harness);
@@ -254,11 +275,18 @@ describe('SharedBoardRoomService', () => {
     expect(played.turnResult.playerId).toBe(firstPlayerId);
     expect(played.turnResult.column).toBe(3);
     expect(played.nextPlayerId).toBe(opponentId);
+    // Regression: stackSize used to be hardcoded to 0 regardless of the
+    // real engine result.
+    expect(played.turnResult.stackSize).toBeGreaterThanOrEqual(0);
+    expect(played.currentDisc.value).toBeGreaterThanOrEqual(1);
+    expect(played.currentDisc.value).toBeLessThanOrEqual(7);
 
     const assigned = result.deliveries.find(d => d.message.type === 'turn-assigned')?.message;
     expect(assigned?.type).toBe('turn-assigned');
     if (assigned?.type !== 'turn-assigned') throw new Error('Expected turn-assigned');
     expect(assigned.playerId).toBe(opponentId);
+    expect(assigned.currentDisc).toEqual(played.currentDisc);
+    expect(assigned.nextDisc).toEqual(played.nextDisc);
   });
 
   test('rejects a play-turn from the player who is not currently assigned', () => {
@@ -314,6 +342,7 @@ describe('SharedBoardRoomService', () => {
     expect(expired.turnResult.column).not.toBeNull();
     expect(expired.turnResult.column).toBeGreaterThanOrEqual(0);
     expect(expired.turnResult.column).toBeLessThanOrEqual(6);
+    expect(expired.turnResult.stackSize).toBeGreaterThanOrEqual(0);
 
     const assigned = tickResult.deliveries.find(d => d.message.type === 'turn-assigned')?.message;
     expect(assigned?.type).toBe('turn-assigned');
@@ -350,7 +379,13 @@ describe('SharedBoardRoomService', () => {
       reconnectCredential: harness.host.reconnectCredential,
     });
     valueOf(reconnected);
-    const snapshot = reconnected.deliveries.find(d => d.message.type === 'turn-assigned');
+    const snapshot = reconnected.deliveries.find(d => d.message.type === 'turn-assigned')?.message;
     expect(snapshot).toBeDefined();
+    if (snapshot?.type !== 'turn-assigned') throw new Error('Expected turn-assigned');
+    // Regression: a reconnecting player must see current disc/level state,
+    // not stale or placeholder values.
+    expect(snapshot.currentDisc.value).toBeGreaterThanOrEqual(1);
+    expect(snapshot.currentDisc.value).toBeLessThanOrEqual(7);
+    expect(snapshot.level).toBeGreaterThanOrEqual(1);
   });
 });

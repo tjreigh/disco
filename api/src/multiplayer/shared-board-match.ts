@@ -101,6 +101,7 @@ export class SharedBoardMatch {
         column: null,
         triggerScoreDelta: 0,
         opponentScoreDelta: 0,
+        stackSize: 0,
         board: this.serializeBoard(),
         steps: [],
         gameOverReason: 'board-full',
@@ -117,6 +118,7 @@ export class SharedBoardMatch {
         column: availableCol,
         triggerScoreDelta: 0,
         opponentScoreDelta: 0,
+        stackSize: 0,
         board: this.serializeBoard(),
         steps: [],
         gameOverReason: turnResult.gameOverReason ?? 'board-full',
@@ -138,6 +140,16 @@ export class SharedBoardMatch {
     return serializeBoardForWire(this.engine.state.board);
   }
 
+  private discSnapshot() {
+    return {
+      currentDisc: toWireDisc(this.engine.state.currentDisc),
+      nextDisc: toWireDisc(this.engine.state.nextDisc),
+      level: this.engine.state.level,
+      turnsPerLevel: this.engine.state.turnsPerLevel,
+      turnsRemaining: this.engine.state.turnsRemaining,
+    };
+  }
+
   buildTurnAssignedMessage(
     roomId: string,
     mode: MultiplayerModeIdentity,
@@ -152,6 +164,7 @@ export class SharedBoardMatch {
       playerId: this.currentPlayerId,
       turnDeadline: this.turnDeadline,
       board: this.serializeBoard(),
+      ...this.discSnapshot(),
     };
   }
 
@@ -170,6 +183,7 @@ export class SharedBoardMatch {
       board: this.serializeBoard(),
       turnResult,
       nextPlayerId: this.currentPlayerId,
+      ...this.discSnapshot(),
     };
   }
 
@@ -188,6 +202,7 @@ export class SharedBoardMatch {
       board: this.serializeBoard(),
       turnResult,
       nextPlayerId: this.currentPlayerId,
+      ...this.discSnapshot(),
     };
   }
 
@@ -227,6 +242,7 @@ export class SharedBoardMatch {
       column: this.engine.state.cursorCol,
       triggerScoreDelta: scoreDelta.triggerDelta,
       opponentScoreDelta: scoreDelta.opponentDelta,
+      stackSize: turnResult.stackSize,
       board: this.serializeBoard(),
       steps: serializeSteps(turnResult.steps),
     };
@@ -256,6 +272,7 @@ export type MatchTurnResult =
       readonly column: number | null;
       readonly triggerScoreDelta: number;
       readonly opponentScoreDelta: number;
+      readonly stackSize: number;
       readonly board: WireBoard;
       readonly steps: readonly WireStep[];
     } & (

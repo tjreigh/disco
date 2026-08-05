@@ -192,12 +192,19 @@ export function parseMultiplayerServerMessage(
       if (!hasExactKeys(value, [
         'protocolVersion', 'roomId', 'mode', 'type',
         'matchId', 'playerId', 'turnDeadline', 'board',
+        'currentDisc', 'nextDisc', 'level', 'turnsPerLevel', 'turnsRemaining',
       ])
         || !isNonEmptyString(value.matchId)
         || !isNonEmptyString(value.playerId)
-        || !isNonNegativeInteger(value.turnDeadline)) return invalidMessage();
+        || !isNonNegativeInteger(value.turnDeadline)
+        || !isPositiveInteger(value.level)
+        || !isPositiveInteger(value.turnsPerLevel)
+        || !isNonNegativeInteger(value.turnsRemaining)) return invalidMessage();
       const board = parseWireBoard(value.board);
       if (!board) return invalidMessage();
+      const currentDisc = parseWireDisc(value.currentDisc);
+      const nextDisc = parseWireDisc(value.nextDisc);
+      if (!currentDisc || !nextDisc) return invalidMessage();
       return {
         ok: true,
         message: {
@@ -207,6 +214,11 @@ export function parseMultiplayerServerMessage(
           playerId: value.playerId,
           turnDeadline: value.turnDeadline,
           board,
+          currentDisc,
+          nextDisc,
+          level: value.level,
+          turnsPerLevel: value.turnsPerLevel,
+          turnsRemaining: value.turnsRemaining,
         },
       };
     }
@@ -215,13 +227,20 @@ export function parseMultiplayerServerMessage(
       if (!hasExactKeys(value, [
         'protocolVersion', 'roomId', 'mode', 'type',
         'matchId', 'board', 'turnResult', 'nextPlayerId',
+        'currentDisc', 'nextDisc', 'level', 'turnsPerLevel', 'turnsRemaining',
       ])
         || !isNonEmptyString(value.matchId)
-        || !isNonEmptyString(value.nextPlayerId)) return invalidMessage();
+        || !isNonEmptyString(value.nextPlayerId)
+        || !isPositiveInteger(value.level)
+        || !isPositiveInteger(value.turnsPerLevel)
+        || !isNonNegativeInteger(value.turnsRemaining)) return invalidMessage();
       const board = parseWireBoard(value.board);
       if (!board) return invalidMessage();
       const turnResult = parseTurnResultWire(value.turnResult);
       if (!turnResult) return invalidMessage();
+      const currentDisc = parseWireDisc(value.currentDisc);
+      const nextDisc = parseWireDisc(value.nextDisc);
+      if (!currentDisc || !nextDisc) return invalidMessage();
       return {
         ok: true,
         message: {
@@ -231,6 +250,11 @@ export function parseMultiplayerServerMessage(
           board,
           turnResult,
           nextPlayerId: value.nextPlayerId,
+          currentDisc,
+          nextDisc,
+          level: value.level,
+          turnsPerLevel: value.turnsPerLevel,
+          turnsRemaining: value.turnsRemaining,
         },
       };
     }

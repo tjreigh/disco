@@ -121,6 +121,11 @@ export type MultiplayerServerMessage =
       readonly playerId: string;
       readonly turnDeadline: number;
       readonly board: WireBoard;
+      readonly currentDisc: WireDisc;
+      readonly nextDisc: WireDisc;
+      readonly level: number;
+      readonly turnsPerLevel: number;
+      readonly turnsRemaining: number;
     })
   | (ServerMessageBase & {
       readonly type: 'turn-played';
@@ -128,6 +133,11 @@ export type MultiplayerServerMessage =
       readonly board: WireBoard;
       readonly turnResult: TurnResultWire;
       readonly nextPlayerId: string;
+      readonly currentDisc: WireDisc;
+      readonly nextDisc: WireDisc;
+      readonly level: number;
+      readonly turnsPerLevel: number;
+      readonly turnsRemaining: number;
     })
   | (ServerMessageBase & {
       readonly type: 'turn-expired';
@@ -135,6 +145,11 @@ export type MultiplayerServerMessage =
       readonly board: WireBoard;
       readonly turnResult: TurnResultWire;
       readonly nextPlayerId: string;
+      readonly currentDisc: WireDisc;
+      readonly nextDisc: WireDisc;
+      readonly level: number;
+      readonly turnsPerLevel: number;
+      readonly turnsRemaining: number;
     });
 
 export type MultiplayerConnectionState = 'connected' | 'disconnected' | 'reconnecting';

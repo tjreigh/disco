@@ -7,7 +7,7 @@ import {
   MULTIPLAYER_PROTOCOL_VERSION,
   multiplayerModeIdentity,
 } from '../../shared/multiplayer-contracts.js';
-import type { TurnResultWire, WireBoard } from '../../shared/multiplayer-contracts.js';
+import type { TurnResultWire, WireBoard, WireDisc } from '../../shared/multiplayer-contracts.js';
 import { SHARED_DUEL_MODE } from '../../game/modes/index.js';
 
 const mode = multiplayerModeIdentity(SHARED_DUEL_MODE);
@@ -16,6 +16,16 @@ const base = { protocolVersion: MULTIPLAYER_PROTOCOL_VERSION, roomId: 'ROOM1' };
 function emptyBoard(): WireBoard {
   return Array.from({ length: 7 }, () => Array.from({ length: 7 }, () => null));
 }
+
+const currentDisc: WireDisc = { value: 4, kind: 'numbered' };
+const nextDisc: WireDisc = { value: 6, kind: 'numbered' };
+const discFields = {
+  currentDisc,
+  nextDisc,
+  level: 1,
+  turnsPerLevel: 7,
+  turnsRemaining: 5,
+};
 
 describe('play-turn client message', () => {
   test('parses a valid drop', () => {
@@ -79,6 +89,82 @@ describe('turn-assigned server message', () => {
       playerId: 'p1',
       turnDeadline: 15_000,
       board: emptyBoard(),
+      ...discFields,
+    });
+    expect(result).toEqual({
+      ok: true,
+      message: {
+        ...base,
+        mode,
+        type: 'turn-assigned',
+        matchId: 'match-1',
+        playerId: 'p1',
+        turnDeadline: 15_000,
+        board: emptyBoard(),
+        ...discFields,
+      },
+    });
+  });
+
+  test('rejects a message missing the current-disc preview fields', () => {
+    const { currentDisc: _currentDisc, ...rest } = discFields;
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'turn-assigned',
+      matchId: 'match-1',
+      playerId: 'p1',
+      turnDeadline: 15_000,
+      board: emptyBoard(),
+      ...rest,
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects a malformed nextDisc', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'turn-assigned',
+      matchId: 'match-1',
+      playerId: 'p1',
+      turnDeadline: 15_000,
+      board: emptyBoard(),
+      ...discFields,
+      nextDisc: { value: 0, kind: 'numbered' },
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects a non-positive level', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'turn-assigned',
+      matchId: 'match-1',
+      playerId: 'p1',
+      turnDeadline: 15_000,
+      board: emptyBoard(),
+      ...discFields,
+      level: 0,
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  // turnsRemaining legitimately reaches 0 on the message that ends a match
+  // mid-level (see engine.ts: the turnsPerLevel reset on level-complete is
+  // skipped when that same turn is also game-over) — 0 must parse.
+  test('accepts turnsRemaining of 0', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'turn-assigned',
+      matchId: 'match-1',
+      playerId: 'p1',
+      turnDeadline: 15_000,
+      board: emptyBoard(),
+      ...discFields,
+      turnsRemaining: 0,
     });
     expect(result.ok).toBe(true);
   });
@@ -113,6 +199,7 @@ describe('turn-played server message', () => {
       board: emptyBoard(),
       turnResult,
       nextPlayerId: 'p2',
+      ...discFields,
     });
     expect(result).toEqual({
       ok: true,
@@ -124,6 +211,7 @@ describe('turn-played server message', () => {
         board: emptyBoard(),
         turnResult,
         nextPlayerId: 'p2',
+        ...discFields,
       },
     });
   });
@@ -145,6 +233,7 @@ describe('turn-played server message', () => {
         }],
       },
       nextPlayerId: 'p2',
+      ...discFields,
     });
     expect(result).toEqual({ ok: false, error: 'invalid-message' });
   });
@@ -166,6 +255,7 @@ describe('turn-played server message', () => {
         }],
       },
       nextPlayerId: 'p2',
+      ...discFields,
     });
     expect(result).toEqual({ ok: false, error: 'invalid-message' });
   });
@@ -185,7 +275,24 @@ describe('turn-played server message', () => {
         gameOverReason: 'board-full',
       },
       nextPlayerId: 'p2',
+      ...discFields,
+      turnsRemaining: 0,
     });
     expect(result.ok).toBe(true);
+  });
+
+  test('rejects a turn-played missing the level/turn-budget fields', () => {
+    const { level: _level, ...rest } = discFields;
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'turn-played',
+      matchId: 'match-1',
+      board: emptyBoard(),
+      turnResult,
+      nextPlayerId: 'p2',
+      ...rest,
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
   });
 });

@@ -14,6 +14,7 @@ import type { WireBoard, WireDisc } from '../shared/multiplayer-contracts.js';
 import { GameControls } from '../ui/game-controls.js';
 import { GameHud } from '../ui/game-hud.js';
 import { MultiplayerRoomOverlay } from '../ui/multiplayer-room-overlay.js';
+import { SharedBoardHud } from '../ui/shared-board-hud.js';
 import { setGridSize } from '../ui/rendering/layout.js';
 import { Renderer } from '../ui/rendering/renderer.js';
 import type { UiMounts } from '../ui/ui-root.js';
@@ -31,6 +32,7 @@ export class SharedBoardGame {
   #renderer: Renderer | null = null;
   #controls: GameControls | null = null;
   #gameHud: GameHud | null = null;
+  #sharedBoardHud: SharedBoardHud | null = null;
   #input: InputHandler | null = null;
   #unsubTransportError: (() => void) | null = null;
   #transportError: MultiplayerTransportError | null = null;
@@ -85,6 +87,7 @@ export class SharedBoardGame {
       );
       this.#gameHud = new GameHud(this.#mounts.stage);
       this.#gameHud.root.dataset.multiplayer = 'true';
+      this.#sharedBoardHud = new SharedBoardHud('DISCO DUEL', this.#mounts.stage);
 
       this.#input = new InputHandler(
         this.#canvas,
@@ -108,6 +111,7 @@ export class SharedBoardGame {
     this.#input?.destroy();
     this.#controls?.destroy();
     this.#gameHud?.destroy();
+    this.#sharedBoardHud?.destroy();
     this.#session?.destroy();
     this.#transport?.destroy();
     this.#roomOverlay.destroy();
@@ -122,6 +126,15 @@ export class SharedBoardGame {
 
     this.#renderControls(view);
     this.#renderHud(view);
+    this.#sharedBoardHud?.render({
+      phase: view.phase,
+      remainingMs: view.remainingMs,
+      localScore: view.localScore,
+      opponentScore: view.opponentScore,
+      isMyTurn: view.isMyTurn,
+      result: view.result,
+      compatibilityError: view.compatibilityError,
+    });
     this.#roomOverlay.render(view, this.#transportError);
 
     if (this.#renderer) {
@@ -131,14 +144,14 @@ export class SharedBoardGame {
         generationSource: 'seeded',
         phase: viewPhaseToGamePhase(view.phase),
         board,
-        currentDisc: wireDiscToDisc({ value: 0, kind: 'numbered' }),
-        nextDisc: wireDiscToDisc({ value: 0, kind: 'numbered' }),
+        currentDisc: wireDiscToDisc(view.currentDisc),
+        nextDisc: wireDiscToDisc(view.nextDisc),
         cursorCol: view.columnCursor,
         score: view.localScore,
         dropCount: 0,
-        level: 1,
-        turnsPerLevel: 7,
-        turnsRemaining: 7,
+        level: view.level,
+        turnsPerLevel: view.turnsPerLevel,
+        turnsRemaining: view.turnsRemaining,
         gravity: undefined,
         paradox: undefined,
       };
@@ -161,19 +174,18 @@ export class SharedBoardGame {
 
   #renderHud(view: SharedBoardSessionView): void {
     if (!this.#gameHud) return;
-    const currentDisc = wireDiscToDisc({ value: 0, kind: 'numbered' });
-    const nextDisc = wireDiscToDisc({ value: 0, kind: 'numbered' });
+    const currentDisc = wireDiscToDisc(view.currentDisc);
+    const nextDisc = wireDiscToDisc(view.nextDisc);
 
     this.#gameHud.render({
       phase: viewPhaseToGamePhase(view.phase),
       score: view.localScore,
-      bestRecord: view.opponentScore,
       currentDisc,
       nextDisc,
-      level: 1,
-      initialTurnsPerLevel: 7,
-      turnsPerLevel: 7,
-      turnsRemaining: 7,
+      level: view.level,
+      initialTurnsPerLevel: SHARED_DUEL_MODE.rules.progression.initialTurnsPerLevel,
+      turnsPerLevel: view.turnsPerLevel,
+      turnsRemaining: view.turnsRemaining,
       hasGravity: false,
       hasRestart: false,
     });
