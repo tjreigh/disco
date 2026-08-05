@@ -87,6 +87,8 @@ interface MatchContext {
 export interface PendingTurnResult {
   readonly boardBefore: WireBoard;
   readonly steps: readonly WireStep[];
+  /** Who dropped the disc that produced these steps — for crediting chain/score callouts. */
+  readonly triggerPlayerId: string;
 }
 
 type MatchLifecycle =
@@ -300,7 +302,11 @@ export class SharedBoardSessionController {
 
     const boardBefore = lifecycle.board;
     lifecycle.board = message.board;
-    lifecycle.pendingTurnResult = { boardBefore, steps: message.turnResult.steps };
+    lifecycle.pendingTurnResult = {
+      boardBefore,
+      steps: message.turnResult.steps,
+      triggerPlayerId: message.turnResult.playerId,
+    };
     if (message.turnResult.playerId === this.#playerId) {
       lifecycle.localScore += message.turnResult.triggerScoreDelta;
       lifecycle.opponentScore += message.turnResult.opponentScoreDelta;

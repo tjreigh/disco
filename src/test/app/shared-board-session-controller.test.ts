@@ -269,6 +269,7 @@ describe('SharedBoardSessionController', () => {
     const pending = controller.consumePendingTurnResult();
     expect(pending?.boardBefore).toEqual(boardBefore);
     expect(pending?.steps).toEqual(steps);
+    expect(pending?.triggerPlayerId).toBe('local-player');
     expect(controller.consumePendingTurnResult()).toBeNull();
   });
 

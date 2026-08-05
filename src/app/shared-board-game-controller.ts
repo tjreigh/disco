@@ -18,7 +18,8 @@ import { GameHud } from '../ui/game-hud.js';
 import { MultiplayerRoomOverlay } from '../ui/multiplayer-room-overlay.js';
 import { SharedBoardHud } from '../ui/shared-board-hud.js';
 import { setGridSize } from '../ui/rendering/layout.js';
-import { AnimationQueue } from '../ui/rendering/animation-queue.js';
+import { AnimationQueue, spawnScoreIndicator, tickScoreIndicators } from '../ui/rendering/animation-queue.js';
+import type { ScoreIndicator } from '../ui/rendering/animation-types.js';
 import { Renderer } from '../ui/rendering/renderer.js';
 import type { UiMounts } from '../ui/ui-root.js';
 import { applyStepToVisualBoard } from './visual-board.js';
@@ -46,6 +47,8 @@ export class SharedBoardGame {
   #animQueue: AnimationQueue | null = null;
   #visualBoard: Board | null = null;
   #lastFrameTime: DOMHighResTimeStamp | null = null;
+  #turnIndicators: ScoreIndicator[] = [];
+  #wasMyTurn = false;
 
   constructor(canvas: HTMLCanvasElement, mounts: UiMounts) {
     this.#canvas = canvas;
@@ -134,6 +137,14 @@ export class SharedBoardGame {
     session.tick();
     const view = session.view;
 
+    // Pop up "YOUR TURN" exactly on the edge into it becoming your turn
+    // (including the match's opening turn), not on every frame it's true.
+    if (view.phase === 'playing' && view.isMyTurn && !this.#wasMyTurn) {
+      this.#turnIndicators.push(spawnScoreIndicator('YOUR TURN', '', now));
+    }
+    this.#wasMyTurn = view.isMyTurn;
+    this.#turnIndicators = tickScoreIndicators(this.#turnIndicators, now);
+
     // The server keeps the match moving regardless of whether this tab is
     // in the foreground, and a backgrounded tab's requestAnimationFrame
     // callbacks can be throttled to a near-stop by the browser — sometimes
@@ -150,10 +161,24 @@ export class SharedBoardGame {
 
     const pending = session.consumePendingTurnResult();
     if (pending) {
+      const attribution = pending.triggerPlayerId === view.playerId ? 'YOU' : 'OPPONENT';
       this.#visualBoard = wireBoardToBoard(pending.boardBefore);
       this.#animQueue = new AnimationQueue(
         pending.steps.map(wireStepToPhysicsStep),
-        () => {},
+        (step, stepNow) => {
+          if (step.kind !== StepKind.Clear) return;
+          const chainLength = step.chainLevel + 1;
+          if (chainLength < 2) return;
+          const scoring = SHARED_DUEL_MODE.rules.scoring;
+          const multiplier = scoring.kind === 'chain-score@1'
+            ? Math.pow(chainLength, scoring.chainExponent)
+            : 1;
+          this.#turnIndicators.push(spawnScoreIndicator(
+            `CHAIN ${chainLength}`,
+            `${attribution} · ×${formatMultiplier(multiplier)} +${step.pointsAwarded}`,
+            stepNow,
+          ));
+        },
         step => applyStepToVisualBoard(this.#visualBoard!, step),
         () => { this.#animQueue = null; },
       );
@@ -206,7 +231,7 @@ export class SharedBoardGame {
         ? { col: view.opponentColumnCursor, disc: state.currentDisc }
         : null;
       this.#renderer.draw(
-        state, board, this.#animQueue?.getActiveAnimations() ?? [], emptyStats(), [], [],
+        state, board, this.#animQueue?.getActiveAnimations() ?? [], emptyStats(), [], this.#turnIndicators,
         null, null, false, null, null, opponentCursor,
       );
     }
@@ -365,6 +390,10 @@ function wireDiscToDisc(wire: WireDisc): Disc {
 
 function wireGridPosToGridPos(wire: WireGridPos): GridPos {
   return { row: wire.row, col: wire.col };
+}
+
+function formatMultiplier(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
 function wireStepToPhysicsStep(wire: WireStep): PhysicsStep {
