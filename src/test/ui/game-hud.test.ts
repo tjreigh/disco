@@ -57,6 +57,37 @@ describe('GameHud', () => {
     expect(doubleCracked.querySelectorAll('.game-hud__disc-crack')).toHaveLength(2);
   });
 
+  test('renders opt-in advanced run stats in the bottom HUD and hides them when omitted', () => {
+    const hud = new GameHud();
+    const state = {
+      phase: GamePhase.WaitingForDrop, score: 0,
+      currentDisc: disc(3), nextDisc: disc(4),
+      level: 1, initialTurnsPerLevel: 30, turnsPerLevel: 30, turnsRemaining: 30,
+      hasGravity: false,
+    };
+
+    hud.render({
+      ...state,
+      advancedStats: { playTimeMs: 3_723_900, discsDropped: 1234, discsBroken: 56 },
+    });
+    const advanced = hud.root.querySelector<HTMLElement>('.game-hud__advanced')!;
+    const timer = advanced.querySelector<HTMLTimeElement>('[data-advanced-stat="time"]')!;
+    expect(advanced.closest('.game-hud__bottom')).not.toBeNull();
+    expect(advanced.hidden).toBe(false);
+    expect(hud.root.dataset.advancedHud).toBe('true');
+    expect(timer.textContent).toBe('1:02:03');
+    expect(timer.dateTime).toBe('PT3723S');
+    expect(timer.getAttribute('aria-label'))
+      .toBe('Active play time 1 hour 2 minutes 3 seconds');
+    expect(advanced.querySelector('[data-advanced-stat="drops"]')?.textContent).toBe('1,234');
+    expect(advanced.querySelector('[data-advanced-stat="broken"]')?.textContent).toBe('56');
+
+    hud.render(state);
+    expect(advanced.hidden).toBe(true);
+    expect(hud.root.dataset.advancedHud).toBe('false');
+    expect(timer.textContent).toBe('');
+  });
+
   test('can omit the solo restart shortcut for multiplayer sessions', () => {
     const hud = new GameHud();
     hud.render({

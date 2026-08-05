@@ -63,9 +63,48 @@
 .game-hud__pip--remaining { background: #f0f4f8; border-color: #f0f4f8; }
 .game-hud__pip--placeholder { visibility: hidden; }
 .game-hud__queue {
+  display: grid;
+  gap: 7px;
+  width: min(190px, 44vw);
+}
+.game-hud__discs {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+.game-hud__advanced {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr 1fr;
+  gap: 5px;
+  width: 100%;
+  margin: 0;
+  padding-top: 6px;
+  border-top: 1px solid rgba(113, 128, 150, .35);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.game-hud__advanced[hidden] { display: none; }
+.game-hud__advanced-metric { display: grid; gap: 2px; min-width: 0; }
+.game-hud__advanced dt {
+  overflow: hidden;
+  color: #718096;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.game-hud__advanced dd {
+  margin: 0;
+  overflow: hidden;
+  color: #b8c5d3;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .game-hud__disc-slot { display: inline-flex; align-items: center; gap: 6px; color: #cbd5e1; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .game-hud__disc-caption { text-transform: uppercase; }

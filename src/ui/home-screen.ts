@@ -18,6 +18,7 @@ export class HomeScreen {
   private readonly gameMenu: HTMLElement;
   private readonly restartDialog: HTMLElement;
   private readonly soundButton: HTMLButtonElement;
+  private readonly advancedHudButton: HTMLButtonElement;
   private readonly saveExitButton: HTMLButtonElement;
   private readonly gameMenuModal: ModalController;
   private readonly restartDialogModal: ModalController;
@@ -33,6 +34,7 @@ export class HomeScreen {
   onRequestRestart?: () => void;
   onRequestHome?: () => void;
   onRequestToggleSound?: () => void;
+  onRequestToggleAdvancedHud?: () => void;
   onRequestDebug?: () => void;
   onRequestAdvancedStats?: (modeId?: string) => void;
   onRequestTutorial?: (mode: SoloModeDefinition) => void;
@@ -110,6 +112,10 @@ export class HomeScreen {
     this.soundButton = mustQuery(menuFragment, '[data-game-menu-action="sound"]');
     this.soundButton.addEventListener('click', () => this.onRequestToggleSound?.());
     blurOnClick(this.soundButton);
+
+    this.advancedHudButton = mustQuery(menuFragment, '[data-game-menu-action="advanced-hud"]');
+    this.advancedHudButton.addEventListener('click', () => this.onRequestToggleAdvancedHud?.());
+    blurOnClick(this.advancedHudButton);
 
     this.saveExitButton = mustQuery(menuFragment, '[data-game-menu-action="save-exit"]');
     this.saveExitButton.addEventListener('click', () => this.onRequestHome?.());
@@ -190,6 +196,11 @@ export class HomeScreen {
 
   setSoundEnabled(enabled: boolean): void {
     this.soundButton.textContent = enabled ? 'SOUND ON' : 'SOUND OFF';
+  }
+
+  setAdvancedHudEnabled(enabled: boolean): void {
+    this.advancedHudButton.textContent = enabled ? 'ADVANCED HUD ON' : 'ADVANCED HUD OFF';
+    this.advancedHudButton.setAttribute('aria-pressed', String(enabled));
   }
 
   setSaveExitPending(pending: boolean): void {

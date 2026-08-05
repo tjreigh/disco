@@ -29,8 +29,24 @@
     </div>
     <div class="game-hud__bottom">
       <div class="game-hud__queue">
-        <span class="game-hud__disc-slot" aria-label="Current disc"></span>
-        <span class="game-hud__disc-slot" aria-label="Next disc"></span>
+        <div class="game-hud__discs">
+          <span class="game-hud__disc-slot" aria-label="Current disc"></span>
+          <span class="game-hud__disc-slot" aria-label="Next disc"></span>
+        </div>
+        <dl class="game-hud__advanced" aria-label="Advanced run statistics" hidden>
+          <div class="game-hud__advanced-metric">
+            <dt>TIME</dt>
+            <dd><time data-advanced-stat="time"></time></dd>
+          </div>
+          <div class="game-hud__advanced-metric">
+            <dt>DROPS</dt>
+            <dd data-advanced-stat="drops"></dd>
+          </div>
+          <div class="game-hud__advanced-metric">
+            <dt>BROKEN</dt>
+            <dd data-advanced-stat="broken"></dd>
+          </div>
+        </dl>
       </div>
       <div class="game-hud__status">
         <p class="game-hud__stack-receipt">

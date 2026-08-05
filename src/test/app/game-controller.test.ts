@@ -73,6 +73,7 @@ vi.mock('../../ui/home-screen.js', () => ({
     onRequestRestart?: () => void;
     onRequestHome?: () => void;
     onRequestToggleSound?: () => void;
+    onRequestToggleAdvancedHud?: () => void;
     onRequestDebug?: () => void;
     onRequestTutorial?: (mode: unknown) => void;
     open = vi.fn();
@@ -83,6 +84,7 @@ vi.mock('../../ui/home-screen.js', () => ({
     refreshStats = vi.fn();
     refreshAuth = vi.fn();
     setSoundEnabled = vi.fn();
+    setAdvancedHudEnabled = vi.fn();
     setSaveLoading = vi.fn();
     setSaveExitPending = vi.fn();
     constructor(_modes: unknown, onSelectMode: (mode: unknown) => void) {
@@ -178,6 +180,7 @@ import { CLASSIC_MODE, GRAVITY_MODE, PARADOX_MODE, STACK_MODE } from '../../game
 import { CLASSIC_TUTORIAL, GRAVITY_TUTORIAL } from '../../app/tutorial.js';
 import { StepKind } from '../../game/events.js';
 import { GameEngine } from '../../game/engine.js';
+import { USER_SETTINGS_STORAGE_KEY } from '../../platform/user-settings-store.js';
 
 // Untyped deliberately: every caller passes an array of mock instances or
 // mock.calls tuples, both of which are convenience-typed `any` throughout
@@ -220,6 +223,7 @@ beforeEach(() => {
   savedGameDialogInstances.length = 0;
   saveStoreState.byMode.clear();
   saveStoreState.conflicts.clear();
+  window.localStorage.removeItem(USER_SETTINGS_STORAGE_KEY);
   rafCallback = null;
   vi.stubGlobal('requestAnimationFrame', vi.fn((cb: FrameRequestCallback) => { rafCallback = cb; return 1; }));
   vi.stubGlobal('cancelAnimationFrame', vi.fn());
@@ -517,8 +521,9 @@ describe('normal drop flow', () => {
   });
 
   test('an accepted drop enters Animating, plays the drop sound, records the turn, then returns to WaitingForDrop', () => {
-    createGame();
+    const { game } = createGame();
     const homeScreen = lastOf(homeScreenInstances);
+    homeScreen.onRequestToggleAdvancedHud?.();
     homeScreen.onSelectMode(CLASSIC_MODE);
     frame(0);
 
@@ -528,16 +533,51 @@ describe('normal drop flow', () => {
     const renderer = lastOf(rendererInstances);
 
     input.onIntent({ kind: 'drop', col: 3 });
+    expect(boardSession(game).state.dropCount).toBe(1);
+    expect(document.querySelector('[data-advanced-stat="drops"]')?.textContent).toBe('0');
 
     frame(0);
     const [stateAfterDrop] = lastOf(renderer.draw.mock.calls);
     expect(stateAfterDrop.phase).toBe(GamePhase.Animating);
+    expect(document.querySelector('[data-advanced-stat="drops"]')?.textContent).toBe('0');
     expect(audio.playDrop).toHaveBeenCalledTimes(1);
     expect(debugPanel.recordTurn).toHaveBeenCalledTimes(1);
 
+    frame(1_000);
+    expect(document.querySelector('[data-advanced-stat="drops"]')?.textContent).toBe('1');
     drainAnimations();
     const [stateAfterAnimation] = lastOf(renderer.draw.mock.calls);
     expect(stateAfterAnimation.phase).toBe(GamePhase.WaitingForDrop);
+  });
+
+  test('Advanced HUD counts broken discs once per completed clear animation step', () => {
+    const { game } = createGame();
+    const homeScreen = lastOf(homeScreenInstances);
+    homeScreen.onRequestToggleAdvancedHud?.();
+    homeScreen.onSelectMode(CLASSIC_MODE);
+    frame(0);
+
+    const controller = (game as any).solo;
+    const clear = (count: number, chainLevel: number) => ({
+      kind: StepKind.Clear,
+      cleared: Array.from({ length: count }, (_, col) => ({ row: 6, col })),
+      discs: Array.from({ length: count }, (_, value) => makeDisc(value + 1, DiscKind.Numbered)),
+      chainLevel,
+      pointsAwarded: 10,
+    });
+
+    expect(document.querySelector('[data-advanced-stat="broken"]')?.textContent).toBe('0');
+    controller.handleSessionStepComplete(clear(2, 0));
+    frame(0);
+    expect(document.querySelector('[data-advanced-stat="broken"]')?.textContent).toBe('2');
+
+    controller.handleSessionStepComplete({ kind: StepKind.Fall, moves: [] });
+    frame(0);
+    expect(document.querySelector('[data-advanced-stat="broken"]')?.textContent).toBe('2');
+
+    controller.handleSessionStepComplete(clear(3, 1));
+    frame(0);
+    expect(document.querySelector('[data-advanced-stat="broken"]')?.textContent).toBe('5');
   });
 
   test('shows a Temporal Echo callout when the repeated drop begins', () => {
@@ -993,6 +1033,8 @@ describe('saved game resume', () => {
     const homeScreen = lastOf(homeScreenInstances);
     const dialog = lastOf(savedGameDialogInstances);
 
+    homeScreen.onRequestToggleAdvancedHud?.();
+    expect(homeScreen.setAdvancedHudEnabled).toHaveBeenLastCalledWith(true);
     homeScreen.onSelectMode(STACK_MODE);
     expect(dialog.showSave).toHaveBeenCalledWith(STACK_MODE, save);
     dialog.onResume?.(save);
@@ -1014,12 +1056,21 @@ describe('saved game resume', () => {
     expect(call[9]).toBeNull();
     expect(boardSession(game).view.longestStreak).toBe(7);
     expect(homeScreen.close).toHaveBeenCalled();
+    expect(document.querySelector('[data-advanced-stat="time"]')?.textContent).toBe('2:00');
+    expect(document.querySelector('[data-advanced-stat="drops"]')?.textContent)
+      .toBe(String(save.state.dropCount));
+    expect(document.querySelector('[data-advanced-stat="broken"]')?.textContent).toBe('42');
     clock = 1_100;
+    frame(0);
+    expect(document.querySelector('[data-advanced-stat="time"]')?.textContent).toBe('2:01');
     homeScreen.onRequestGameMenu?.();
     expect(lastOf(saveStoreInstances).write.mock.calls.at(-1)![1].session).toMatchObject({
       playTimeMs: 121_000,
       discsBroken: 42,
     });
+    clock = 5_100;
+    frame(0);
+    expect(document.querySelector('[data-advanced-stat="time"]')?.textContent).toBe('2:01');
     now.mockRestore();
   });
 

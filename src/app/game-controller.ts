@@ -31,6 +31,7 @@ import type { SaveGameV1 } from '../game/save.js';
 import type { UiMounts } from '../ui/ui-root.js';
 import { LocalBoardSession } from './local-board-session.js';
 import { PlayTimeTracker } from './play-time-tracker.js';
+import { UserSettingsStore } from '../platform/user-settings-store.js';
 
 const TURN_PIP_CAPACITY = Math.max(
   ...SOLO_MODES.map(mode => mode.rules.progression.initialTurnsPerLevel),
@@ -68,7 +69,11 @@ export class SoloSessionController {
   private tutorialStepIndex = 0;
   private saveExitPending = false;
   private readonly playTime = new PlayTimeTracker();
+  private readonly userSettings = new UserSettingsStore();
+  private advancedHudEnabled = this.userSettings.get().advancedHud;
   private discsBrokenThisGame = 0;
+  private displayedDropsThisGame = 0;
+  private displayedDiscsBrokenThisGame = 0;
   private readonly refreshSavesOnFocus = (): void => {
     this.refreshSavesForMenu();
   };
@@ -98,9 +103,7 @@ export class SoloSessionController {
         onStableTurn: result => this.handleStableSessionTurn(result),
         onTurn: result => this.handleSessionTurn(result),
         onStepStart: step => this.handleSessionStepStart(step),
-        onStepComplete: step => {
-          if (step.kind !== StepKind.Bonus) this.debug.advancePlayback();
-        },
+        onStepComplete: step => this.handleSessionStepComplete(step),
         onPlaybackComplete: result => this.handleSessionPlaybackComplete(result),
       },
     });
@@ -138,6 +141,7 @@ export class SoloSessionController {
     this.homeScreen.onRequestRestart = () => this.restart();
     this.homeScreen.onRequestHome = () => void this.saveAndReturnToMenu();
     this.homeScreen.onRequestToggleSound = () => this.toggleSound();
+    this.homeScreen.onRequestToggleAdvancedHud = () => this.toggleAdvancedHud();
     this.homeScreen.onRequestDebug = () => this.openDebugPanel();
     this.homeScreen.onRequestAdvancedStats = modeId => this.advancedStatsDialog.open({
       modes: SOLO_MODES.map(mode => ({ mode, stats: this.statsStore.loadStats(mode.id) })),
@@ -168,6 +172,7 @@ export class SoloSessionController {
       this.homeScreen.open();
     };
     this.homeScreen.setSoundEnabled(this.audio.isEnabled());
+    this.homeScreen.setAdvancedHudEnabled(this.advancedHudEnabled);
     this.unsubscribeStatsStore = this.statsStore.subscribe(() => this.handleStatsStoreUpdate());
     this.unsubscribeSaveStore = this.saveStore.subscribe(() => this.handleSaveStoreUpdate());
     this.handleSaveStoreUpdate();
@@ -507,6 +512,15 @@ export class SoloSessionController {
     }
   }
 
+  private handleSessionStepComplete(step: PhysicsStep): void {
+    if (step.kind === StepKind.Drop && !step.temporalEcho) {
+      this.displayedDropsThisGame++;
+    } else if (step.kind === StepKind.Clear) {
+      this.displayedDiscsBrokenThisGame += step.cleared.length;
+    }
+    if (step.kind !== StepKind.Bonus) this.debug.advancePlayback();
+  }
+
   private setGameOver(reason?: GameOverReason, clearSave = true): void {
     this.session.setGameOver(reason);
     this.playTime.pause('gameover');
@@ -653,6 +667,7 @@ export class SoloSessionController {
     this.pendingRewind = false;
     this.playTime.resume('rewind');
     this.playTime.resume('gameover');
+    this.displayedDropsThisGame = this.state.dropCount;
     this.writeCurrentSave();
     this.debug.refresh();
     this.releaseGameplayFocus();
@@ -784,11 +799,19 @@ export class SoloSessionController {
   private startRunTracking(playTimeMs = 0, discsBroken = 0): void {
     this.playTime.startFrom(playTimeMs);
     this.discsBrokenThisGame = discsBroken;
+    this.displayedDropsThisGame = this.state.dropCount;
+    this.displayedDiscsBrokenThisGame = discsBroken;
     if (document.visibilityState !== 'visible') this.playTime.pause('backgrounded');
   }
 
   private toggleSound(): void {
     this.homeScreen.setSoundEnabled(this.audio.toggleEnabled());
+  }
+
+  private toggleAdvancedHud(): void {
+    this.advancedHudEnabled = !this.advancedHudEnabled;
+    this.userSettings.setAdvancedHud(this.advancedHudEnabled);
+    this.homeScreen.setAdvancedHudEnabled(this.advancedHudEnabled);
   }
 
   private openDebugPanel(): void {
@@ -872,6 +895,15 @@ export class SoloSessionController {
       turnsPerLevel: rewindPreview?.turnsPerLevel ?? view.displayedLevelProgress.turnsPerLevel,
       turnsRemaining: rewindPreview?.turnsRemaining ?? view.displayedLevelProgress.turnsRemaining,
       turnPipCapacity: TURN_PIP_CAPACITY,
+      ...(this.advancedHudEnabled && !this.activeTutorial
+        ? {
+            advancedStats: {
+              playTimeMs: this.playTime.peek(),
+              discsDropped: this.displayedDropsThisGame,
+              discsBroken: this.displayedDiscsBrokenThisGame,
+            },
+          }
+        : {}),
       hasGravity: this.mode.rules.placement.kind === 'stage-and-tilt@1',
       hasRewind: rewindModifier(this.mode.rules) !== undefined,
       isRewindPreview: Boolean(rewindPreview),

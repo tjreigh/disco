@@ -260,11 +260,13 @@ describe('HomeScreen', () => {
     const onRestart = vi.fn();
     const onHome = vi.fn();
     const onToggleSound = vi.fn();
+    const onToggleAdvancedHud = vi.fn();
     const onRequestDebug = vi.fn();
     home.onRequestResume = onResume;
     home.onRequestRestart = onRestart;
     home.onRequestHome = onHome;
     home.onRequestToggleSound = onToggleSound;
+    home.onRequestToggleAdvancedHud = onToggleAdvancedHud;
     home.onRequestDebug = onRequestDebug;
 
     home.open();
@@ -284,11 +286,20 @@ describe('HomeScreen', () => {
     expect(resumeButton.classList).toContain('game-menu-button--primary');
     expect(document.querySelector('.game-menu-note')?.textContent).toBe('Progress saves automatically.');
 
-    for (const label of ['RESUME', 'SAVE & EXIT', 'SOUND ON', 'REPORT / DEBUG']) {
+    home.setAdvancedHudEnabled(false);
+    const advancedHud = document.querySelector<HTMLButtonElement>('[data-game-menu-action="advanced-hud"]')!;
+    expect(advancedHud.textContent).toBe('ADVANCED HUD OFF');
+    expect(advancedHud.getAttribute('aria-pressed')).toBe('false');
+
+    for (const label of ['RESUME', 'SAVE & EXIT', 'SOUND ON', 'ADVANCED HUD OFF', 'REPORT / DEBUG']) {
       Array.from(document.querySelectorAll<HTMLButtonElement>('.game-menu-button'))
         .find(button => button.textContent === label)!
         .click();
     }
+    expect(onToggleAdvancedHud).toHaveBeenCalledOnce();
+    home.setAdvancedHudEnabled(true);
+    expect(advancedHud.textContent).toBe('ADVANCED HUD ON');
+    expect(advancedHud.getAttribute('aria-pressed')).toBe('true');
     closeMenuButton.click();
 
     restartButton.click();

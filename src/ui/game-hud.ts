@@ -21,6 +21,12 @@ export interface GameHudState {
   initialTurnsPerLevel: number;
   turnsPerLevel: number;
   turnsRemaining: number;
+  /** Opt-in live run metrics. Omit when the Advanced HUD setting is disabled. */
+  advancedStats?: {
+    playTimeMs: number;
+    discsDropped: number;
+    discsBroken: number;
+  };
   /** Shared full-width pip capacity; modes with fewer turns occupy the leftmost slots. */
   turnPipCapacity?: number;
   hasGravity: boolean;
@@ -74,6 +80,10 @@ export class GameHud {
   private readonly turnsLabel: HTMLElement;
   private readonly turnPips: HTMLElement;
   private readonly records: HTMLElement;
+  private readonly advanced: HTMLElement;
+  private readonly advancedTime: HTMLTimeElement;
+  private readonly advancedDrops: HTMLElement;
+  private readonly advancedBroken: HTMLElement;
   private readonly stackReceipt: HTMLElement;
   private readonly stackReceiptTotal: HTMLElement;
   private readonly stackReceiptBreakdown: HTMLElement;
@@ -92,6 +102,7 @@ export class GameHud {
   private currentDiscRenderKey = '';
   private nextDiscRenderKey = '';
   private hintRenderKey = '';
+  private advancedRenderKey = '';
 
   constructor(container?: HTMLElement | null) {
     const fragment = cloneTemplate('tpl-game-hud');
@@ -102,6 +113,10 @@ export class GameHud {
     this.turnsLabel = mustQuery(fragment, '[data-ui-ref="turns-label"]');
     this.turnPips = mustQuery(fragment, '.game-hud__pips');
     this.records = mustQuery(fragment, '.game-hud__records');
+    this.advanced = mustQuery(fragment, '.game-hud__advanced');
+    this.advancedTime = mustQuery(fragment, '[data-advanced-stat="time"]');
+    this.advancedDrops = mustQuery(fragment, '[data-advanced-stat="drops"]');
+    this.advancedBroken = mustQuery(fragment, '[data-advanced-stat="broken"]');
     this.current = mustQuery(fragment, '.game-hud__disc-slot[aria-label="Current disc"]');
     this.next = mustQuery(fragment, '.game-hud__disc-slot[aria-label="Next disc"]');
     this.gravity = mustQuery(fragment, '.game-hud__gravity');
@@ -151,6 +166,7 @@ export class GameHud {
     this.records.textContent = state.isStackMode
       ? `High ${highScore} · Best turn ${bestRecord} cleared`
       : `High ${highScore} · Best chain ${bestRecord} wave${bestRecordValue === 1 ? '' : 's'}`;
+    this.renderAdvancedStats(state.advancedStats);
     if (state.isStackMode) {
       const receipt = state.lastStackScore;
       if (state.stackCascadeActive && (state.currentStack ?? 0) > 0) {
@@ -312,6 +328,32 @@ export class GameHud {
     slot.append(caption, discElement);
   }
 
+  private renderAdvancedStats(stats: GameHudState['advancedStats']): void {
+    this.root.dataset.advancedHud = String(Boolean(stats));
+    if (!stats) {
+      this.advanced.hidden = true;
+      this.advancedTime.textContent = '';
+      this.advancedTime.removeAttribute('datetime');
+      this.advancedDrops.textContent = '';
+      this.advancedBroken.textContent = '';
+      this.advancedRenderKey = '';
+      return;
+    }
+
+    const totalSeconds = Math.max(0, Math.floor(stats.playTimeMs / 1_000));
+    const discsDropped = Math.max(0, Math.floor(stats.discsDropped));
+    const discsBroken = Math.max(0, Math.floor(stats.discsBroken));
+    const renderKey = `${totalSeconds}:${discsDropped}:${discsBroken}`;
+    if (renderKey === this.advancedRenderKey) return;
+    this.advancedRenderKey = renderKey;
+    this.advancedTime.textContent = formatPlayTime(totalSeconds);
+    this.advancedTime.dateTime = `PT${totalSeconds}S`;
+    this.advancedTime.setAttribute('aria-label', `Active play time ${accessiblePlayTime(totalSeconds)}`);
+    this.advancedDrops.textContent = discsDropped.toLocaleString('en-US');
+    this.advancedBroken.textContent = discsBroken.toLocaleString('en-US');
+    this.advanced.hidden = false;
+  }
+
   private makeCrack(variant: 'primary' | 'secondary'): HTMLElement {
     const crack = document.createElement('span');
     crack.className = `game-hud__disc-crack game-hud__disc-crack--${variant}`;
@@ -353,6 +395,26 @@ export class GameHud {
 
 function discLabel(disc: Disc): string {
   return disc.kind === DiscKind.Numbered ? `number ${disc.value}` : disc.kind.replace('-', ' ');
+}
+
+function formatPlayTime(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+    : `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+function accessiblePlayTime(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts: string[] = [];
+  if (hours > 0) parts.push(`${hours} ${hours === 1 ? 'hour' : 'hours'}`);
+  if (minutes > 0) parts.push(`${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`);
+  parts.push(`${seconds} ${seconds === 1 ? 'second' : 'seconds'}`);
+  return parts.join(' ');
 }
 
 function gravityDirection(angle: number): string {
