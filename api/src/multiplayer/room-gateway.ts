@@ -9,15 +9,31 @@ import type {
   MultiplayerClientMessage,
   MultiplayerModeIdentity,
 } from './contracts.js';
-import {
-  ScoreRaceRoomService,
-} from './room-service.js';
 import type {
+  RoomAdmission,
+  RoomAdmissionRequest,
+  RoomConnectRequest,
   RoomConnection,
   RoomDelivery,
+  RoomJoinRequest,
   RoomServiceError,
   RoomServiceResult,
+  RoomTickResult,
 } from './room-service.js';
+
+/**
+ * Structural contract shared by every per-mode room service
+ * (ScoreRaceRoomService, SharedBoardRoomService, ...). The gateway routes to
+ * one of these by the mode identity a client declares at create/join time.
+ */
+export interface MultiplayerRoomService {
+  createRoom(request: RoomAdmissionRequest): RoomServiceResult<RoomAdmission>;
+  joinRoom(request: RoomJoinRequest): RoomServiceResult<RoomAdmission>;
+  connect(request: RoomConnectRequest): RoomServiceResult<RoomConnection>;
+  disconnect(connection: RoomConnection): readonly RoomDelivery[];
+  receive(connection: RoomConnection, message: MultiplayerClientMessage): RoomServiceResult<null>;
+  tick(): RoomTickResult;
+}
 
 const ROOM_TICK_MS = 250;
 const SOCKET_MAX_PAYLOAD_BYTES = 4_096;
@@ -57,6 +73,7 @@ export interface MultiplayerGatewayOptions {
 interface ActiveSocket {
   readonly socket: WebSocket;
   readonly connection: RoomConnection;
+  readonly service: MultiplayerRoomService;
 }
 
 interface TransportErrorMessage {
@@ -65,18 +82,25 @@ interface TransportErrorMessage {
 }
 
 /**
- * Public network adapter for private Score Race rooms.
+ * Public network adapter for private multiplayer rooms.
  *
  * Guests are admitted over rate-limited HTTP. The socket authenticates in its
  * first message so reconnect credentials do not leak through URLs or access logs.
- * Only validated canonical messages cross into the room service.
+ * Only validated canonical messages cross into a room service.
+ *
+ * `servicesByModeId` holds one room service per supported mode identity (e.g.
+ * `score-race`, `shared-duel`). A create/join request declares the mode it
+ * wants and is routed to the matching service; a room's owning service is
+ * then remembered so later socket traffic for that room reaches the same
+ * service, since the socket's own first message carries no mode identity.
  */
 export async function registerMultiplayerGateway(
   app: FastifyInstance,
-  service: ScoreRaceRoomService,
+  servicesByModeId: Readonly<Record<string, MultiplayerRoomService>>,
   options: MultiplayerGatewayOptions = {},
 ): Promise<void> {
   const sockets = new Map<string, ActiveSocket>();
+  const roomOwners = new Map<string, MultiplayerRoomService>();
   const tickMs = options.tickMs ?? ROOM_TICK_MS;
 
   const dispatch = (deliveries: readonly RoomDelivery[]): void => {
@@ -89,7 +113,11 @@ export async function registerMultiplayerGateway(
   };
 
   const timer = setInterval(() => {
-    dispatch(service.tick().deliveries);
+    for (const service of Object.values(servicesByModeId)) {
+      const result = service.tick();
+      dispatch(result.deliveries);
+      for (const roomId of result.expiredRoomIds) roomOwners.delete(roomId);
+    }
   }, tickMs);
   timer.unref();
   app.addHook('onClose', async () => {
@@ -101,10 +129,14 @@ export async function registerMultiplayerGateway(
     bodyLimit: 1_024,
   }, async (request, reply) => {
     const body = admissionSchema.parse(request.body);
-    return sendAdmissionResult(reply, service.createRoom({
+    const service = servicesByModeId[body.mode.id];
+    if (!service) return sendAdmissionResult(reply, modeMismatch(), 201);
+    const result = service.createRoom({
       protocolVersion: body.protocolVersion,
       mode: copyMode(body.mode),
-    }), 201);
+    });
+    if (result.ok) roomOwners.set(result.value.roomId, service);
+    return sendAdmissionResult(reply, result, 201);
   });
 
   app.post('/multiplayer/rooms/:roomId/join', {
@@ -113,18 +145,23 @@ export async function registerMultiplayerGateway(
   }, async (request, reply) => {
     const { roomId } = roomParamsSchema.parse(request.params);
     const body = admissionSchema.parse(request.body);
-    return sendAdmissionResult(reply, service.joinRoom({
+    const service = servicesByModeId[body.mode.id];
+    if (!service) return sendAdmissionResult(reply, modeMismatch(), 201);
+    const result = service.joinRoom({
       roomId,
       protocolVersion: body.protocolVersion,
       mode: copyMode(body.mode),
-    }), 201);
+    });
+    if (result.ok) roomOwners.set(roomId, service);
+    return sendAdmissionResult(reply, result, 201);
   });
 
   app.get('/multiplayer/socket', { websocket: true }, (socket) => {
     let connection: RoomConnection | null = null;
+    let ownerService: MultiplayerRoomService | null = null;
 
     socket.on('message', (raw) => {
-      if (!connection) {
+      if (!connection || !ownerService) {
         const authentication = parseSocketAuthentication(raw);
         if (!authentication) {
           closeWithError(socket, 'invalid-message');
@@ -134,6 +171,11 @@ export async function registerMultiplayerGateway(
           closeWithError(socket, 'protocol-mismatch');
           return;
         }
+        const service = roomOwners.get(authentication.roomId);
+        if (!service) {
+          closeWithError(socket, 'room-not-found');
+          return;
+        }
         const result = service.connect(authentication);
         if (!result.ok) {
           dispatch(result.deliveries);
@@ -141,8 +183,9 @@ export async function registerMultiplayerGateway(
           return;
         }
         connection = result.value;
+        ownerService = service;
         const previous = sockets.get(connection.playerId);
-        sockets.set(connection.playerId, { socket, connection });
+        sockets.set(connection.playerId, { socket, connection, service });
         if (previous && previous.socket !== socket) {
           previous.socket.close(4001, 'Connection replaced');
         }
@@ -155,17 +198,17 @@ export async function registerMultiplayerGateway(
         closeWithError(socket, 'invalid-message');
         return;
       }
-      const result = service.receive(connection, parsed);
+      const result = ownerService.receive(connection, parsed);
       dispatch(result.deliveries);
       if (!result.ok) closeWithError(socket, result.error);
     });
 
     socket.on('close', () => {
-      if (!connection) return;
+      if (!connection || !ownerService) return;
       const active = sockets.get(connection.playerId);
       if (active?.connection !== connection) return;
       sockets.delete(connection.playerId);
-      dispatch(service.disconnect(connection));
+      dispatch(ownerService.disconnect(connection));
     });
   });
 }
@@ -225,4 +268,8 @@ function copyMode(mode: MultiplayerModeIdentity): MultiplayerModeIdentity {
     version: mode.version,
     rules: { id: mode.rules.id, version: mode.rules.version },
   };
+}
+
+function modeMismatch(): RoomServiceResult<never> {
+  return { ok: false, error: 'mode-mismatch', deliveries: [] };
 }

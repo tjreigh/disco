@@ -1,11 +1,4 @@
 import {
-  SHARED_DUEL_DISRUPTION_THRESHOLD,
-  SHARED_DUEL_MODE_ID,
-  SHARED_DUEL_MODE_VERSION,
-  SHARED_DUEL_RULES_VERSION,
-  SHARED_DUEL_TURN_TIMEOUT_MS,
-} from '../../shared/multiplayer-contracts.js';
-import {
   defineGameRules,
   defineMultiplayerMode,
 } from './mode.js';
@@ -19,6 +12,12 @@ import {
   OVERFLOW_OR_FULL_BOARD_ENDS_RUN,
   SEVEN_BY_SEVEN,
 } from './modules.js';
+
+const SHARED_DUEL_MODE_ID = 'shared-duel' as const;
+const SHARED_DUEL_MODE_VERSION = 1 as const;
+const SHARED_DUEL_RULES_VERSION = 1 as const;
+const SHARED_DUEL_TURN_TIMEOUT_MS = 15_000 as const;
+const SHARED_DUEL_DISRUPTION_THRESHOLD = 3 as const;
 
 export const SHARED_DUEL_RULES = defineGameRules({
   id: SHARED_DUEL_MODE_ID,

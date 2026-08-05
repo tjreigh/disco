@@ -364,7 +364,7 @@ function parseWireGridPos(value: unknown): WireGridPos | null {
 function parseTurnResultWire(value: unknown): TurnResultWire | null {
   if (!isRecord(value)
     || !isNonEmptyString(value.playerId)
-    || !isLaneIndex(value.column)
+    || !(value.column === null || isLaneIndex(value.column))
     || !isNonNegativeInteger(value.triggerScoreDelta)
     || !isNonNegativeInteger(value.opponentScoreDelta)
     || !isNonNegativeInteger(value.stackSize)

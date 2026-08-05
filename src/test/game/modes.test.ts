@@ -24,6 +24,17 @@ import {
   validateModeRegistries,
 } from '../../game/modes/index.js';
 import {
+  SCORE_RACE_DURATION_MS,
+  SCORE_RACE_MODE_ID,
+  SCORE_RACE_MODE_VERSION,
+  SCORE_RACE_RULES_VERSION,
+  SHARED_DUEL_DISRUPTION_THRESHOLD,
+  SHARED_DUEL_MODE_ID,
+  SHARED_DUEL_MODE_VERSION,
+  SHARED_DUEL_RULES_VERSION,
+  SHARED_DUEL_TURN_TIMEOUT_MS,
+} from '../../shared/multiplayer-contracts.js';
+import {
   capabilitiesForRules,
   defineGameRules,
   defineMultiplayerMode,
@@ -322,5 +333,32 @@ describe('Disco Duel (shared-board-duel) mode definition', () => {
     expect(SHARED_DUEL_MODE.id).toBe('shared-duel');
     expect(SHARED_DUEL_MODE.rules).toBe(SHARED_DUEL_RULES);
     expect(getMultiplayerMode('shared-duel')).toBe(SHARED_DUEL_MODE);
+  });
+});
+
+// src/game/modes/{score-race,shared-duel}.ts can't import
+// src/shared/multiplayer-contracts.ts (the API's server-only game-engine
+// build excludes src/shared from its compiled subtree), so each mode
+// redeclares its own id/version/timing constants locally instead of
+// importing the ones the API's room services build wire-protocol mode
+// identities from. Nothing but this test keeps the two copies in sync — if
+// they drift, sameMultiplayerModeIdentity() starts rejecting a compatible
+// client/server pair (or worse, silently accepting an incompatible one).
+describe('multiplayer mode identity stays in sync with the wire protocol constants', () => {
+  test('Score Race', () => {
+    expect(SCORE_RACE_MODE.id).toBe(SCORE_RACE_MODE_ID);
+    expect(SCORE_RACE_MODE.version).toBe(SCORE_RACE_MODE_VERSION);
+    expect(SCORE_RACE_RULES.version).toBe(SCORE_RACE_RULES_VERSION);
+    expect(SCORE_RACE_MODE.session).toMatchObject({ durationMs: SCORE_RACE_DURATION_MS });
+  });
+
+  test('Disco Duel', () => {
+    expect(SHARED_DUEL_MODE.id).toBe(SHARED_DUEL_MODE_ID);
+    expect(SHARED_DUEL_MODE.version).toBe(SHARED_DUEL_MODE_VERSION);
+    expect(SHARED_DUEL_RULES.version).toBe(SHARED_DUEL_RULES_VERSION);
+    expect(SHARED_DUEL_MODE.session).toMatchObject({
+      turnTimeoutMs: SHARED_DUEL_TURN_TIMEOUT_MS,
+      disruptionThreshold: SHARED_DUEL_DISRUPTION_THRESHOLD,
+    });
   });
 });

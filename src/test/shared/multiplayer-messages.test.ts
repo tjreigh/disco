@@ -136,4 +136,23 @@ describe('turn-played server message', () => {
     });
     expect(result).toEqual({ ok: false, error: 'invalid-message' });
   });
+
+  test('accepts a null column when the timer expired with no available move', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'turn-expired',
+      matchId: 'match-1',
+      board: emptyBoard(),
+      turnResult: {
+        ...turnResult,
+        column: null,
+        steps: [],
+        gameOver: true,
+        gameOverReason: 'board-full',
+      },
+      nextPlayerId: 'p2',
+    });
+    expect(result.ok).toBe(true);
+  });
 });

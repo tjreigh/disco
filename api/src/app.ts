@@ -14,11 +14,17 @@ import {
   registerMultiplayerGateway,
 } from './multiplayer/room-gateway.js';
 import {
+  SCORE_RACE_ROOM_MODE,
   ScoreRaceRoomService,
 } from './multiplayer/room-service.js';
+import {
+  SHARED_DUEL_ROOM_MODE,
+  SharedBoardRoomService,
+} from './multiplayer/shared-board-room-service.js';
 
 export interface BuildAppOptions {
   readonly roomService?: ScoreRaceRoomService;
+  readonly sharedBoardRoomService?: SharedBoardRoomService;
   readonly roomTickMs?: number;
 }
 
@@ -36,6 +42,9 @@ export async function buildApp(
   });
   const repos = new Repositories(db);
   const roomService = options.roomService ?? new ScoreRaceRoomService({
+    clock: { now: () => Date.now() },
+  });
+  const sharedBoardRoomService = options.sharedBoardRoomService ?? new SharedBoardRoomService({
     clock: { now: () => Date.now() },
   });
 
@@ -71,7 +80,10 @@ export async function buildApp(
   });
 
   await registerRoutes(app, config, repos);
-  await registerMultiplayerGateway(app, roomService, {
+  await registerMultiplayerGateway(app, {
+    [SCORE_RACE_ROOM_MODE.id]: roomService,
+    [SHARED_DUEL_ROOM_MODE.id]: sharedBoardRoomService,
+  }, {
     ...(options.roomTickMs !== undefined ? { tickMs: options.roomTickMs } : {}),
   });
   return app;

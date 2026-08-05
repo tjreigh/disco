@@ -208,7 +208,8 @@ export type WireStep =
 
 export interface TurnResultWire {
   readonly playerId: string;
-  readonly column: number;
+  /** Null when no drop occurred — the turn timer expired with no non-full column left. */
+  readonly column: number | null;
   readonly triggerScoreDelta: number;
   readonly opponentScoreDelta: number;
   readonly stackSize: number;

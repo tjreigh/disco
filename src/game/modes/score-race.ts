@@ -1,10 +1,4 @@
 import {
-  SCORE_RACE_DURATION_MS,
-  SCORE_RACE_MODE_ID,
-  SCORE_RACE_MODE_VERSION,
-  SCORE_RACE_RULES_VERSION,
-} from '../../shared/multiplayer-contracts.js';
-import {
   defineGameRules,
   defineMultiplayerMode,
 } from './mode.js';
@@ -18,6 +12,11 @@ import {
   SCORE_RACE_HISTORY_GENERATION,
   SEVEN_BY_SEVEN,
 } from './modules.js';
+
+const SCORE_RACE_MODE_ID = 'score-race' as const;
+const SCORE_RACE_MODE_VERSION = 1 as const;
+const SCORE_RACE_RULES_VERSION = 1 as const;
+const SCORE_RACE_DURATION_MS = 180_000;
 
 export const SCORE_RACE_RULES = defineGameRules({
   id: SCORE_RACE_MODE_ID,

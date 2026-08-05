@@ -5,22 +5,28 @@
   "type": "module",
   "imports": {
     "#multiplayer-contracts": "./dist/shared/multiplayer-contracts.js",
-    "#multiplayer-messages": "./dist/shared/multiplayer-messages.js"
+    "#multiplayer-messages": "./dist/shared/multiplayer-messages.js",
+    "#game-engine": "./dist/game/engine.js",
+    "#game-scoring": "./dist/game/scoring/owner-attribution.js",
+    "#game-save": "./dist/game/save.js",
+    "#game-model": "./dist/game/model.js",
+    "#game-modes": "./dist/game/modes/index.js"
   },
   "scripts": {
     "clean": "rm -rf dist",
     "build:contracts": "tsc -p tsconfig.contracts.json",
-    "build": "npm run clean && npm run build:contracts && tsc -p tsconfig.json",
-    "predev": "npm run build:contracts",
+    "build:game": "tsc -p tsconfig.game.json",
+    "build": "npm run clean && npm run build:contracts && npm run build:game && tsc -p tsconfig.json",
+    "predev": "npm run build:contracts && npm run build:game",
     "dev": "tsx watch src/server.ts",
     "premigrate": "npm run build:contracts",
     "migrate": "tsx src/db/migrate.ts",
     "start": "node dist/server.js",
     "pretest": "npm run typecheck",
     "test": "vitest run",
-    "pretest:coverage": "npm run build:contracts",
+    "pretest:coverage": "npm run build:contracts && npm run build:game",
     "test:coverage": "vitest run --coverage",
-    "typecheck": "npm run build:contracts && tsc -p tsconfig.json --noEmit"
+    "typecheck": "npm run build:contracts && npm run build:game && tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

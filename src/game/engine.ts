@@ -24,6 +24,7 @@ import {
 import {
   ParadoxSystem, type RewindPreview, type TurnCheckpoint,
 } from './paradox/system.js';
+export type { PhysicsStep } from './events.js';
 export type { RewindFractureTarget, RewindPreview } from './paradox/system.js';
 import {
   createGameSeed, createSeededRandom, deriveSeed, SnapshotRandomSource,
