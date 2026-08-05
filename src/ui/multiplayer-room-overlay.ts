@@ -129,7 +129,7 @@ export class MultiplayerRoomOverlay {
       return;
     }
     if (view.compatibilityError) {
-      this.renderError('This match uses an incompatible Disco multiplayer version.');
+      this.renderError(compatibilityErrorText(view.compatibilityError));
       return;
     }
     if (view.phase === 'finished') {
@@ -188,6 +188,27 @@ export class MultiplayerRoomOverlay {
     } catch {
       this.copyButton.textContent = 'COPY FAILED';
     }
+  }
+}
+
+// Each case here is a genuinely different failure with a different likely
+// fix — collapsing them into one "incompatible version" string in the past
+// hid a real wire-protocol parser bug behind text that pointed at version
+// skew that didn't exist. The full detail (raw offending payload, expected
+// vs. received identity, etc.) is logged to the console at the single
+// choke point both session controllers funnel through — see
+// failCompatibility in multiplayer-session-controller.ts and
+// #failCompatibility in shared-board-session-controller.ts.
+function compatibilityErrorText(error: RoomOverlayCompatibilityError): string {
+  switch (error) {
+    case 'protocol-mismatch':
+      return 'Your Disco client is out of date. Refresh the page to get the latest version.';
+    case 'rules-mismatch':
+      return 'This match uses a different ruleset than this client expects. Refresh and try again.';
+    case 'session-mismatch':
+      return 'This match’s session settings don’t match what this client expects. Refresh and try again.';
+    case 'invalid-message':
+      return 'The server sent a message this client couldn’t understand. This is likely a bug — check the browser console for details.';
   }
 }
 

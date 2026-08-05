@@ -234,13 +234,13 @@ export class MultiplayerSessionController {
     if (this.lifecycle.kind === 'incompatible') return;
     const parsed = parseMultiplayerServerMessage(value);
     if (!parsed.ok) {
-      this.failCompatibility(parsed.error);
+      this.failCompatibility(parsed.error, value);
       return;
     }
     const message = parsed.message;
     if (message.roomId !== this.roomId) return;
     if (!sameMultiplayerModeIdentity(message.mode, this.mode)) {
-      this.failCompatibility('rules-mismatch');
+      this.failCompatibility('rules-mismatch', { received: message.mode, expected: this.mode });
       return;
     }
 
@@ -264,7 +264,9 @@ export class MultiplayerSessionController {
         if (this.lifecycle.kind !== 'lobby' && this.lifecycle.kind !== 'complete') return;
         if (this.definition.session.kind === 'timed-score-race@1'
           && message.deadline - message.startsAt !== this.definition.session.durationMs) {
-          this.failCompatibility('session-mismatch');
+          this.failCompatibility('session-mismatch', {
+            message, expectedDurationMs: this.definition.session.durationMs,
+          });
           return;
         }
         this.progressSequence = 0;
@@ -343,7 +345,7 @@ export class MultiplayerSessionController {
     const match = this.matchContext();
     if (!match || match.matchId !== matchId || this.lifecycle.kind === 'complete') return;
     if (progress.playerId === this.playerId) {
-      this.failCompatibility('invalid-message');
+      this.failCompatibility('invalid-message', { reason: 'received own progress from the server', progress });
       return;
     }
     if (match.opponent && progress.sequence <= match.opponent.sequence) return;
@@ -358,7 +360,7 @@ export class MultiplayerSessionController {
     if (!match || match.matchId !== matchId || this.lifecycle.kind === 'complete') return;
     const localized = localizeMultiplayerResult(result, this.playerId);
     if (!localized) {
-      this.failCompatibility('invalid-message');
+      this.failCompatibility('invalid-message', { reason: 'could not localize match result', result });
       return;
     }
     this.lifecycle = {
@@ -454,7 +456,14 @@ export class MultiplayerSessionController {
     }
   }
 
-  private failCompatibility(error: MultiplayerCompatibilityError): void {
+  // `detail` is deliberately permanent, not a debugging leftover: this is
+  // the single choke point every incompatibility path funnels through, and
+  // the UI only ever shows a generic category (see compatibilityErrorText
+  // in multiplayer-room-overlay.ts) — the console is where the actual
+  // offending payload has to be visible, or a real bug here (e.g. a wire
+  // parser rejecting a well-formed message) is nearly unfindable.
+  private failCompatibility(error: MultiplayerCompatibilityError, detail?: unknown): void {
+    console.error(`[multiplayer] session became incompatible: ${error}`, detail);
     this.lifecycle = { kind: 'incompatible', error };
   }
 

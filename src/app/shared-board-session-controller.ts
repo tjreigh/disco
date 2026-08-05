@@ -169,13 +169,13 @@ export class SharedBoardSessionController {
   #receive(raw: unknown): void {
     const parsed = parseMultiplayerServerMessage(raw);
     if (!parsed.ok) {
-      this.#failCompatibility(parsed.error === 'protocol-mismatch' ? 'protocol-mismatch' : 'invalid-message');
+      this.#failCompatibility(parsed.error, raw);
       return;
     }
     const message = parsed.message;
     if (message.roomId !== this.#roomId) return;
     if (!sameMultiplayerModeIdentity(message.mode, this.#mode)) {
-      this.#failCompatibility('rules-mismatch');
+      this.#failCompatibility('rules-mismatch', { received: message.mode, expected: this.#mode });
       return;
     }
 
@@ -290,7 +290,14 @@ export class SharedBoardSessionController {
     }
   }
 
-  #failCompatibility(error: SharedBoardCompatibilityError): void {
+  // `detail` is deliberately permanent, not a debugging leftover: this is
+  // the single choke point every incompatibility path funnels through, and
+  // the UI only ever shows a generic category (see compatibilityErrorText
+  // in multiplayer-room-overlay.ts) — the console is where the actual
+  // offending payload has to be visible, or a real bug here (e.g. a wire
+  // parser rejecting a well-formed message) is nearly unfindable.
+  #failCompatibility(error: SharedBoardCompatibilityError, detail?: unknown): void {
+    console.error(`[shared-duel] session became incompatible: ${error}`, detail);
     this.#lifecycle = { kind: 'incompatible', error };
   }
 

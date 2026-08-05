@@ -89,4 +89,28 @@ describe('MultiplayerRoomOverlay', () => {
 
     expect(document.querySelector<HTMLElement>('.multiplayer-room')!.hidden).toBe(true);
   });
+
+  // Regression: these four failures used to render identical text ("This
+  // match uses an incompatible Disco multiplayer version."), which hid a
+  // real wire-protocol parser bug behind a misleading version-skew message.
+  test('shows different text for each compatibility failure category', () => {
+    const overlay = new MultiplayerRoomOverlay();
+    const base = { ...completedView(), phase: 'lobby' as const, result: null };
+
+    overlay.render({ ...base, compatibilityError: 'protocol-mismatch' }, null);
+    const protocolText = document.querySelector('.multiplayer-room__message')!.textContent;
+    expect(protocolText).toContain('out of date');
+
+    overlay.render({ ...base, compatibilityError: 'invalid-message' }, null);
+    const invalidText = document.querySelector('.multiplayer-room__message')!.textContent;
+    expect(invalidText).toContain('couldn’t understand');
+    expect(invalidText).toContain('console');
+
+    overlay.render({ ...base, compatibilityError: 'rules-mismatch' }, null);
+    const rulesText = document.querySelector('.multiplayer-room__message')!.textContent;
+
+    expect(protocolText).not.toBe(invalidText);
+    expect(protocolText).not.toBe(rulesText);
+    expect(invalidText).not.toBe(rulesText);
+  });
 });

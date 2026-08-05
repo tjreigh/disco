@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { MultiplayerSessionController } from '../../app/multiplayer-session-controller.js';
 import {
   SCORE_RACE_MODE,
@@ -294,17 +294,19 @@ describe('MultiplayerSessionController lifecycle', () => {
   });
 
   test('keeps compatibility failures terminal when later messages arrive', () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { transport, controller } = createSession();
     const identity = multiplayerModeIdentity(SCORE_RACE_MODE);
+    const mismatchedMode = {
+      ...identity,
+      rules: { ...identity.rules, version: identity.rules.version + 1 },
+    };
 
     transport.receive(serverMessage({
       type: 'room-state',
       localReady: false,
       opponentReady: false,
-    }, {
-      ...identity,
-      rules: { ...identity.rules, version: identity.rules.version + 1 },
-    }));
+    }, mismatchedMode));
     transport.receive(serverMessage({
       type: 'room-state',
       localReady: false,
@@ -313,6 +315,16 @@ describe('MultiplayerSessionController lifecycle', () => {
 
     expect(controller.view.phase).toBe('finished');
     expect(controller.view.compatibilityError).toBe('rules-mismatch');
+    // Regression: a generic "incompatible version" message with no detail
+    // logged anywhere made a real parser bug indistinguishable from an
+    // actual version mismatch (see docs/fix-shared-duel-phase4-findings.md).
+    // The console log is the only place the actual received/expected
+    // identities are visible, so it has to fire with real detail.
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining('rules-mismatch'),
+      expect.objectContaining({ received: mismatchedMode, expected: identity }),
+    );
+    consoleError.mockRestore();
   });
 
   test('rejects malformed messages and a duration outside the versioned session contract', () => {
