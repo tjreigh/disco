@@ -13,6 +13,7 @@ import {
 import { makeCrackedDisc } from './disc.js';
 import type { DiscFactory } from './disc.js';
 import { CLASSIC_RULES } from './modes/index.js';
+import { pointsForChain } from './scoring/formulas.js';
 
 /** Compacts a board toward a gravity direction, producing a Fall step of every disc that moved. */
 export type SettleFn = (board: Board) => FallStep;
@@ -84,22 +85,6 @@ export function commitBoard(target: Board, source: Board): void {
 
 function isBoardEmpty(board: Board): boolean {
   return board.every(row => row.every(cell => cell === null));
-}
-
-/** Points awarded per cleared disc at a one-based chain length. */
-export function pointsForChain(
-  chainLength: number,
-  pointsPerDisc = 7,
-  exponent = 2.5,
-): number {
-  if (!Number.isInteger(chainLength) || chainLength < 1) return 0;
-  return Math.floor(pointsPerDisc * Math.pow(chainLength, exponent));
-}
-
-/** Points awarded for a completed Stack-mode cascade. */
-export function pointsForStack(stackSize: number, pointsPerStackUnit: number): number {
-  if (!Number.isInteger(stackSize) || stackSize < 1) return 0;
-  return pointsPerStackUnit * stackSize * stackSize;
 }
 
 // Resolves every clear/reveal/fall chain on a board that has already changed.

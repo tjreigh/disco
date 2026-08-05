@@ -13,8 +13,9 @@ import {
   type DiscQueueSnapshot, type PlayableDiscGeneratorSnapshot, type QueuedDiscSnapshot,
 } from './disc.js';
 import {
-  computeClearSteps, computeDropSteps, computePushStep, PhysicsTrace, pointsForStack,
+  computeClearSteps, computeDropSteps, computePushStep, PhysicsTrace,
 } from './physics.js';
+import { pointsForStack } from './scoring/formulas.js';
 import { CLASSIC_RULES } from './modes/index.js';
 import {
   rewindModifier,
