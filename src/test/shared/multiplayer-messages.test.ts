@@ -36,6 +36,39 @@ describe('play-turn client message', () => {
   });
 });
 
+describe('match-countdown server message', () => {
+  // Regression: Score Race's deadline is startsAt + a real match duration
+  // (always strictly later), but shared-board-duel has no fixed match
+  // duration and reuses deadline === startsAt (SharedBoardRoomService
+  // .countdownMessage). A parser that required deadline > startsAt rejected
+  // every shared-duel match-countdown message outright.
+  test('accepts deadline equal to startsAt (shared-board-duel has no match duration)', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'match-countdown',
+      matchId: 'match-1',
+      startsAt: 1_000,
+      deadline: 1_000,
+      seed: 1,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test('still rejects a deadline before startsAt', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'match-countdown',
+      matchId: 'match-1',
+      startsAt: 1_000,
+      deadline: 999,
+      seed: 1,
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+});
+
 describe('turn-assigned server message', () => {
   test('parses a valid assignment', () => {
     const result = parseMultiplayerServerMessage({

@@ -140,7 +140,12 @@ export function parseMultiplayerServerMessage(
         || !isNonEmptyString(value.matchId)
         || !isNonNegativeInteger(value.startsAt)
         || !isNonNegativeInteger(value.deadline)
-        || value.startsAt >= value.deadline
+        // Score Race's deadline is startsAt + a real match duration, always
+        // strictly later. Shared-board-duel has no fixed match duration, so
+        // its countdown message reuses deadline === startsAt (see
+        // SharedBoardRoomService.countdownMessage) — only reject deadline
+        // actually preceding the match start, not equal to it.
+        || value.startsAt > value.deadline
         || !isUint32(value.seed)) {
         return invalidMessage();
       }
