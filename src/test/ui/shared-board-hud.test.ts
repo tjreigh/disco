@@ -99,7 +99,7 @@ describe('SharedBoardHud', () => {
       localScore: 400,
       opponentScore: 300,
       isMyTurn: false,
-      result: { outcome: 'win', localScore: 400, opponentScore: 300 },
+      result: { outcome: 'win', localScore: 400, opponentScore: 300, forfeitedBy: null },
       compatibilityError: null,
     });
     expect(document.querySelector('.multiplayer-hud__result')?.textContent).toBe('YOU WIN · 400–300');

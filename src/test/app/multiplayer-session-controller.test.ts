@@ -196,6 +196,7 @@ describe('MultiplayerSessionController lifecycle', () => {
       outcome: 'win',
       localScore: 500,
       opponentScore: 250,
+      forfeitedBy: null,
     });
   });
 

@@ -45,6 +45,7 @@ export class MultiplayerRoomOverlay {
   private readonly root: HTMLElement;
   private readonly eyebrow: HTMLElement;
   private readonly title: HTMLElement;
+  private readonly badge: HTMLElement;
   private readonly message: HTMLElement;
   private readonly roomCode: HTMLElement;
   private readonly actions: HTMLElement;
@@ -63,6 +64,7 @@ export class MultiplayerRoomOverlay {
     this.root = mustQuery(fragment, '.multiplayer-room');
     this.eyebrow = mustQuery(fragment, '.multiplayer-room__eyebrow');
     this.title = mustQuery(fragment, '.multiplayer-room__panel > h1');
+    this.badge = mustQuery(fragment, '.multiplayer-room__badge');
     this.message = mustQuery(fragment, '.multiplayer-room__message');
     this.roomCode = mustQuery(fragment, '.multiplayer-room__code');
     this.actions = mustQuery(fragment, '.multiplayer-room__actions');
@@ -101,6 +103,11 @@ export class MultiplayerRoomOverlay {
   }
 
   render(view: RoomOverlayView, error: MultiplayerTransportError | null): void {
+    // Only the result state ever shows a badge — clear it up front so no
+    // other branch has to remember to do so.
+    this.badge.hidden = true;
+    this.homeLink.hidden = false;
+
     // A result is authoritative and terminal. A transport error can race in
     // immediately afterward (for example, when both deadline timers fire), but
     // it must never replace the winner presentation the player already earned.
@@ -111,6 +118,12 @@ export class MultiplayerRoomOverlay {
       this.title.textContent = view.result.outcome === 'win'
         ? 'YOU WIN'
         : view.result.outcome === 'loss' ? 'YOU LOSE' : 'TIE';
+      if (view.result.forfeitedBy) {
+        this.badge.hidden = false;
+        this.badge.textContent = view.result.forfeitedBy === 'local'
+          ? 'YOU FORFEITED'
+          : 'OPPONENT FORFEITED';
+      }
       const score =
         `${view.result.localScore.toLocaleString('en-US')} – ${view.result.opponentScore.toLocaleString('en-US')}`;
       this.message.textContent = view.localReady
@@ -147,7 +160,11 @@ export class MultiplayerRoomOverlay {
     }
     // The pausing player sees their own pause-menu dialog instead of this
     // overlay — this branch is only for the other player, who has no
-    // controls to offer here beyond waiting.
+    // controls to offer here beyond waiting. The match is still live and
+    // resumable, unlike every other state this overlay renders, so — unlike
+    // those — leaving via the home link isn't a real option here: there's no
+    // way back into an in-progress match, only the room code from before
+    // the match started. Hide it rather than offer a dead end.
     if (view.paused && !view.pausedByLocal && view.phase === 'playing') {
       this.root.hidden = false;
       this.root.dataset.state = 'paused';
@@ -157,6 +174,7 @@ export class MultiplayerRoomOverlay {
       this.roomCode.textContent = '';
       this.readyButton.hidden = true;
       this.copyButton.hidden = true;
+      this.homeLink.hidden = true;
       return;
     }
     if (view.phase !== 'lobby' && view.phase !== 'ready') {

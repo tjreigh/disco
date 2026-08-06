@@ -670,6 +670,7 @@ describe('ScoreRaceRoomService', () => {
           { playerId: harness.host.playerId, score: 120 },
           { playerId: harness.guest.playerId, score: 150 },
         ],
+        forfeitedBy: null,
       },
     });
     expect(results[1]?.message).toEqual(results[0]?.message);
@@ -823,6 +824,7 @@ describe('ScoreRaceRoomService', () => {
           { playerId: harness.host.playerId, score: 200 },
           { playerId: harness.guest.playerId, score: 180 },
         ],
+        forfeitedBy: null,
       },
     }));
     expect(errorOf(harness.service.receive(
@@ -1100,6 +1102,7 @@ describe('ScoreRaceRoomService pause and forfeit', () => {
           { playerId: harness.host.playerId, score: 500 },
           { playerId: harness.guest.playerId, score: 10 },
         ],
+        forfeitedBy: harness.host.playerId,
       },
     }));
 

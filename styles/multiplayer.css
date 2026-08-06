@@ -28,6 +28,17 @@
   font-size: 21px;
   letter-spacing: .1em;
 }
+.multiplayer-room__badge {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 3px 10px;
+  border: 1px solid #ffd166;
+  border-radius: 999px;
+  color: #ffd166;
+  font: 800 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .1em;
+}
+.multiplayer-room__badge[hidden] { display: none; }
 .multiplayer-room__message {
   margin-top: 10px;
   color: #9fb3c8;

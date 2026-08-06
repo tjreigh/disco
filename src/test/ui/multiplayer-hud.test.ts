@@ -50,6 +50,7 @@ describe('MultiplayerHud', () => {
         outcome: 'win',
         localScore: 2_000,
         opponentScore: 1_250,
+        forfeitedBy: null,
       },
       compatibilityError: null,
     });

@@ -35,6 +35,7 @@ function completedView(): MultiplayerSessionView {
       outcome: 'win',
       localScore: 2_000,
       opponentScore: 1_250,
+      forfeitedBy: null,
     },
     compatibilityError: null,
     board: {} as LocalBoardSessionView,
@@ -97,7 +98,7 @@ describe('MultiplayerRoomOverlay', () => {
     expect(document.querySelector<HTMLElement>('.multiplayer-room')!.hidden).toBe(true);
   });
 
-  test('shows a passive paused banner only to the player who did not pause', () => {
+  test('shows a passive paused banner only to the player who did not pause, with no dead-end home link', () => {
     const overlay = new MultiplayerRoomOverlay();
     const playing: MultiplayerSessionView = {
       ...completedView(),
@@ -114,9 +115,39 @@ describe('MultiplayerRoomOverlay', () => {
     expect(root.dataset.state).toBe('paused');
     expect(root.textContent).toContain('PAUSED');
     expect(root.textContent).toContain('opponent paused the match');
+    // There's no way back into an in-progress match from home, so the home
+    // link shouldn't be offered while paused (unlike every other state).
+    expect(root.querySelector<HTMLAnchorElement>('.multiplayer-room__button--quiet')?.hidden)
+      .toBe(true);
 
     overlay.render(overlayView({ ...playing, pausedBy: 'local-player' }, true), null);
     expect(root.hidden).toBe(true);
+  });
+
+  test('badges a forfeited result for both the winner and the forfeiter, and clears it for a natural finish', () => {
+    const overlay = new MultiplayerRoomOverlay();
+
+    overlay.render(overlayView({
+      ...completedView(),
+      result: { outcome: 'win', localScore: 2_000, opponentScore: 1_250, forfeitedBy: 'opponent' },
+    }), null);
+    const root = document.querySelector<HTMLElement>('.multiplayer-room')!;
+    const badge = document.querySelector<HTMLElement>('.multiplayer-room__badge')!;
+    expect(badge.hidden).toBe(false);
+    expect(badge.textContent).toBe('OPPONENT FORFEITED');
+    // The home link is fine here — the match is genuinely over.
+    expect(root.querySelector<HTMLAnchorElement>('.multiplayer-room__button--quiet')?.hidden)
+      .toBe(false);
+
+    overlay.render(overlayView({
+      ...completedView(),
+      result: { outcome: 'loss', localScore: 1_250, opponentScore: 2_000, forfeitedBy: 'local' },
+    }), null);
+    expect(badge.hidden).toBe(false);
+    expect(badge.textContent).toBe('YOU FORFEITED');
+
+    overlay.render(overlayView(completedView()), null);
+    expect(badge.hidden).toBe(true);
   });
 
   // Regression: these four failures used to render identical text ("This

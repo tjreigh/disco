@@ -522,6 +522,7 @@ export class ScoreRaceRoomService {
         { playerId: player.id, score: player.progress.score },
         { playerId: opponent.id, score: opponent.progress.score },
       ],
+      forfeitedBy: player.id,
     };
     room.paused = null;
     for (const candidate of room.players) candidate.ready = false;

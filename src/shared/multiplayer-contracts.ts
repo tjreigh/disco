@@ -45,6 +45,8 @@ export interface MultiplayerPlayerScore {
 export interface MultiplayerMatchResult {
   readonly winnerId: string | null;
   readonly scores: readonly [MultiplayerPlayerScore, MultiplayerPlayerScore];
+  /** Set when this result came from a forfeit rather than a natural finish. */
+  readonly forfeitedBy: string | null;
 }
 
 /** Result projected relative to the player rendering it. */
@@ -52,6 +54,7 @@ export interface MultiplayerLocalResult {
   readonly outcome: 'win' | 'loss' | 'tie';
   readonly localScore: number;
   readonly opponentScore: number;
+  readonly forfeitedBy: 'local' | 'opponent' | null;
 }
 
 interface ClientMessageBase {
@@ -308,6 +311,7 @@ export function determineScoreRaceResult(
       { playerId: firstPlayerId, score: firstScore },
       { playerId: secondPlayerId, score: secondScore },
     ],
+    forfeitedBy: null,
   };
 }
 
@@ -324,5 +328,8 @@ export function localizeMultiplayerResult(
       : result.winnerId === localPlayerId ? 'win' : 'loss',
     localScore: local.score,
     opponentScore: opponent.score,
+    forfeitedBy: result.forfeitedBy === null
+      ? null
+      : result.forfeitedBy === localPlayerId ? 'local' : 'opponent',
   };
 }

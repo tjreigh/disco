@@ -39,6 +39,7 @@ describe('shared multiplayer contracts', () => {
         { playerId: 'local', score: 700 },
         { playerId: 'opponent', score: 500 },
       ],
+      forfeitedBy: null,
     });
     expect(determineScoreRaceResult('local', 500, 'opponent', 500)).toEqual({
       winnerId: null,
@@ -46,11 +47,13 @@ describe('shared multiplayer contracts', () => {
         { playerId: 'local', score: 500 },
         { playerId: 'opponent', score: 500 },
       ],
+      forfeitedBy: null,
     });
     expect(localizeMultiplayerResult(win, 'opponent')).toEqual({
       outcome: 'loss',
       localScore: 500,
       opponentScore: 700,
+      forfeitedBy: null,
     });
   });
 
@@ -87,6 +90,7 @@ describe('shared multiplayer contracts', () => {
           { playerId: 'player-1', score: 700 },
           { playerId: 'player-2', score: 500 },
         ],
+        forfeitedBy: 'player-1',
       },
     }).ok).toBe(true);
     // Still rejected: a winnerId that doesn't name either participant.
@@ -102,6 +106,7 @@ describe('shared multiplayer contracts', () => {
           { playerId: 'player-1', score: 700 },
           { playerId: 'player-2', score: 500 },
         ],
+        forfeitedBy: null,
       },
     })).toEqual({ ok: false, error: 'invalid-message' });
     expect(parseMultiplayerClientMessage({

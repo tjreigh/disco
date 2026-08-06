@@ -166,6 +166,7 @@ describe('multiplayer room gateway', () => {
         { playerId: hostAdmission.playerId, score: 120 },
         { playerId: guestAdmission.playerId, score: 80 },
       ],
+      forfeitedBy: null,
     });
   });
 

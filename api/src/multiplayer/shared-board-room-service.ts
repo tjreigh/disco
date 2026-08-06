@@ -401,6 +401,7 @@ export class SharedBoardRoomService {
         { playerId: player.id, score: duelMatch.match.getScore(player.id) },
         { playerId: opponent.id, score: duelMatch.match.getScore(opponent.id) },
       ],
+      forfeitedBy: player.id,
     };
     room.paused = null;
     for (const roomPlayer of room.players) roomPlayer.ready = false;

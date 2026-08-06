@@ -373,8 +373,9 @@ function isPlayerProgress(value: unknown): value is MultiplayerPlayerProgress {
 
 function parseMatchResult(value: unknown): MultiplayerMatchResult | null {
   if (!isRecord(value)
-    || !hasExactKeys(value, ['winnerId', 'scores'])
+    || !hasExactKeys(value, ['winnerId', 'scores', 'forfeitedBy'])
     || !(value.winnerId === null || isNonEmptyString(value.winnerId))
+    || !(value.forfeitedBy === null || isNonEmptyString(value.forfeitedBy))
     || !Array.isArray(value.scores)
     || value.scores.length !== 2) {
     return null;
@@ -398,9 +399,17 @@ function parseMatchResult(value: unknown): MultiplayerMatchResult | null {
   if (value.winnerId !== null && value.winnerId !== first.playerId && value.winnerId !== second.playerId) {
     return null;
   }
+  if (value.forfeitedBy !== null) {
+    // A forfeit always has exactly one winner: the other player. Never a
+    // tie, and never the forfeiter themselves.
+    const expectedWinner = value.forfeitedBy === first.playerId ? second.playerId : first.playerId;
+    if (value.forfeitedBy !== first.playerId && value.forfeitedBy !== second.playerId) return null;
+    if (value.winnerId !== expectedWinner) return null;
+  }
   return {
     winnerId: value.winnerId,
     scores: [first, second],
+    forfeitedBy: value.forfeitedBy,
   };
 }
 

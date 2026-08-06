@@ -147,6 +147,8 @@ test.describe('private Score Race pause menu', () => {
 
       await expect(host.getByRole('heading', { name: 'YOU LOSE' })).toBeVisible();
       await expect(guest.getByRole('heading', { name: 'YOU WIN' })).toBeVisible();
+      await expect(host.locator('.multiplayer-room__badge')).toHaveText('YOU FORFEITED');
+      await expect(guest.locator('.multiplayer-room__badge')).toHaveText('OPPONENT FORFEITED');
     } finally {
       await hostContext.close();
       await guestContext.close();

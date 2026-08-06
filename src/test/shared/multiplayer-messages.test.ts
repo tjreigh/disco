@@ -162,6 +162,7 @@ describe('match-finished server message', () => {
       result: {
         winnerId: 'p1',
         scores: [{ playerId: 'p1', score: 200 }, { playerId: 'p2', score: 100 }],
+        forfeitedBy: null,
       },
     });
     expect(result.ok).toBe(true);
@@ -176,6 +177,7 @@ describe('match-finished server message', () => {
       result: {
         winnerId: null,
         scores: [{ playerId: 'p1', score: 100 }, { playerId: 'p2', score: 100 }],
+        forfeitedBy: null,
       },
     });
     expect(result.ok).toBe(true);
@@ -196,6 +198,7 @@ describe('match-finished server message', () => {
       result: {
         winnerId: 'p2',
         scores: [{ playerId: 'p1', score: 500 }, { playerId: 'p2', score: 10 }],
+        forfeitedBy: 'p1',
       },
     });
     expect(result.ok).toBe(true);
@@ -210,6 +213,37 @@ describe('match-finished server message', () => {
       result: {
         winnerId: 'someone-else',
         scores: [{ playerId: 'p1', score: 100 }, { playerId: 'p2', score: 50 }],
+        forfeitedBy: null,
+      },
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects a forfeit whose winner is the forfeiter themselves', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'match-finished',
+      matchId: 'match-1',
+      result: {
+        winnerId: 'p1',
+        scores: [{ playerId: 'p1', score: 500 }, { playerId: 'p2', score: 10 }],
+        forfeitedBy: 'p1',
+      },
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects a forfeit result that claims a tie', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'match-finished',
+      matchId: 'match-1',
+      result: {
+        winnerId: null,
+        scores: [{ playerId: 'p1', score: 500 }, { playerId: 'p2', score: 500 }],
+        forfeitedBy: 'p1',
       },
     });
     expect(result).toEqual({ ok: false, error: 'invalid-message' });
