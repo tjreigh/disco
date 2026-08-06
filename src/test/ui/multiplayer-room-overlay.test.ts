@@ -6,6 +6,11 @@ import type { LocalBoardSessionView } from '../../app/local-board-session.js';
 import { SCORE_RACE_MODE } from '../../game/modes/score-race.js';
 import { multiplayerModeIdentity } from '../../shared/multiplayer-contracts.js';
 import { MultiplayerRoomOverlay } from '../../ui/multiplayer-room-overlay.js';
+import type { RoomOverlayView } from '../../ui/multiplayer-room-overlay.js';
+
+function overlayView(session: MultiplayerSessionView, pausedByLocal = false): RoomOverlayView {
+  return { ...session, pausedByLocal };
+}
 
 beforeEach(() => {
   document.body.replaceChildren();
@@ -33,6 +38,8 @@ function completedView(): MultiplayerSessionView {
     },
     compatibilityError: null,
     board: {} as LocalBoardSessionView,
+    paused: false,
+    pausedBy: null,
   };
 }
 
@@ -40,7 +47,7 @@ describe('MultiplayerRoomOverlay', () => {
   test('keeps an authoritative result visible when a transport error races afterward', () => {
     const overlay = new MultiplayerRoomOverlay();
 
-    overlay.render(completedView(), 'invalid-state');
+    overlay.render(overlayView(completedView()), 'invalid-state');
 
     const root = document.querySelector<HTMLElement>('.multiplayer-room')!;
     expect(root.dataset.state).toBe('result');
@@ -57,11 +64,11 @@ describe('MultiplayerRoomOverlay', () => {
   test('shows rematch readiness without replacing the completed result', () => {
     const overlay = new MultiplayerRoomOverlay();
 
-    overlay.render({
+    overlay.render(overlayView({
       ...completedView(),
       localReady: true,
       opponentReady: false,
-    }, null);
+    }), null);
 
     const root = document.querySelector<HTMLElement>('.multiplayer-room')!;
     expect(root.dataset.state).toBe('result');
@@ -70,24 +77,46 @@ describe('MultiplayerRoomOverlay', () => {
     expect(root.querySelector<HTMLButtonElement>('.multiplayer-room__button--primary')?.textContent)
       .toBe('CANCEL REMATCH');
 
-    overlay.render({
+    overlay.render(overlayView({
       ...completedView(),
       opponentReady: true,
-    }, null);
+    }), null);
     expect(root.textContent).toContain('Your opponent wants another round');
   });
 
   test('hides the room overlay while gameplay is live', () => {
     const overlay = new MultiplayerRoomOverlay();
 
-    overlay.render({
+    overlay.render(overlayView({
       ...completedView(),
       phase: 'playing',
       connection: 'connected',
       result: null,
-    }, null);
+    }), null);
 
     expect(document.querySelector<HTMLElement>('.multiplayer-room')!.hidden).toBe(true);
+  });
+
+  test('shows a passive paused banner only to the player who did not pause', () => {
+    const overlay = new MultiplayerRoomOverlay();
+    const playing: MultiplayerSessionView = {
+      ...completedView(),
+      phase: 'playing',
+      connection: 'connected',
+      result: null,
+      paused: true,
+      pausedBy: 'opponent-player',
+    };
+
+    overlay.render(overlayView(playing, false), null);
+    const root = document.querySelector<HTMLElement>('.multiplayer-room')!;
+    expect(root.hidden).toBe(false);
+    expect(root.dataset.state).toBe('paused');
+    expect(root.textContent).toContain('PAUSED');
+    expect(root.textContent).toContain('opponent paused the match');
+
+    overlay.render(overlayView({ ...playing, pausedBy: 'local-player' }, true), null);
+    expect(root.hidden).toBe(true);
   });
 
   // Regression: these four failures used to render identical text ("This
@@ -95,7 +124,7 @@ describe('MultiplayerRoomOverlay', () => {
   // real wire-protocol parser bug behind a misleading version-skew message.
   test('shows different text for each compatibility failure category', () => {
     const overlay = new MultiplayerRoomOverlay();
-    const base = { ...completedView(), phase: 'lobby' as const, result: null };
+    const base = overlayView({ ...completedView(), phase: 'lobby' as const, result: null });
 
     overlay.render({ ...base, compatibilityError: 'protocol-mismatch' }, null);
     const protocolText = document.querySelector('.multiplayer-room__message')!.textContent;

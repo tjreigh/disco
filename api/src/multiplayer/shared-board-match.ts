@@ -132,6 +132,10 @@ export class SharedBoardMatch {
     this.turnDeadline = now + this.turnTimeoutMs;
   }
 
+  shiftTurnTimer(deltaMs: number): void {
+    if (this.turnDeadline > 0) this.turnDeadline += deltaMs;
+  }
+
   isTurnExpired(now: number): boolean {
     return !this.finished && this.turnDeadline > 0 && now >= this.turnDeadline;
   }

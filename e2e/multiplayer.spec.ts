@@ -98,6 +98,69 @@ test.describe('private Score Race', () => {
   });
 });
 
+test.describe('private Score Race pause menu', () => {
+  test('pausing freezes the match for both players, and forfeiting ends it', async ({ browser }) => {
+    const hostContext = await multiplayerContext(browser);
+    const guestContext = await multiplayerContext(browser);
+    const host = await hostContext.newPage();
+    const guest = await guestContext.newPage();
+
+    try {
+      await host.goto('/?multiplayer=create');
+      await expect(host).toHaveURL(/\?room=[A-Z2-9]{8}$/);
+      const inviteUrl = host.url();
+      await guest.goto(inviteUrl);
+
+      await host.getByRole('button', { name: 'READY', exact: true }).click();
+      await guest.getByRole('button', { name: 'READY', exact: true }).click();
+      await expect(host.locator('.multiplayer-hud__status')).toHaveText('LIVE', { timeout: 6_000 });
+      await expect(guest.locator('.multiplayer-hud__status')).toHaveText('LIVE', { timeout: 6_000 });
+
+      // Host opens the pause menu.
+      await host.getByRole('button', { name: 'Game menu' }).click();
+      await expect(host.getByRole('heading', { name: 'MENU' })).toBeVisible();
+
+      // The guest sees the passive paused banner and cannot play while paused.
+      await expect(guest.locator('.multiplayer-room')).toHaveAttribute('data-state', 'paused');
+      await expect(guest.getByText('Your opponent paused the match.')).toBeVisible();
+      const outgoingBeforePause = await countOutgoing(guest, 'publish-progress');
+      const canvas = guest.locator('canvas');
+      const bounds = await canvas.boundingBox();
+      if (!bounds) throw new Error('Multiplayer board is not visible');
+      // The paused overlay visually covers the board, so a real click can't
+      // land at all — force the click to prove the server-side rejection
+      // (not just the overlay's own coverage) is what's actually blocking play.
+      await canvas.click({ position: { x: bounds.width / 2, y: bounds.height / 2 }, force: true });
+      await guest.waitForTimeout(300);
+      expect(await countOutgoing(guest, 'publish-progress')).toBe(outgoingBeforePause);
+
+      // Resuming clears the banner and re-enables play on both sides.
+      await host.getByRole('button', { name: 'RESUME', exact: true }).click();
+      await expect(host.getByRole('heading', { name: 'MENU' })).toBeHidden();
+      await expect(guest.locator('.multiplayer-room')).toBeHidden();
+      await playOneTurn(guest);
+
+      // Host forfeits — the guest is declared the winner regardless of score.
+      await host.getByRole('button', { name: 'Game menu' }).click();
+      await host.getByRole('button', { name: 'FORFEIT MATCH', exact: true }).click();
+      await host.getByRole('button', { name: 'FORFEIT', exact: true }).click();
+
+      await expect(host.getByRole('heading', { name: 'YOU LOSE' })).toBeVisible();
+      await expect(guest.getByRole('heading', { name: 'YOU WIN' })).toBeVisible();
+    } finally {
+      await hostContext.close();
+      await guestContext.close();
+    }
+  });
+});
+
+async function countOutgoing(page: Page, type: string): Promise<number> {
+  return await page.evaluate((messageType) => {
+    const observed = (window as any).__discoMultiplayerTest;
+    return observed.outgoing.filter((message: any) => message.type === messageType).length;
+  }, type);
+}
+
 async function multiplayerContext(browser: Browser) {
   const context = await browser.newContext();
   await installSocketObserver(context);

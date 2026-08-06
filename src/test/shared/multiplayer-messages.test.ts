@@ -65,6 +65,157 @@ describe('move-cursor client message', () => {
   });
 });
 
+describe('set-paused client message', () => {
+  test('parses a valid pause request', () => {
+    const result = parseMultiplayerClientMessage({
+      ...base, playerId: 'p1', type: 'set-paused', matchId: 'match-1', paused: true,
+    });
+    expect(result).toEqual({
+      ok: true,
+      message: { ...base, playerId: 'p1', type: 'set-paused', matchId: 'match-1', paused: true },
+    });
+  });
+
+  test('parses a valid resume request', () => {
+    const result = parseMultiplayerClientMessage({
+      ...base, playerId: 'p1', type: 'set-paused', matchId: 'match-1', paused: false,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test('rejects a non-boolean paused field', () => {
+    const result = parseMultiplayerClientMessage({
+      ...base, playerId: 'p1', type: 'set-paused', matchId: 'match-1', paused: 'true',
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects extra keys', () => {
+    const result = parseMultiplayerClientMessage({
+      ...base, playerId: 'p1', type: 'set-paused', matchId: 'match-1', paused: true, extra: 1,
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+});
+
+describe('forfeit-match client message', () => {
+  test('parses a valid forfeit', () => {
+    const result = parseMultiplayerClientMessage({
+      ...base, playerId: 'p1', type: 'forfeit-match', matchId: 'match-1',
+    });
+    expect(result).toEqual({
+      ok: true,
+      message: { ...base, playerId: 'p1', type: 'forfeit-match', matchId: 'match-1' },
+    });
+  });
+
+  test('rejects a missing matchId', () => {
+    const result = parseMultiplayerClientMessage({
+      ...base, playerId: 'p1', type: 'forfeit-match',
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+});
+
+describe('match-paused server message', () => {
+  test('parses a valid pause broadcast', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base, mode, type: 'match-paused', matchId: 'match-1', paused: true, pausedBy: 'p1', deadline: 15_000,
+    });
+    expect(result).toEqual({
+      ok: true,
+      message: {
+        ...base, mode, type: 'match-paused', matchId: 'match-1', paused: true, pausedBy: 'p1', deadline: 15_000,
+      },
+    });
+  });
+
+  test('parses a valid resume broadcast with a shifted deadline', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base, mode, type: 'match-paused', matchId: 'match-1', paused: false, pausedBy: 'p1', deadline: 20_000,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test('rejects a missing pausedBy', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base, mode, type: 'match-paused', matchId: 'match-1', paused: true, deadline: 15_000,
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects a negative deadline', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base, mode, type: 'match-paused', matchId: 'match-1', paused: true, pausedBy: 'p1', deadline: -1,
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+});
+
+describe('match-finished server message', () => {
+  test('parses a result where the winner matches the higher score', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'match-finished',
+      matchId: 'match-1',
+      result: {
+        winnerId: 'p1',
+        scores: [{ playerId: 'p1', score: 200 }, { playerId: 'p2', score: 100 }],
+      },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test('parses a null winnerId for a genuine tie', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'match-finished',
+      matchId: 'match-1',
+      result: {
+        winnerId: null,
+        scores: [{ playerId: 'p1', score: 100 }, { playerId: 'p2', score: 100 }],
+      },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  // Regression: a forfeit forces the non-forfeiting player as winner
+  // regardless of the score at the moment of forfeit (see forfeitMatch in
+  // both room services) — this must still parse even though the winner
+  // does not have the higher score, or the forfeit result gets rejected
+  // by both clients as "The server sent a message this client couldn't
+  // understand."
+  test('parses a forfeit result where the winner does not have the higher score', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'match-finished',
+      matchId: 'match-1',
+      result: {
+        winnerId: 'p2',
+        scores: [{ playerId: 'p1', score: 500 }, { playerId: 'p2', score: 10 }],
+      },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test('rejects a winnerId that names neither player', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'match-finished',
+      matchId: 'match-1',
+      result: {
+        winnerId: 'someone-else',
+        scores: [{ playerId: 'p1', score: 100 }, { playerId: 'p2', score: 50 }],
+      },
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+});
+
 describe('opponent-cursor server message', () => {
   test('parses a valid broadcast', () => {
     const result = parseMultiplayerServerMessage({

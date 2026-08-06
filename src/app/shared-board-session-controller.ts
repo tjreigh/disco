@@ -67,6 +67,8 @@ export interface SharedBoardSessionView {
   readonly turnsRemaining: number;
   readonly result: MultiplayerLocalResult | null;
   readonly compatibilityError: SharedBoardCompatibilityError | null;
+  readonly paused: boolean;
+  readonly pausedBy: string | null;
 }
 
 export interface SharedBoardSessionControllerOptions {
@@ -111,6 +113,7 @@ type MatchLifecycle =
       turnsRemaining: number;
       /** A turn just resolved and hasn't been picked up for animation yet. */
       pendingTurnResult: PendingTurnResult | null;
+      paused: { readonly by: string } | null;
     }
   | {
       readonly kind: 'complete';
@@ -168,7 +171,7 @@ export class SharedBoardSessionController {
 
   playTurn(column: number): void {
     const lifecycle = this.#lifecycle;
-    if (lifecycle.kind !== 'playing' || !lifecycle.isMyTurn) return;
+    if (lifecycle.kind !== 'playing' || !lifecycle.isMyTurn || lifecycle.paused) return;
     this.#transport.send({
       protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
       roomId: this.#roomId,
@@ -181,7 +184,7 @@ export class SharedBoardSessionController {
 
   moveCursor(column: number): void {
     const lifecycle = this.#lifecycle;
-    if (lifecycle.kind !== 'playing' || !lifecycle.isMyTurn) return;
+    if (lifecycle.kind !== 'playing' || !lifecycle.isMyTurn || lifecycle.paused) return;
     const clamped = Math.max(0, Math.min(6, column));
     if (clamped === lifecycle.columnCursor) return;
     lifecycle.columnCursor = clamped;
@@ -192,6 +195,31 @@ export class SharedBoardSessionController {
       type: 'move-cursor',
       matchId: lifecycle.match.matchId,
       column: clamped,
+    });
+  }
+
+  requestPause(paused: boolean): void {
+    const lifecycle = this.#lifecycle;
+    if (lifecycle.kind !== 'playing') return;
+    this.#transport.send({
+      protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+      roomId: this.#roomId,
+      playerId: this.#playerId,
+      type: 'set-paused',
+      matchId: lifecycle.match.matchId,
+      paused,
+    });
+  }
+
+  forfeit(): void {
+    const lifecycle = this.#lifecycle;
+    if (lifecycle.kind !== 'playing') return;
+    this.#transport.send({
+      protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+      roomId: this.#roomId,
+      playerId: this.#playerId,
+      type: 'forfeit-match',
+      matchId: lifecycle.match.matchId,
     });
   }
 
@@ -242,9 +270,21 @@ export class SharedBoardSessionController {
       case 'opponent-cursor':
         this.#handleOpponentCursor(message);
         break;
+      case 'match-paused':
+        this.#handleMatchPaused(message);
+        break;
       case 'opponent-progress':
         break;
     }
+  }
+
+  #handleMatchPaused(message: MultiplayerServerMessage & { type: 'match-paused' }): void {
+    const lifecycle = this.#lifecycle;
+    if (lifecycle.kind !== 'playing') return;
+    lifecycle.paused = message.paused ? { by: message.pausedBy } : null;
+    // The server's deadline is authoritative and shifts forward on resume —
+    // resync rather than trying to replicate its elapsed-time math here.
+    lifecycle.turnDeadline = message.deadline;
   }
 
   #handleRoomState(message: MultiplayerServerMessage & { type: 'room-state' }): void {
@@ -293,6 +333,7 @@ export class SharedBoardSessionController {
       // controller's next frame has drained the prior turn's animation —
       // carry it over instead of dropping it on this lifecycle swap.
       pendingTurnResult: lifecycle.kind === 'playing' ? lifecycle.pendingTurnResult : null,
+      paused: lifecycle.kind === 'playing' ? lifecycle.paused : null,
     };
   }
 
@@ -365,6 +406,7 @@ export class SharedBoardSessionController {
         turnsPerLevel: 1,
         turnsRemaining: 1,
         pendingTurnResult: null,
+        paused: null,
       };
     }
   }
@@ -415,6 +457,8 @@ export class SharedBoardSessionController {
       turnsRemaining: lifecycle.kind === 'playing' ? lifecycle.turnsRemaining : 1,
       result: lifecycle.kind === 'complete' ? lifecycle.result : null,
       compatibilityError: lifecycle.kind === 'incompatible' ? lifecycle.error : null,
+      paused: lifecycle.kind === 'playing' && lifecycle.paused !== null,
+      pausedBy: lifecycle.kind === 'playing' ? lifecycle.paused?.by ?? null : null,
     };
   }
 

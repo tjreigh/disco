@@ -1,6 +1,7 @@
 import { SCORE_RACE_MODE } from '../game/modes/score-race.js';
 import { emptyStats } from '../game/stats.js';
 import type { GameStats } from '../game/stats.js';
+import { AudioManager } from '../platform/audio-manager.js';
 import { InputHandler } from '../platform/input-handler.js';
 import type { InputIntent } from '../platform/input-handler.js';
 import {
@@ -9,6 +10,7 @@ import {
 import type {
   MultiplayerAdmission,
 } from '../platform/multiplayer-api-client.js';
+import { UserSettingsStore } from '../platform/user-settings-store.js';
 import {
   WebSocketMultiplayerTransport,
 } from '../platform/websocket-multiplayer-transport.js';
@@ -21,6 +23,7 @@ import {
 import { GameControls } from '../ui/game-controls.js';
 import { GameHud } from '../ui/game-hud.js';
 import { MultiplayerHud } from '../ui/multiplayer-hud.js';
+import { MultiplayerPauseMenu } from '../ui/multiplayer-pause-menu.js';
 import { MultiplayerRoomOverlay } from '../ui/multiplayer-room-overlay.js';
 import { setGridSize } from '../ui/rendering/layout.js';
 import { Renderer } from '../ui/rendering/renderer.js';
@@ -41,6 +44,14 @@ export class MultiplayerGame {
   private readonly canvas: HTMLCanvasElement;
   private readonly mounts: UiMounts;
   private readonly roomOverlay: MultiplayerRoomOverlay;
+  private readonly pauseMenu: MultiplayerPauseMenu;
+  // Dead controls per product decision: multiplayer has no sound cues or
+  // advanced-HUD tracking today, so these back the pause menu's toggles for
+  // visual consistency with single-player without doing anything visible
+  // here. Advanced HUD still persists globally (single-player will see it
+  // next time); sound is a throwaway per-session instance, genuinely inert.
+  private readonly audio = new AudioManager();
+  private readonly userSettings = new UserSettingsStore();
   private readonly stats: GameStats = emptyStats();
   private renderer: Renderer | null = null;
   private session: MultiplayerSessionController | null = null;
@@ -63,6 +74,20 @@ export class MultiplayerGame {
     this.canvas = canvas;
     this.mounts = mounts;
     this.roomOverlay = new MultiplayerRoomOverlay('SCORE RACE', mounts.overlays);
+    this.pauseMenu = new MultiplayerPauseMenu(mounts.overlays, mounts.modalBackground);
+    this.pauseMenu.onRequestOpen = () => this.session?.requestPause(true);
+    this.pauseMenu.onRequestResume = () => this.session?.requestPause(false);
+    this.pauseMenu.onRequestForfeit = () => this.session?.forfeit();
+    this.pauseMenu.onRequestToggleSound = () => {
+      this.pauseMenu.setSoundEnabled(this.audio.toggleEnabled());
+    };
+    this.pauseMenu.onRequestToggleAdvancedHud = () => {
+      const enabled = !this.userSettings.get().advancedHud;
+      this.userSettings.setAdvancedHud(enabled);
+      this.pauseMenu.setAdvancedHudEnabled(enabled);
+    };
+    this.pauseMenu.setSoundEnabled(this.audio.isEnabled());
+    this.pauseMenu.setAdvancedHudEnabled(this.userSettings.get().advancedHud);
     document.title = 'Disco — Score Race';
   }
 
@@ -80,6 +105,7 @@ export class MultiplayerGame {
     this.session?.destroy();
     this.transport?.destroy();
     this.roomOverlay.destroy();
+    this.pauseMenu.destroy();
   }
 
   private async initialize(): Promise<void> {
@@ -186,7 +212,7 @@ export class MultiplayerGame {
       cursorLane: state.cursorCol,
       laneCount: board.laneCount,
       axis: board.axis,
-      disabled: view.phase !== 'playing' || view.connection !== 'connected',
+      disabled: view.phase !== 'playing' || view.connection !== 'connected' || view.paused,
     });
     gameHud.render({
       phase: state.phase,
@@ -210,7 +236,15 @@ export class MultiplayerGame {
       result: view.result,
       compatibilityError: view.compatibilityError,
     });
-    this.roomOverlay.render(view, this.transportError);
+    this.roomOverlay.render(
+      { ...view, pausedByLocal: view.pausedBy === view.playerId },
+      this.transportError,
+    );
+
+    const canPause = view.phase === 'playing';
+    this.pauseMenu.setCanOpen(canPause);
+    if (!canPause && this.pauseMenu.isOpen()) this.pauseMenu.forceClose();
+
     renderer.draw(
       state,
       board.visualBoard,

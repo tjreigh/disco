@@ -92,6 +92,28 @@ export function parseMultiplayerClientMessage(
         ok: true,
         message: { ...base, type: value.type, matchId: value.matchId, column: value.column },
       };
+    case 'set-paused':
+      if (!hasExactKeys(value, [
+        'protocolVersion', 'roomId', 'playerId', 'type', 'matchId', 'paused',
+      ])
+        || !isNonEmptyString(value.matchId)
+        || typeof value.paused !== 'boolean') {
+        return invalidMessage();
+      }
+      return {
+        ok: true,
+        message: { ...base, type: value.type, matchId: value.matchId, paused: value.paused },
+      };
+    case 'forfeit-match':
+      if (!hasExactKeys(value, [
+        'protocolVersion', 'roomId', 'playerId', 'type', 'matchId',
+      ]) || !isNonEmptyString(value.matchId)) {
+        return invalidMessage();
+      }
+      return {
+        ok: true,
+        message: { ...base, type: value.type, matchId: value.matchId },
+      };
     default:
       return invalidMessage();
   }
@@ -278,6 +300,27 @@ export function parseMultiplayerServerMessage(
           column: value.column,
         },
       };
+    case 'match-paused':
+      if (!hasExactKeys(value, [
+        'protocolVersion', 'roomId', 'mode', 'type', 'matchId', 'paused', 'pausedBy', 'deadline',
+      ])
+        || !isNonEmptyString(value.matchId)
+        || typeof value.paused !== 'boolean'
+        || !isNonEmptyString(value.pausedBy)
+        || !isNonNegativeInteger(value.deadline)) {
+        return invalidMessage();
+      }
+      return {
+        ok: true,
+        message: {
+          ...base,
+          type: value.type,
+          matchId: value.matchId,
+          paused: value.paused,
+          pausedBy: value.pausedBy,
+          deadline: value.deadline,
+        },
+      };
     default:
       return invalidMessage();
   }
@@ -348,10 +391,13 @@ function parseMatchResult(value: unknown): MultiplayerMatchResult | null {
   const first = scores[0];
   const second = scores[1];
   if (!first || !second || first.playerId === second.playerId) return null;
-  const expectedWinner = first.score === second.score
-    ? null
-    : first.score > second.score ? first.playerId : second.playerId;
-  if (value.winnerId !== expectedWinner) return null;
+  // winnerId is not required to match the higher score: a forfeit forces
+  // the non-forfeiting player as winner regardless of the score at the
+  // moment they left (see forfeitMatch in both room services). Only check
+  // that it names one of the two players in this result, or is a genuine tie.
+  if (value.winnerId !== null && value.winnerId !== first.playerId && value.winnerId !== second.playerId) {
+    return null;
+  }
   return {
     winnerId: value.winnerId,
     scores: [first, second],

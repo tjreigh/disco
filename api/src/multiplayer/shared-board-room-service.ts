@@ -84,6 +84,7 @@ interface DuelRoom {
   readonly id: string;
   readonly players: RoomPlayer[];
   lifecycle: DuelRoomLifecycle;
+  paused: { readonly by: string; readonly since: number } | null;
 }
 
 const defaultValues: RoomValueFactory = {
@@ -133,6 +134,7 @@ export class SharedBoardRoomService {
       id: roomId,
       players: [{ id: playerId, credentialDigest: digest, ready: false, connection: null }],
       lifecycle: { kind: 'lobby', expiresAt: this.clock.now() + this.lobbyTtlMs },
+      paused: null,
     };
     this.rooms.set(roomId, room);
 
@@ -192,6 +194,14 @@ export class SharedBoardRoomService {
       active.player.ready = false;
       return this.roomStateDeliveries(active.room);
     }
+    // Dropping the pausing player's connection must not permanently freeze
+    // the room for whoever's left — resume on their behalf, same as an
+    // explicit resume request, rather than soft-locking the opponent.
+    if (active.room.lifecycle.kind === 'playing'
+      && active.room.paused
+      && active.room.paused.by === active.player.id) {
+      return this.resumeMatchClock(active.room, active.player.id, [], active.room.lifecycle.match.id);
+    }
     return [];
   }
 
@@ -214,6 +224,10 @@ export class SharedBoardRoomService {
         return this.playTurn(room, player, message.matchId, message.column, deliveries);
       case 'move-cursor':
         return this.moveCursor(room, player, message.matchId, message.column, deliveries);
+      case 'set-paused':
+        return this.setPaused(room, player, message.matchId, message.paused, deliveries);
+      case 'forfeit-match':
+        return this.forfeitMatch(room, player, message.matchId, deliveries);
       default:
         return { ok: false, error: 'invalid-state', deliveries };
     }
@@ -272,6 +286,9 @@ export class SharedBoardRoomService {
     if (matchId !== room.lifecycle.match.id) {
       return { ok: false, error: 'match-mismatch', deliveries: priorDeliveries };
     }
+    if (room.paused) {
+      return { ok: false, error: 'invalid-state', deliveries: priorDeliveries };
+    }
 
     const match = room.lifecycle.match.match;
     const result = match.processTurn(player.id, column);
@@ -324,6 +341,9 @@ export class SharedBoardRoomService {
     if (matchId !== room.lifecycle.match.id) {
       return { ok: false, error: 'match-mismatch', deliveries: priorDeliveries };
     }
+    if (room.paused) {
+      return { ok: false, error: 'invalid-state', deliveries: priorDeliveries };
+    }
     if (!room.lifecycle.match.match.isCurrentPlayer(player.id)) {
       return { ok: false, error: 'invalid-state', deliveries: priorDeliveries };
     }
@@ -340,6 +360,95 @@ export class SharedBoardRoomService {
     return { ok: true, value: null, deliveries };
   }
 
+  private setPaused(room: DuelRoom, player: RoomPlayer, matchId: string, paused: boolean, priorDeliveries: RoomDelivery[]): RoomServiceResult<null> {
+    if (room.lifecycle.kind !== 'playing' || matchId !== room.lifecycle.match.id) {
+      return { ok: false, error: 'invalid-state', deliveries: priorDeliveries };
+    }
+    const duelMatch = room.lifecycle.match;
+    if (paused) {
+      if (room.paused) return { ok: true, value: null, deliveries: priorDeliveries };
+      room.paused = { by: player.id, since: this.clock.now() };
+      const deliveries = [
+        ...priorDeliveries,
+        ...this.broadcast(room, () =>
+          this.pausedMessage(room, matchId, true, player.id, duelMatch.match.turnDeadline)),
+      ];
+      return { ok: true, value: null, deliveries };
+    }
+    if (!room.paused) return { ok: true, value: null, deliveries: priorDeliveries };
+    // Only the player who paused can resume — otherwise the other player
+    // could unpause out from under someone who still has their menu open.
+    if (room.paused.by !== player.id) {
+      return { ok: false, error: 'invalid-state', deliveries: priorDeliveries };
+    }
+    const deliveries = this.resumeMatchClock(room, player.id, priorDeliveries, matchId);
+    return { ok: true, value: null, deliveries };
+  }
+
+  private forfeitMatch(room: DuelRoom, player: RoomPlayer, matchId: string, priorDeliveries: RoomDelivery[]): RoomServiceResult<null> {
+    if (room.lifecycle.kind !== 'playing' || matchId !== room.lifecycle.match.id) {
+      return { ok: false, error: 'invalid-state', deliveries: priorDeliveries };
+    }
+    const duelMatch = room.lifecycle.match;
+    const opponent = room.players.find(p => p.id !== player.id);
+    if (!opponent) return { ok: false, error: 'invalid-state', deliveries: priorDeliveries };
+
+    // A forfeit always hands the win to the opponent — unlike a normal
+    // finish, the current score comparison is irrelevant to who won.
+    const result: MultiplayerMatchResult = {
+      winnerId: opponent.id,
+      scores: [
+        { playerId: player.id, score: duelMatch.match.getScore(player.id) },
+        { playerId: opponent.id, score: duelMatch.match.getScore(opponent.id) },
+      ],
+    };
+    room.paused = null;
+    for (const roomPlayer of room.players) roomPlayer.ready = false;
+    room.lifecycle = { kind: 'complete', match: duelMatch, result, expiresAt: this.clock.now() + this.resultTtlMs };
+
+    const deliveries = [
+      ...priorDeliveries,
+      ...this.broadcast(room, () =>
+        this.finishedMessage(room, matchId, room.lifecycle as { kind: 'complete'; result: MultiplayerMatchResult }),
+      ),
+    ];
+    return { ok: true, value: null, deliveries };
+  }
+
+  private resumeMatchClock(room: DuelRoom, resumedBy: string, priorDeliveries: RoomDelivery[], matchId: string): RoomDelivery[] {
+    if (!room.paused) return priorDeliveries;
+    const elapsed = this.clock.now() - room.paused.since;
+    let deadline = 0;
+    if (room.lifecycle.kind === 'playing') {
+      room.lifecycle.match.match.shiftTurnTimer(elapsed);
+      deadline = room.lifecycle.match.match.turnDeadline;
+    }
+    room.paused = null;
+    return [
+      ...priorDeliveries,
+      ...this.broadcast(room, () => this.pausedMessage(room, matchId, false, resumedBy, deadline)),
+    ];
+  }
+
+  private pausedMessage(
+    room: DuelRoom,
+    matchId: string,
+    paused: boolean,
+    pausedBy: string,
+    deadline: number,
+  ): MultiplayerServerMessage {
+    return {
+      protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+      roomId: room.id,
+      mode: SHARED_DUEL_ROOM_MODE,
+      type: 'match-paused',
+      matchId,
+      paused,
+      pausedBy,
+      deadline,
+    };
+  }
+
   private advanceRoom(room: DuelRoom): RoomDelivery[] {
     const now = this.clock.now();
     const lifecycle = room.lifecycle;
@@ -353,7 +462,7 @@ export class SharedBoardRoomService {
       );
     }
 
-    if (lifecycle.kind === 'playing') {
+    if (lifecycle.kind === 'playing' && !room.paused) {
       if (lifecycle.match.match.isTurnExpired(now)) {
         const match = lifecycle.match.match;
         const result = match.expireTurn();
@@ -433,6 +542,14 @@ export class SharedBoardRoomService {
           room.id, SHARED_DUEL_ROOM_MODE, lifecycle.match.id,
         ),
       });
+      if (room.paused) {
+        deliveries.push({
+          playerId: player.id,
+          message: this.pausedMessage(
+            room, lifecycle.match.id, true, room.paused.by, lifecycle.match.match.turnDeadline,
+          ),
+        });
+      }
     }
     if (lifecycle.kind === 'complete') {
       deliveries.push({

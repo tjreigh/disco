@@ -161,6 +161,7 @@ interface Room {
   readonly id: string;
   readonly players: RoomPlayer[];
   lifecycle: RoomLifecycle;
+  paused: { readonly by: string; readonly since: number } | null;
 }
 
 const defaultValues: RoomValueFactory = {
@@ -213,6 +214,7 @@ export class ScoreRaceRoomService {
         kind: 'lobby',
         expiresAt: now + this.lobbyTtlMs,
       },
+      paused: null,
     };
     this.rooms.set(roomId, room);
     return success(admission);
@@ -263,6 +265,14 @@ export class ScoreRaceRoomService {
       active.player.ready = false;
       return this.roomStateDeliveries(active.room);
     }
+    // Dropping the pausing player's connection must not permanently freeze
+    // the room for whoever's left — resume on their behalf, same as an
+    // explicit resume request, rather than soft-locking the opponent.
+    if (active.room.lifecycle.kind === 'match'
+      && active.room.paused
+      && active.room.paused.by === active.player.id) {
+      return this.resumeMatchClock(active.room, active.player.id, [], active.room.lifecycle.match.id);
+    }
     return [];
   }
 
@@ -310,6 +320,10 @@ export class ScoreRaceRoomService {
           message.lastProgressSequence,
           deliveries,
         );
+      case 'set-paused':
+        return this.setPaused(room, player, message.matchId, message.paused, deliveries);
+      case 'forfeit-match':
+        return this.forfeitMatch(room, player, message.matchId, deliveries);
       case 'play-turn':
       case 'move-cursor':
         return failure('invalid-state', deliveries);
@@ -389,6 +403,9 @@ export class ScoreRaceRoomService {
     if (matchId !== lifecycle.match.id) {
       return failure('match-mismatch', priorDeliveries);
     }
+    if (room.paused) {
+      return failure('invalid-state', priorDeliveries);
+    }
     const now = this.clock.now();
     if (now < lifecycle.match.startsAt || now >= lifecycle.match.deadline) {
       return failure('invalid-state', priorDeliveries);
@@ -448,10 +465,115 @@ export class ScoreRaceRoomService {
 
   private advanceRoom(room: Room): RoomDelivery[] {
     const now = this.clock.now();
-    if (room.lifecycle.kind === 'match' && now >= room.lifecycle.match.deadline) {
+    if (room.lifecycle.kind === 'match' && !room.paused && now >= room.lifecycle.match.deadline) {
       return this.completeMatch(room);
     }
     return [];
+  }
+
+  private setPaused(
+    room: Room,
+    player: RoomPlayer,
+    matchId: string,
+    paused: boolean,
+    priorDeliveries: readonly RoomDelivery[],
+  ): RoomServiceResult<null> {
+    if (room.lifecycle.kind !== 'match' || matchId !== room.lifecycle.match.id) {
+      return failure('invalid-state', priorDeliveries);
+    }
+    const match = room.lifecycle.match;
+    if (paused) {
+      if (room.paused) return success(null, priorDeliveries);
+      room.paused = { by: player.id, since: this.clock.now() };
+      const deliveries = [
+        ...priorDeliveries,
+        ...this.broadcast(room, () => this.pausedMessage(room, matchId, true, player.id, match.deadline)),
+      ];
+      return success(null, deliveries);
+    }
+    if (!room.paused) return success(null, priorDeliveries);
+    // Only the player who paused can resume — otherwise the other player
+    // could unpause out from under someone who still has their menu open.
+    if (room.paused.by !== player.id) {
+      return failure('invalid-state', priorDeliveries);
+    }
+    const deliveries = this.resumeMatchClock(room, player.id, priorDeliveries, matchId);
+    return success(null, deliveries);
+  }
+
+  private forfeitMatch(
+    room: Room,
+    player: RoomPlayer,
+    matchId: string,
+    priorDeliveries: readonly RoomDelivery[],
+  ): RoomServiceResult<null> {
+    if (room.lifecycle.kind !== 'match' || matchId !== room.lifecycle.match.id) {
+      return failure('invalid-state', priorDeliveries);
+    }
+    const match = room.lifecycle.match;
+    const opponent = room.players.find(candidate => candidate.id !== player.id);
+    if (!opponent) return failure('invalid-state', priorDeliveries);
+
+    // A forfeit always hands the win to the opponent — unlike a normal
+    // finish, the current score comparison is irrelevant to who won.
+    const result: MultiplayerMatchResult = {
+      winnerId: opponent.id,
+      scores: [
+        { playerId: player.id, score: player.progress.score },
+        { playerId: opponent.id, score: opponent.progress.score },
+      ],
+    };
+    room.paused = null;
+    for (const candidate of room.players) candidate.ready = false;
+    room.lifecycle = {
+      kind: 'complete',
+      match,
+      result,
+      expiresAt: this.clock.now() + this.resultTtlMs,
+    };
+
+    const deliveries = [
+      ...priorDeliveries,
+      ...this.broadcast(room, () => this.finishedMessage(room, match, result)),
+    ];
+    return success(null, deliveries);
+  }
+
+  private resumeMatchClock(
+    room: Room,
+    resumedBy: string,
+    priorDeliveries: readonly RoomDelivery[],
+    matchId: string,
+  ): RoomDelivery[] {
+    if (!room.paused || room.lifecycle.kind !== 'match') return [...priorDeliveries];
+    const elapsed = this.clock.now() - room.paused.since;
+    const deadline = room.lifecycle.match.deadline + elapsed;
+    room.lifecycle = {
+      kind: 'match',
+      match: { ...room.lifecycle.match, deadline },
+    };
+    room.paused = null;
+    return [
+      ...priorDeliveries,
+      ...this.broadcast(room, () => this.pausedMessage(room, matchId, false, resumedBy, deadline)),
+    ];
+  }
+
+  private pausedMessage(
+    room: Room,
+    matchId: string,
+    paused: boolean,
+    pausedBy: string,
+    deadline: number,
+  ): MultiplayerServerMessage {
+    return {
+      ...this.serverEnvelope(room),
+      type: 'match-paused',
+      matchId,
+      paused,
+      pausedBy,
+      deadline,
+    };
   }
 
   private completeMatch(room: Room): RoomDelivery[] {
@@ -492,6 +614,14 @@ export class ScoreRaceRoomService {
       deliveries.push({
         playerId: player.id,
         message: this.opponentProgressMessage(room, room.lifecycle.match, opponent),
+      });
+    }
+    if (room.lifecycle.kind === 'match' && room.paused) {
+      deliveries.push({
+        playerId: player.id,
+        message: this.pausedMessage(
+          room, room.lifecycle.match.id, true, room.paused.by, room.lifecycle.match.deadline,
+        ),
       });
     }
     if (room.lifecycle.kind === 'complete') {

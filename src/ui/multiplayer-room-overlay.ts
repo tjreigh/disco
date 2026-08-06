@@ -36,6 +36,8 @@ export interface RoomOverlayView {
   readonly opponentReady: boolean;
   readonly result: MultiplayerLocalResult | null;
   readonly compatibilityError: RoomOverlayCompatibilityError | null;
+  readonly paused: boolean;
+  readonly pausedByLocal: boolean;
 }
 
 /** Lobby, invite, terminal-result, and transport-error presentation. */
@@ -138,6 +140,20 @@ export class MultiplayerRoomOverlay {
       this.eyebrow.textContent = this.modeLabel;
       this.title.textContent = 'RUN COMPLETE';
       this.message.textContent = 'Waiting for the other player’s final score…';
+      this.roomCode.textContent = '';
+      this.readyButton.hidden = true;
+      this.copyButton.hidden = true;
+      return;
+    }
+    // The pausing player sees their own pause-menu dialog instead of this
+    // overlay — this branch is only for the other player, who has no
+    // controls to offer here beyond waiting.
+    if (view.paused && !view.pausedByLocal && view.phase === 'playing') {
+      this.root.hidden = false;
+      this.root.dataset.state = 'paused';
+      this.eyebrow.textContent = this.modeLabel;
+      this.title.textContent = 'PAUSED';
+      this.message.textContent = 'Your opponent paused the match.';
       this.roomCode.textContent = '';
       this.readyButton.hidden = true;
       this.copyButton.hidden = true;

@@ -1,0 +1,29 @@
+<template id="tpl-multiplayer-pause-menu">
+  <button type="button" class="home-back-button" aria-label="Game menu" aria-hidden="true">
+    <span class="home-back-button__icon" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span class="home-back-button__label">MENU</span>
+  </button>
+  <div class="game-menu" aria-label="Game menu" role="dialog" aria-modal="true">
+    <div class="game-menu-panel">
+      <h2>MENU</h2>
+      <button type="button" class="game-menu-close" aria-label="Resume game">×</button>
+      <p class="game-menu-note">Pausing freezes the match for both players.</p>
+      <button type="button" class="game-menu-button game-menu-button--primary">RESUME</button>
+      <button type="button" class="game-menu-button" data-pause-menu-action="sound">SOUND ON</button>
+      <button type="button" class="game-menu-button" data-pause-menu-action="advanced-hud"
+        aria-pressed="false">ADVANCED HUD OFF</button>
+      <button type="button" class="game-menu-button" data-pause-menu-action="forfeit">FORFEIT MATCH</button>
+    </div>
+  </div>
+  <div class="restart-confirmation" role="alertdialog" aria-modal="true"
+    aria-labelledby="pause-menu-forfeit-title" aria-describedby="pause-menu-forfeit-description">
+    <div class="restart-confirmation__panel">
+      <h2 id="pause-menu-forfeit-title">FORFEIT MATCH?</h2>
+      <p id="pause-menu-forfeit-description">Your opponent will be declared the winner. This can't be undone.</p>
+      <div class="restart-confirmation__actions">
+        <button type="button" class="restart-confirmation__button" data-forfeit-action="cancel">CANCEL</button>
+        <button type="button" class="restart-confirmation__button restart-confirmation__button--danger">FORFEIT</button>
+      </div>
+    </div>
+  </div>
+</template>

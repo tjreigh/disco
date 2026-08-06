@@ -451,3 +451,158 @@ describe('SharedBoardRoomService', () => {
     expect(snapshot.level).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe('SharedBoardRoomService pause and forfeit', () => {
+  test('pause blocks turn expiry and rejects gameplay input until the pauser resumes', () => {
+    const harness = setupRoom();
+    const { matchId, firstPlayerId } = startPlaying(harness);
+    const [connection, admission] = firstPlayerId === harness.host.playerId
+      ? [harness.hostConnection, harness.host]
+      : [harness.guestConnection, harness.guest];
+    const [otherConnection, otherAdmission] = firstPlayerId === harness.host.playerId
+      ? [harness.guestConnection, harness.guest]
+      : [harness.hostConnection, harness.host];
+
+    const paused = harness.service.receive(
+      connection,
+      message(admission, { type: 'set-paused', matchId, paused: true }),
+    );
+    valueOf(paused);
+    expect(paused.deliveries).toHaveLength(2);
+    for (const delivery of paused.deliveries) {
+      expect(delivery.message).toEqual(expect.objectContaining({
+        type: 'match-paused', paused: true, pausedBy: firstPlayerId,
+      }));
+    }
+
+    // Turn timeout would have fired by now — but the room is paused.
+    harness.clock.time += TURN_TIMEOUT_MS * 5;
+    expect(harness.service.tick().deliveries).toEqual([]);
+
+    expect(errorOf(harness.service.receive(
+      connection,
+      message(admission, { type: 'play-turn', matchId, column: 3 }),
+    ))).toBe('invalid-state');
+    expect(errorOf(harness.service.receive(
+      connection,
+      message(admission, { type: 'move-cursor', matchId, column: 5 }),
+    ))).toBe('invalid-state');
+
+    // Only the player who paused can resume.
+    expect(errorOf(harness.service.receive(
+      otherConnection,
+      message(otherAdmission, { type: 'set-paused', matchId, paused: false }),
+    ))).toBe('invalid-state');
+
+    const resumed = harness.service.receive(
+      connection,
+      message(admission, { type: 'set-paused', matchId, paused: false }),
+    );
+    valueOf(resumed);
+    expect(resumed.deliveries).toHaveLength(2);
+    for (const delivery of resumed.deliveries) {
+      expect(delivery.message.type).toBe('match-paused');
+      if (delivery.message.type !== 'match-paused') continue;
+      expect(delivery.message.paused).toBe(false);
+      // The shifted deadline must be in the future, not left in the past
+      // from before the pause.
+      expect(delivery.message.deadline).toBeGreaterThan(harness.clock.time);
+    }
+
+    // Turn play accepted again post-resume.
+    valueOf(harness.service.receive(
+      connection,
+      message(admission, { type: 'play-turn', matchId, column: 3 }),
+    ));
+  });
+
+  test('disconnecting the pausing player auto-resumes so the opponent is not soft-locked', () => {
+    const harness = setupRoom();
+    const { matchId, firstPlayerId } = startPlaying(harness);
+    const [connection, admission] = firstPlayerId === harness.host.playerId
+      ? [harness.hostConnection, harness.host]
+      : [harness.guestConnection, harness.guest];
+    const otherAdmission = firstPlayerId === harness.host.playerId ? harness.guest : harness.host;
+
+    valueOf(harness.service.receive(
+      connection,
+      message(admission, { type: 'set-paused', matchId, paused: true }),
+    ));
+
+    harness.clock.time += TURN_TIMEOUT_MS;
+    // This service's broadcast() sends to both players unconditionally
+    // (offline sockets are no-ops at the gateway layer) — unlike Score
+    // Race's room service, which filters by live connection.
+    const disconnectDeliveries = harness.service.disconnect(connection);
+    const otherDelivery = disconnectDeliveries.find(d => d.playerId === otherAdmission.playerId);
+    expect(otherDelivery?.message).toEqual(expect.objectContaining({
+      type: 'match-paused', paused: false, pausedBy: firstPlayerId,
+    }));
+
+    // The room resumed — a normal turn-expiry tick can fire again.
+    harness.clock.time += TURN_TIMEOUT_MS;
+    const tickResult = harness.service.tick();
+    expect(tickResult.deliveries.some(d => d.message.type === 'turn-expired')).toBe(true);
+  });
+
+  test('a reconnecting player receives the current pause state', () => {
+    const harness = setupRoom();
+    const { matchId, firstPlayerId } = startPlaying(harness);
+    const pauser = firstPlayerId === harness.host.playerId ? harness.host : harness.guest;
+    const pauserConnection = firstPlayerId === harness.host.playerId
+      ? harness.hostConnection
+      : harness.guestConnection;
+    const other = firstPlayerId === harness.host.playerId ? harness.guest : harness.host;
+    const otherConnection = firstPlayerId === harness.host.playerId
+      ? harness.guestConnection
+      : harness.hostConnection;
+
+    valueOf(harness.service.receive(
+      pauserConnection,
+      message(pauser, { type: 'set-paused', matchId, paused: true }),
+    ));
+
+    harness.service.disconnect(otherConnection);
+    const reconnected = harness.service.connect({
+      roomId: other.roomId,
+      playerId: other.playerId,
+      reconnectCredential: other.reconnectCredential,
+    });
+    valueOf(reconnected);
+    const pausedSnapshot = reconnected.deliveries.find(d => d.message.type === 'match-paused')?.message;
+    expect(pausedSnapshot).toEqual(expect.objectContaining({
+      type: 'match-paused', paused: true, pausedBy: pauser.playerId,
+    }));
+  });
+
+  test('forfeit always hands the win to the opponent, even mid-pause', () => {
+    const harness = setupRoom();
+    const { matchId, firstPlayerId } = startPlaying(harness);
+    const forfeiter = firstPlayerId === harness.host.playerId ? harness.host : harness.guest;
+    const forfeiterConnection = firstPlayerId === harness.host.playerId
+      ? harness.hostConnection
+      : harness.guestConnection;
+    const opponent = firstPlayerId === harness.host.playerId ? harness.guest : harness.host;
+
+    valueOf(harness.service.receive(
+      forfeiterConnection,
+      message(forfeiter, { type: 'set-paused', matchId, paused: true }),
+    ));
+
+    const forfeited = harness.service.receive(
+      forfeiterConnection,
+      message(forfeiter, { type: 'forfeit-match', matchId }),
+    );
+    valueOf(forfeited);
+    const results = forfeited.deliveries.filter(d => d.message.type === 'match-finished');
+    expect(results).toHaveLength(2);
+    expect(results[0]?.message).toEqual(expect.objectContaining({
+      type: 'match-finished',
+      result: expect.objectContaining({ winnerId: opponent.playerId }),
+    }));
+
+    // The pause no longer blocks anything post-forfeit — the match is over.
+    harness.clock.time += TURN_TIMEOUT_MS * 10;
+    expect(harness.service.tick().deliveries).toEqual([]);
+  });
+});

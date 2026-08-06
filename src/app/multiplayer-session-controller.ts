@@ -14,6 +14,7 @@ import type {
   MultiplayerModeIdentity,
   MultiplayerPlayerProgress,
   MultiplayerProgress,
+  MultiplayerServerMessage,
 } from '../shared/multiplayer-contracts.js';
 import { LocalBoardSession } from './local-board-session.js';
 import type { LocalBoardSessionView } from './local-board-session.js';
@@ -59,6 +60,8 @@ export interface MultiplayerSessionView {
   readonly result: MultiplayerLocalResult | null;
   readonly compatibilityError: MultiplayerCompatibilityError | null;
   readonly board: LocalBoardSessionView;
+  readonly paused: boolean;
+  readonly pausedBy: string | null;
 }
 
 export interface MultiplayerSessionControllerOptions {
@@ -84,7 +87,7 @@ type MatchLifecycle =
     readonly opponentReady: boolean;
   }
   | { readonly kind: 'countdown'; readonly match: MatchContext }
-  | { readonly kind: 'playing'; readonly match: MatchContext }
+  | { readonly kind: 'playing'; match: MatchContext; paused: { readonly by: string } | null }
   | { readonly kind: 'awaiting-result'; readonly match: MatchContext }
   | {
     readonly kind: 'complete';
@@ -175,6 +178,8 @@ export class MultiplayerSessionController {
         ? this.lifecycle.error
         : null,
       board: this.session.view,
+      paused: this.lifecycle.kind === 'playing' && this.lifecycle.paused !== null,
+      pausedBy: this.lifecycle.kind === 'playing' ? this.lifecycle.paused?.by ?? null : null,
     };
   }
 
@@ -185,6 +190,16 @@ export class MultiplayerSessionController {
     }
     this.lifecycle = { ...this.lifecycle, localReady: ready };
     this.send({ type: 'set-ready', ready });
+  }
+
+  requestPause(paused: boolean): void {
+    if (this.lifecycle.kind !== 'playing') return;
+    this.send({ type: 'set-paused', matchId: this.lifecycle.match.matchId, paused });
+  }
+
+  forfeit(): void {
+    if (this.lifecycle.kind !== 'playing') return;
+    this.send({ type: 'forfeit-match', matchId: this.lifecycle.match.matchId });
   }
 
   move(lane: number): boolean {
@@ -288,6 +303,25 @@ export class MultiplayerSessionController {
       case 'match-finished':
         this.completeMatch(message.matchId, message.result);
         break;
+      case 'match-paused':
+        this.handleMatchPaused(message);
+        break;
+    }
+  }
+
+  private handleMatchPaused(message: MultiplayerServerMessage & { type: 'match-paused' }): void {
+    if (this.lifecycle.kind !== 'playing' || message.matchId !== this.lifecycle.match.matchId) return;
+    this.lifecycle = {
+      kind: 'playing',
+      // The server's deadline is authoritative and shifts forward on
+      // resume — resync rather than replicating its elapsed-time math here.
+      match: { ...this.lifecycle.match, deadline: message.deadline },
+      paused: message.paused ? { by: message.pausedBy } : null,
+    };
+    if (message.paused) {
+      this.session.pause(this.clock.now());
+    } else {
+      this.session.resume(this.clock.now());
     }
   }
 
@@ -332,9 +366,10 @@ export class MultiplayerSessionController {
     if (this.lifecycle.kind === 'countdown' && now >= this.lifecycle.match.startsAt) {
       const match = this.lifecycle.match;
       this.session.configure(this.definition.rules, match.seed);
-      this.lifecycle = { kind: 'playing', match };
+      this.lifecycle = { kind: 'playing', match, paused: null };
     }
     if (this.lifecycle.kind === 'playing'
+      && !this.lifecycle.paused
       && now >= this.lifecycle.match.deadline
       && this.connection === 'connected') {
       this.finishLocalRun();
@@ -407,6 +442,7 @@ export class MultiplayerSessionController {
 
   private acceptsGameplay(): boolean {
     if (this.connection !== 'connected' || this.lifecycle.kind !== 'playing') return false;
+    if (this.lifecycle.paused) return false;
     if (this.clock.now() >= this.lifecycle.match.deadline) {
       this.finishLocalRun();
       return false;
@@ -443,9 +479,11 @@ export class MultiplayerSessionController {
   private replaceMatch(match: MatchContext): void {
     switch (this.lifecycle.kind) {
       case 'countdown':
-      case 'playing':
       case 'awaiting-result':
         this.lifecycle = { kind: this.lifecycle.kind, match };
+        break;
+      case 'playing':
+        this.lifecycle = { kind: 'playing', match, paused: this.lifecycle.paused };
         break;
       case 'complete':
         this.lifecycle = { ...this.lifecycle, match };

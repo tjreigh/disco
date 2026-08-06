@@ -71,6 +71,10 @@ describe('shared multiplayer contracts', () => {
       matchId: 'match-1',
       progress: { sequence: 1, score: 700, turnsPlayed: 2 },
     }).ok).toBe(true);
+    // A forfeit forces the non-forfeiting player as winner regardless of
+    // score (see forfeitMatch in both room services) — the parser must
+    // accept a winner that doesn't have the higher score, or every forfeit
+    // gets rejected by both clients as an incompatible/malformed message.
     expect(parseMultiplayerServerMessage({
       protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
       roomId: 'ROOM1',
@@ -79,6 +83,21 @@ describe('shared multiplayer contracts', () => {
       matchId: 'match-1',
       result: {
         winnerId: 'player-2',
+        scores: [
+          { playerId: 'player-1', score: 700 },
+          { playerId: 'player-2', score: 500 },
+        ],
+      },
+    }).ok).toBe(true);
+    // Still rejected: a winnerId that doesn't name either participant.
+    expect(parseMultiplayerServerMessage({
+      protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+      roomId: 'ROOM1',
+      mode,
+      type: 'match-finished',
+      matchId: 'match-1',
+      result: {
+        winnerId: 'someone-else',
         scores: [
           { playerId: 'player-1', score: 700 },
           { playerId: 'player-2', score: 500 },

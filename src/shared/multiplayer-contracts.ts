@@ -89,6 +89,15 @@ export type MultiplayerClientMessage =
       readonly type: 'move-cursor';
       readonly matchId: string;
       readonly column: number;
+    })
+  | (ClientMessageBase & {
+      readonly type: 'set-paused';
+      readonly matchId: string;
+      readonly paused: boolean;
+    })
+  | (ClientMessageBase & {
+      readonly type: 'forfeit-match';
+      readonly matchId: string;
     });
 
 interface ServerMessageBase {
@@ -161,6 +170,19 @@ export type MultiplayerServerMessage =
       readonly matchId: string;
       readonly playerId: string;
       readonly column: number;
+    })
+  | (ServerMessageBase & {
+      readonly type: 'match-paused';
+      readonly matchId: string;
+      readonly paused: boolean;
+      readonly pausedBy: string;
+      /**
+       * The authoritative match/turn deadline at the moment of this event —
+       * unchanged on pause, shifted forward by the paused duration on
+       * resume. Lets clients resync their locally cached deadline exactly
+       * instead of replicating the elapsed-time math themselves.
+       */
+      readonly deadline: number;
     });
 
 export type MultiplayerConnectionState = 'connected' | 'disconnected' | 'reconnecting';
