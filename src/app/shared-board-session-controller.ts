@@ -56,6 +56,8 @@ export interface SharedBoardSessionView {
   readonly turnDeadline: number | null;
   readonly localScore: number;
   readonly opponentScore: number;
+  /** Learned from turn ownership or the authoritative score pair; null until the opponent's identity is known. */
+  readonly opponentPlayerId: string | null;
   readonly board: WireBoard;
   readonly columnCursor: number;
   /** The active player's live column selection, as seen by the other player. Null until they move it. */
@@ -616,6 +618,7 @@ export class SharedBoardSessionController {
       turnDeadline: lifecycle.kind === 'playing' ? lifecycle.turnDeadline : null,
       localScore: lifecycle.kind === 'playing' ? lifecycle.localScore : 0,
       opponentScore: lifecycle.kind === 'playing' ? lifecycle.opponentScore : 0,
+      opponentPlayerId: lifecycle.kind === 'playing' ? lifecycle.opponentPlayerId : null,
       board: lifecycle.kind === 'playing' ? lifecycle.board : emptyBoard(),
       columnCursor: lifecycle.kind === 'playing' ? lifecycle.columnCursor : 3,
       opponentColumnCursor: lifecycle.kind === 'playing' ? lifecycle.opponentColumnCursor : null,

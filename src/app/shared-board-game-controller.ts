@@ -2,6 +2,7 @@ import { StepKind } from '../game/events.js';
 import type { BonusKind, PhysicsStep } from '../game/events.js';
 import { SHARED_DUEL_MODE } from '../game/modes/index.js';
 import { DiscKind } from '../game/model.js';
+import { computeOwnerScoreDelta } from '../game/scoring/owner-attribution.js';
 import type { Board, Disc, EntryEdge, GridPos } from '../game/model.js';
 import type { GameState } from '../game/state.js';
 import { GamePhase } from '../game/state.js';
@@ -60,6 +61,14 @@ export class SharedBoardGame {
   #lastFrameTime: DOMHighResTimeStamp | null = null;
   #turnIndicators: ScoreIndicator[] = [];
   #scorePopups: ScorePopup[] = [];
+  // Lag behind session.view.localScore/opponentScore during playback so the
+  // scoreboard ticks up with the clear animation instead of jumping the
+  // instant the turn-played message arrives — same authority/presentation
+  // split as solo's LocalBoardSession.displayedScore. Rewound on pickup,
+  // ticked per Clear/Bonus step, and snapped to truth whenever nothing is
+  // animating (queue completion, forced abandonment, or no turn yet).
+  #displayedLocalScore = 0;
+  #displayedOpponentScore = 0;
   #wasMyTurn = false;
   #frameId: number | null = null;
   #destroyed = false;
@@ -224,11 +233,39 @@ export class SharedBoardGame {
     const pending = session.consumePendingTurnResult();
     if (pending) {
       const attribution = pending.triggerPlayerId === view.playerId ? 'YOU' : 'OPPONENT';
+      // Rewind to how the score stood before this turn's award, mirroring
+      // solo's `displayedScore = state.score - result.scoreAwarded` — the
+      // session already applied triggerScoreDelta/opponentScoreDelta to
+      // view.localScore/opponentScore the instant the message arrived.
+      const [localDelta, opponentDelta] = attribution === 'YOU'
+        ? [pending.triggerScoreDelta, pending.opponentScoreDelta]
+        : [pending.opponentScoreDelta, pending.triggerScoreDelta];
+      this.#displayedLocalScore = view.localScore - localDelta;
+      this.#displayedOpponentScore = view.opponentScore - opponentDelta;
       this.#visualBoard = wireBoardToBoard(pending.boardBefore);
       this.#animQueue = new AnimationQueue(
         pending.steps.map(wireStepToPhysicsStep),
         (step, stepNow) => {
           if (step.kind !== StepKind.Clear) return;
+          // Split this step's award between local/opponent the same way the
+          // server did for the turn total (computeOwnerScoreDelta handles
+          // owner shares, steals, and the trigger bonus) — reusing the
+          // authoritative function per-step keeps the running tick faithful
+          // to the eventual total instead of drifting from a hand-rolled sum.
+          if (view.opponentPlayerId && SHARED_DUEL_MODE.session.kind === 'shared-board-duel@1') {
+            const stepDelta = computeOwnerScoreDelta([step], {
+              triggerPlayerId: pending.triggerPlayerId,
+              opponentPlayerId: view.opponentPlayerId,
+              disruptionThreshold: SHARED_DUEL_MODE.session.disruptionThreshold,
+            });
+            if (attribution === 'YOU') {
+              this.#displayedLocalScore += stepDelta.triggerDelta;
+              this.#displayedOpponentScore += stepDelta.opponentDelta;
+            } else {
+              this.#displayedOpponentScore += stepDelta.triggerDelta;
+              this.#displayedLocalScore += stepDelta.opponentDelta;
+            }
+          }
           const chainLength = step.chainLevel + 1;
           const perDisc = Math.floor(step.pointsAwarded / step.discs.length);
           for (let i = 0; i < step.cleared.length; i++) {
@@ -259,6 +296,14 @@ export class SharedBoardGame {
       );
     }
     this.#animQueue?.tick(now);
+    // Convergence safety net: whenever nothing is animating — the queue just
+    // finished, got discarded/abandoned above, or no turn has been picked up
+    // yet (fresh match, or a reconnect that restored a nonzero score with no
+    // animation to replay) — the displayed score must exactly match truth.
+    if (!this.#animQueue) {
+      this.#displayedLocalScore = view.localScore;
+      this.#displayedOpponentScore = view.opponentScore;
+    }
 
     this.#scorePopups = tickScorePopups(this.#scorePopups, now);
 
@@ -267,8 +312,8 @@ export class SharedBoardGame {
     this.#sharedBoardHud?.render({
       phase: view.phase,
       remainingMs: view.remainingMs,
-      localScore: view.localScore,
-      opponentScore: view.opponentScore,
+      localScore: this.#displayedLocalScore,
+      opponentScore: this.#displayedOpponentScore,
       isMyTurn: view.isMyTurn,
       result: view.result,
       compatibilityError: view.compatibilityError,
