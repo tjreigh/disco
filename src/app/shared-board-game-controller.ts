@@ -21,8 +21,8 @@ import { MultiplayerPauseMenu } from '../ui/multiplayer-pause-menu.js';
 import { MultiplayerRoomOverlay } from '../ui/multiplayer-room-overlay.js';
 import { SharedBoardHud } from '../ui/shared-board-hud.js';
 import { setGridSize } from '../ui/rendering/layout.js';
-import { AnimationQueue, spawnScoreIndicator, tickScoreIndicators } from '../ui/rendering/animation-queue.js';
-import type { ScoreIndicator } from '../ui/rendering/animation-types.js';
+import { AnimationQueue, spawnScoreIndicator, tickScoreIndicators, tickScorePopups } from '../ui/rendering/animation-queue.js';
+import type { ScoreIndicator, ScorePopup } from '../ui/rendering/animation-types.js';
 import { Renderer } from '../ui/rendering/renderer.js';
 import type { UiMounts } from '../ui/ui-root.js';
 import { applyStepToVisualBoard } from './visual-board.js';
@@ -59,6 +59,7 @@ export class SharedBoardGame {
   #visualBoard: Board | null = null;
   #lastFrameTime: DOMHighResTimeStamp | null = null;
   #turnIndicators: ScoreIndicator[] = [];
+  #scorePopups: ScorePopup[] = [];
   #wasMyTurn = false;
 
   constructor(canvas: HTMLCanvasElement, mounts: UiMounts) {
@@ -194,6 +195,19 @@ export class SharedBoardGame {
         (step, stepNow) => {
           if (step.kind !== StepKind.Clear) return;
           const chainLength = step.chainLevel + 1;
+          const perDisc = Math.floor(step.pointsAwarded / step.discs.length);
+          for (let i = 0; i < step.cleared.length; i++) {
+            const pos = step.cleared[i]!;
+            const disc = step.discs[i];
+            const owner = disc?.ownerId
+              ? disc.ownerId === view.playerId ? 'local' as const : 'opponent' as const
+              : undefined;
+            this.#scorePopups.push({
+              value: perDisc, col: pos.col, row: pos.row,
+              startTime: stepNow, duration: 800, progress: 0, alpha: 1, yOffset: 0,
+              ...(owner !== undefined ? { owner } : {}),
+            });
+          }
           if (chainLength < 2) return;
           const scoring = SHARED_DUEL_MODE.rules.scoring;
           const multiplier = scoring.kind === 'chain-score@1'
@@ -210,6 +224,8 @@ export class SharedBoardGame {
       );
     }
     this.#animQueue?.tick(now);
+
+    this.#scorePopups = tickScorePopups(this.#scorePopups, now);
 
     this.#renderControls(view);
     this.#renderHud(view);
@@ -264,12 +280,12 @@ export class SharedBoardGame {
         ? { col: view.opponentColumnCursor, disc: state.currentDisc }
         : null;
       this.#renderer.draw(
-        state, board, this.#animQueue?.getActiveAnimations() ?? [], emptyStats(), [], this.#turnIndicators,
-        null, null, false, null, null, opponentCursor,
+        state, board, this.#animQueue?.getActiveAnimations() ?? [], emptyStats(), this.#scorePopups, this.#turnIndicators,
+        null, null, false, null, null, opponentCursor, view.playerId,
       );
     }
 
-    requestAnimationFrame(this.#loop);
+    if (!this.#destroyed) this.#frameId = requestAnimationFrame(this.#loop);
   };
 
   #renderControls(view: SharedBoardSessionView): void {

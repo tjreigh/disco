@@ -91,6 +91,10 @@ export interface PendingTurnResult {
   readonly steps: readonly WireStep[];
   /** Who dropped the disc that produced these steps — for crediting chain/score callouts. */
   readonly triggerPlayerId: string;
+  /** Points awarded to the trigger player (includes trigger bonus + owner awards + steals). */
+  readonly triggerScoreDelta: number;
+  /** Points awarded to the other player (their share of non-stolen owner awards). */
+  readonly opponentScoreDelta: number;
 }
 
 type MatchLifecycle =

@@ -42,6 +42,8 @@ export interface ScorePopup {
   progress: number;
   alpha: number;
   yOffset: number;
+  /** Overrides the default popup color. 'local' = blue, 'opponent' = amber. */
+  owner?: 'local' | 'opponent';
 }
 
 export interface ScoreIndicator {

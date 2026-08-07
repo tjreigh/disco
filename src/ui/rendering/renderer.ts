@@ -121,6 +121,7 @@ export class Renderer {
     gravityShiftCue?: GravityShiftCue | null,
     rewind?: RewindVisualState | null,
     opponentCursor?: { col: number; disc: Disc } | null,
+    activePlayerId?: string,
   ): void {
     const { ctx } = this;
     // Build a set of disc IDs currently being animated. drawStaticDiscs uses
@@ -147,8 +148,8 @@ export class Renderer {
     // During Aiming, `board` is already the live settle preview (the caller
     // substitutes it) — drawn through the same static-disc path as any other
     // committed board, no separate staged-disc rendering needed.
-    this.drawStaticDiscs(board, animations, animIds, rewind ?? null);
-    this.drawAnimatedDiscs(animations);
+    this.drawStaticDiscs(board, animations, animIds, rewind ?? null, activePlayerId);
+    this.drawAnimatedDiscs(animations, activePlayerId);
     if (rewind) this.drawPendingFractures(rewind);
     // The shift-cue's edge glow draws on top of the board so the pulse is
     // visible while discs are still animating into their post-tilt positions.
@@ -464,10 +465,8 @@ export class Renderer {
     animations: readonly RichDiscAnimation[],
     animIds: Set<number>,
     rewind: RewindVisualState | null,
+    activePlayerId?: string,
   ): void {
-    // A top/bottom push only ever produces offsetY, left/right only ever
-    // offsetX — see pushBoardOffsetX/Y — so applying both unconditionally is
-    // always correct, not just for the vertical case Classic always used.
     const offsetX = pushBoardOffsetX(animations);
     const offsetY = pushBoardOffsetY(animations);
     const targets = new Set(rewind?.targets.map(target => `${target.position.row}:${target.position.col}`) ?? []);
@@ -476,7 +475,10 @@ export class Renderer {
         const disc = board[r]![c];
         if (!disc || animIds.has(disc.id)) continue;
         const alpha = rewind && !targets.has(`${r}:${c}`) ? 0.48 : 1;
-        this.drawDisc(disc, cellCenterX(c) + offsetX, cellCenterY(r) + offsetY, discR(), alpha, 1);
+        const ownerIndicator: 'local' | 'opponent' | undefined = activePlayerId && disc.ownerId
+          ? disc.ownerId === activePlayerId ? 'local' : 'opponent'
+          : undefined;
+        this.drawDisc(disc, cellCenterX(c) + offsetX, cellCenterY(r) + offsetY, discR(), alpha, 1, ownerIndicator);
       }
     }
   }
@@ -535,11 +537,14 @@ export class Renderer {
     }
   }
 
-  private drawAnimatedDiscs(animations: readonly RichDiscAnimation[]): void {
+  private drawAnimatedDiscs(animations: readonly RichDiscAnimation[], activePlayerId?: string): void {
     for (const anim of animations) {
       const x = interpolateX(anim);
       const y = interpolateY(anim);
-      this.drawDisc(anim.disc, x, y, discR(), anim.alpha, anim.scale);
+      const ownerIndicator: 'local' | 'opponent' | undefined = activePlayerId && anim.disc.ownerId
+        ? anim.disc.ownerId === activePlayerId ? 'local' : 'opponent'
+        : undefined;
+      this.drawDisc(anim.disc, x, y, discR(), anim.alpha, anim.scale, ownerIndicator);
     }
   }
 
@@ -553,7 +558,9 @@ export class Renderer {
       ctx.globalAlpha = Math.max(0, Math.min(1, p.alpha));
       ctx.shadowColor = 'rgba(0,0,0,0.6)';
       ctx.shadowBlur = 4;
-      ctx.fillStyle = COLOR_SCORE_POPUP;
+      ctx.fillStyle = p.owner === 'local' ? '#3b82f6'
+        : p.owner === 'opponent' ? '#f59e0b'
+        : COLOR_SCORE_POPUP;
       ctx.fillText(`+${p.value}`, cellCenterX(p.col), cellCenterY(p.row) - p.yOffset);
       ctx.restore();
     }
@@ -691,19 +698,46 @@ export class Renderer {
     ctx.fillText(restartHint, lw / 2, lh / 2 + 66);
   }
 
-  drawDisc(disc: Disc, cx: number, cy: number, r: number, alpha: number, scale: number): void {
+  drawDisc(disc: Disc, cx: number, cy: number, r: number, alpha: number, scale: number, ownerIndicator?: 'local' | 'opponent'): void {
     const { ctx } = this;
     ctx.save();
-    // Canvas 2D throws a RangeError if globalAlpha is outside [0, 1].
     ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
     ctx.translate(cx, cy);
     ctx.scale(scale, scale);
+
+    if (ownerIndicator === 'opponent') {
+      ctx.filter = 'hue-rotate(18deg)';
+    }
 
     if (disc.kind === DiscKind.Numbered) {
       drawNumberedDisc(ctx, disc.value, r);
     } else {
       drawCrackedDisc(ctx, disc.kind, r);
       if (disc.temporalFracture) drawTemporalFracture(ctx, r);
+    }
+
+    if (ownerIndicator === 'opponent') {
+      ctx.filter = 'none';
+    }
+
+    if (ownerIndicator === 'local') {
+      ctx.strokeStyle = '#3b82f6';
+      ctx.lineWidth = Math.max(2, r * 0.1);
+      ctx.beginPath();
+      ctx.arc(0, 0, r + 1, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (ownerIndicator === 'opponent') {
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
+      ctx.lineWidth = Math.max(3, r * 0.13);
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.65)';
+      ctx.shadowBlur = Math.max(2, r * 0.08);
+      ctx.setLineDash([Math.max(3, r * 0.18), Math.max(3, r * 0.18)]);
+      ctx.beginPath();
+      ctx.arc(0, 0, r + 1, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
     }
 
     ctx.restore();
