@@ -2,7 +2,11 @@ import type {
   MultiplayerClientMessage,
   MultiplayerConnectionState,
 } from '../shared/multiplayer-contracts.js';
-import { MULTIPLAYER_PROTOCOL_VERSION } from '../shared/multiplayer-contracts.js';
+import {
+  MULTIPLAYER_PROTOCOL_VERSION,
+  sameMultiplayerModeIdentity,
+} from '../shared/multiplayer-contracts.js';
+import { parseMultiplayerServerMessage } from '../shared/multiplayer-messages.js';
 import type {
   MultiplayerSessionTransport,
 } from '../app/multiplayer-session-controller.js';
@@ -46,9 +50,15 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
   private readonly errorListeners = new Set<
     (error: MultiplayerTransportError) => void
   >();
-  private readonly queuedMessages: MultiplayerClientMessage[] = [];
+  // Only 'set-ready' is retained while unauthenticated/reconnecting, and
+  // coalesced to its latest value — every other message type (gameplay,
+  // pause, forfeit, Score Race progress/resume) is dropped outright rather
+  // than queued, since a stale copy replayed later can never be valid.
+  // Controllers already re-emit what they need once `connected` fires.
+  private queuedReadiness: MultiplayerClientMessage | null = null;
   private socket: WebSocket | null = null;
   private state: MultiplayerConnectionState = 'reconnecting';
+  private authenticated = false;
   private reconnectAttempt = 0;
   private reconnectTimer: number | null = null;
   private terminal = false;
@@ -61,11 +71,12 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
 
   send(message: MultiplayerClientMessage): void {
     if (this.terminal) return;
-    if (this.socket?.readyState === WebSocket.OPEN && this.state === 'connected') {
+    if (this.socket?.readyState === WebSocket.OPEN && this.authenticated) {
       this.socket.send(JSON.stringify(message));
       return;
     }
-    this.queuedMessages.push(message);
+    if (message.type !== 'set-ready') return;
+    this.queuedReadiness = message;
   }
 
   subscribe(listener: (message: unknown) => void): () => void {
@@ -95,11 +106,12 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
     this.messageListeners.clear();
     this.connectionListeners.clear();
     this.errorListeners.clear();
-    this.queuedMessages.length = 0;
+    this.queuedReadiness = null;
   }
 
   private connect(): void {
     if (this.terminal) return;
+    this.authenticated = false;
     this.setState('reconnecting');
     const socket = new WebSocket(this.url);
     this.socket = socket;
@@ -114,27 +126,51 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
         reconnectCredential: this.admission.reconnectCredential,
       }));
       this.reconnectAttempt = 0;
-      this.setState('connected');
-      for (const message of this.queuedMessages.splice(0)) {
-        socket.send(JSON.stringify(message));
-      }
+      // Socket open only means the network connection exists — state stays
+      // 'reconnecting' until the server's first matching snapshot proves the
+      // credential was actually accepted (see the 'message' listener below).
     });
 
     socket.addEventListener('message', event => {
       if (this.socket !== socket || this.terminal) return;
-      const message = parseJson(event.data);
-      if (isTransportError(message)) {
+      const raw = parseJson(event.data);
+      if (isTransportError(raw)) {
         this.terminal = true;
-        for (const listener of this.errorListeners) listener(message.error);
-        socket.close(1008, message.error);
+        for (const listener of this.errorListeners) listener(raw.error);
+        socket.close(1008, raw.error);
         return;
       }
-      for (const listener of this.messageListeners) listener(message);
+
+      if (!this.authenticated) {
+        const parsed = parseMultiplayerServerMessage(raw);
+        if (!parsed.ok) {
+          this.failAuthentication(socket, parsed.error);
+          return;
+        }
+        if (parsed.message.roomId !== this.admission.roomId) {
+          this.failAuthentication(socket, 'room-not-found');
+          return;
+        }
+        if (!sameMultiplayerModeIdentity(parsed.message.mode, this.admission.mode)) {
+          this.failAuthentication(socket, 'mode-mismatch');
+          return;
+        }
+        // Entire sequence runs synchronously in this one message event, so
+        // no user input or queued send can interleave with it.
+        this.authenticated = true;
+        this.setState('connected');
+        for (const listener of this.messageListeners) listener(raw);
+        this.flushReadiness(socket);
+        return;
+      }
+
+      for (const listener of this.messageListeners) listener(raw);
     });
 
     socket.addEventListener('close', event => {
       if (this.socket !== socket) return;
       this.socket = null;
+      this.authenticated = false;
       if (this.terminal || event.code === 1000) {
         this.setState('disconnected');
         return;
@@ -142,6 +178,19 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
       this.setState('disconnected');
       this.scheduleReconnect();
     });
+  }
+
+  private failAuthentication(socket: WebSocket, error: MultiplayerTransportError): void {
+    this.terminal = true;
+    for (const listener of this.errorListeners) listener(error);
+    socket.close(1008, error);
+  }
+
+  private flushReadiness(socket: WebSocket): void {
+    if (!this.queuedReadiness) return;
+    const message = this.queuedReadiness;
+    this.queuedReadiness = null;
+    socket.send(JSON.stringify(message));
   }
 
   private scheduleReconnect(): void {

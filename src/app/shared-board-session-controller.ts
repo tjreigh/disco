@@ -117,10 +117,20 @@ type MatchLifecycle =
       turnsRemaining: number;
       /** A turn just resolved and hasn't been picked up for animation yet. */
       pendingTurnResult: PendingTurnResult | null;
-      paused: { readonly by: string } | null;
+      paused: { readonly by: string; readonly remainingMs: number } | null;
+      /** Learned from turn ownership or the authoritative score pair; used to reject impossible pause identities. */
+      opponentPlayerId: string | null;
+      /** Undefined until the first revision-bearing server message (turn-assigned/played/expired or duel-status) arrives. */
+      revision: number | undefined;
+      turnSubmissionPending: boolean;
+      /** One-shot: set when a status corrects state ahead of, or after reconnect regardless of, the last applied revision. Consumed by the game controller. */
+      discardAnimation: boolean;
+      /** One-shot: set on reconnect so the next non-stale duel-status is applied as a forced resync (see #handleConnection). */
+      forceNextStatus: boolean;
     }
   | {
       readonly kind: 'complete';
+      readonly matchId: string;
       readonly result: MultiplayerLocalResult;
       localReady: boolean;
       opponentReady: boolean;
@@ -176,6 +186,9 @@ export class SharedBoardSessionController {
   playTurn(column: number): void {
     const lifecycle = this.#lifecycle;
     if (lifecycle.kind !== 'playing' || !lifecycle.isMyTurn || lifecycle.paused) return;
+    if (this.#connection !== 'connected') return;
+    if (lifecycle.turnSubmissionPending) return;
+    lifecycle.turnSubmissionPending = true;
     this.#transport.send({
       protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
       roomId: this.#roomId,
@@ -189,6 +202,7 @@ export class SharedBoardSessionController {
   moveCursor(column: number): void {
     const lifecycle = this.#lifecycle;
     if (lifecycle.kind !== 'playing' || !lifecycle.isMyTurn || lifecycle.paused) return;
+    if (this.#connection !== 'connected') return;
     const clamped = Math.max(0, Math.min(6, column));
     if (clamped === lifecycle.columnCursor) return;
     lifecycle.columnCursor = clamped;
@@ -204,7 +218,7 @@ export class SharedBoardSessionController {
 
   requestPause(paused: boolean): void {
     const lifecycle = this.#lifecycle;
-    if (lifecycle.kind !== 'playing') return;
+    if (lifecycle.kind !== 'playing' || this.#connection !== 'connected') return;
     this.#transport.send({
       protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
       roomId: this.#roomId,
@@ -217,7 +231,7 @@ export class SharedBoardSessionController {
 
   forfeit(): void {
     const lifecycle = this.#lifecycle;
-    if (lifecycle.kind !== 'playing') return;
+    if (lifecycle.kind !== 'playing' || this.#connection !== 'connected') return;
     this.#transport.send({
       protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
       roomId: this.#roomId,
@@ -234,6 +248,19 @@ export class SharedBoardSessionController {
     const pending = lifecycle.pendingTurnResult;
     lifecycle.pendingTurnResult = null;
     return pending;
+  }
+
+  /** One-shot: true when the game controller must cancel any in-flight animation because a status just corrected state past it (reconnect fast-forward or a missed revision). */
+  consumeAnimationDiscard(): boolean {
+    const lifecycle = this.#lifecycle;
+    if (lifecycle.kind !== 'playing' || !lifecycle.discardAnimation) return false;
+    lifecycle.discardAnimation = false;
+    // A pending result predating the correcting snapshot is just as stale as
+    // an animation already in progress. Clear both sides of that handoff
+    // atomically so the game loop cannot cancel one and immediately start the
+    // other on the same frame.
+    lifecycle.pendingTurnResult = null;
+    return true;
   }
 
   destroy(): void {
@@ -277,15 +304,44 @@ export class SharedBoardSessionController {
       case 'match-paused':
         this.#handleMatchPaused(message);
         break;
+      case 'duel-status':
+        this.#handleDuelStatus(message);
+        break;
       case 'opponent-progress':
         break;
     }
   }
 
+  #currentMatchId(): string | null {
+    const lifecycle = this.#lifecycle;
+    switch (lifecycle.kind) {
+      case 'countdown':
+      case 'playing':
+        return lifecycle.match.matchId;
+      case 'complete':
+        return lifecycle.matchId;
+      default:
+        return null;
+    }
+  }
+
   #handleMatchPaused(message: MultiplayerServerMessage & { type: 'match-paused' }): void {
     const lifecycle = this.#lifecycle;
-    if (lifecycle.kind !== 'playing') return;
-    lifecycle.paused = message.paused ? { by: message.pausedBy } : null;
+    if (lifecycle.kind !== 'playing' || message.matchId !== lifecycle.match.matchId) return;
+    if (message.paused
+      && message.pausedBy !== this.#playerId
+      && lifecycle.opponentPlayerId !== null
+      && message.pausedBy !== lifecycle.opponentPlayerId) {
+      this.#failCompatibility('session-mismatch', { reason: 'match-paused player outside match', message });
+      return;
+    }
+    lifecycle.paused = message.paused
+      ? {
+          by: message.pausedBy,
+          remainingMs: lifecycle.paused?.remainingMs
+            ?? Math.max(0, lifecycle.turnDeadline - this.#clock.now()),
+        }
+      : null;
     // The server's deadline is authoritative and shifts forward on resume —
     // resync rather than trying to replicate its elapsed-time math here.
     lifecycle.turnDeadline = message.deadline;
@@ -313,6 +369,15 @@ export class SharedBoardSessionController {
   #handleTurnAssigned(message: MultiplayerServerMessage & { type: 'turn-assigned' }): void {
     const lifecycle = this.#lifecycle;
     if (lifecycle.kind !== 'countdown' && lifecycle.kind !== 'playing') return;
+    if (message.matchId !== lifecycle.match.matchId) return;
+    if (lifecycle.kind === 'playing'
+      && lifecycle.revision !== undefined
+      && message.revision !== lifecycle.revision) {
+      // turn-assigned is paired with the resolution at the same revision. A
+      // different revision means an event was missed (or this assignment is
+      // stale); only duel-status may bridge that gap authoritatively.
+      return;
+    }
 
     const board = message.board;
     const isMyTurn = message.playerId === this.#playerId;
@@ -326,7 +391,9 @@ export class SharedBoardSessionController {
       isMyTurn,
       turnDeadline: message.turnDeadline,
       columnCursor: lifecycle.kind === 'playing' ? lifecycle.columnCursor : 3,
-      // A fresh turn means the opponent hasn't hovered anywhere yet.
+      // A fresh turn means the opponent hasn't hovered anywhere yet — the
+      // paired duel-status that always follows corrects this to the
+      // opponent's real stored cursor (column 3 by default) immediately.
       opponentColumnCursor: null,
       currentDisc: message.currentDisc,
       nextDisc: message.nextDisc,
@@ -338,12 +405,23 @@ export class SharedBoardSessionController {
       // carry it over instead of dropping it on this lifecycle swap.
       pendingTurnResult: lifecycle.kind === 'playing' ? lifecycle.pendingTurnResult : null,
       paused: lifecycle.kind === 'playing' ? lifecycle.paused : null,
+      opponentPlayerId: message.playerId !== this.#playerId
+        ? message.playerId
+        : lifecycle.kind === 'playing' ? lifecycle.opponentPlayerId : null,
+      revision: message.revision,
+      turnSubmissionPending: false,
+      discardAnimation: lifecycle.kind === 'playing' ? lifecycle.discardAnimation : false,
+      forceNextStatus: lifecycle.kind === 'playing' ? lifecycle.forceNextStatus : false,
     };
   }
 
   #handleTurnPlayed(message: MultiplayerServerMessage & { type: 'turn-played' | 'turn-expired' }): void {
     const lifecycle = this.#lifecycle;
-    if (lifecycle.kind !== 'playing') return;
+    if (lifecycle.kind !== 'playing' || message.matchId !== lifecycle.match.matchId) return;
+    // Incremental events are safe only when they are exactly next. Duplicate,
+    // stale, or skipped revisions wait for the paired authoritative status;
+    // applying a delta across a gap would corrupt scores and animation state.
+    if (lifecycle.revision === undefined || message.revision !== lifecycle.revision + 1) return;
 
     const boardBefore = lifecycle.board;
     lifecycle.board = message.board;
@@ -351,6 +429,8 @@ export class SharedBoardSessionController {
       boardBefore,
       steps: message.turnResult.steps,
       triggerPlayerId: message.turnResult.playerId,
+      triggerScoreDelta: message.turnResult.triggerScoreDelta,
+      opponentScoreDelta: message.turnResult.opponentScoreDelta,
     };
     if (message.turnResult.playerId === this.#playerId) {
       lifecycle.localScore += message.turnResult.triggerScoreDelta;
@@ -367,19 +447,88 @@ export class SharedBoardSessionController {
     lifecycle.level = message.level;
     lifecycle.turnsPerLevel = message.turnsPerLevel;
     lifecycle.turnsRemaining = message.turnsRemaining;
+    lifecycle.revision = message.revision;
+    lifecycle.turnSubmissionPending = false;
   }
 
   #handleOpponentCursor(message: MultiplayerServerMessage & { type: 'opponent-cursor' }): void {
     const lifecycle = this.#lifecycle;
-    if (lifecycle.kind !== 'playing' || message.playerId === this.#playerId) return;
+    if (lifecycle.kind !== 'playing'
+      || message.matchId !== lifecycle.match.matchId
+      || message.playerId === this.#playerId) return;
     lifecycle.opponentColumnCursor = message.column;
   }
 
+  #handleDuelStatus(message: MultiplayerServerMessage & { type: 'duel-status' }): void {
+    const lifecycle = this.#lifecycle;
+    if (lifecycle.kind !== 'playing' || message.matchId !== lifecycle.match.matchId) return;
+
+    const localScoreEntry = message.scores.find(score => score.playerId === this.#playerId);
+    const opponentScoreEntry = message.scores.find(score => score.playerId !== this.#playerId);
+    if (!localScoreEntry || !opponentScoreEntry) {
+      this.#failCompatibility('session-mismatch', { reason: 'duel-status missing local player score', message });
+      return;
+    }
+    if (message.activePlayerId !== localScoreEntry.playerId && message.activePlayerId !== opponentScoreEntry.playerId) {
+      this.#failCompatibility('session-mismatch', { reason: 'duel-status active player outside score pair', message });
+      return;
+    }
+    if (message.paused
+      && message.pausedBy !== localScoreEntry.playerId
+      && message.pausedBy !== opponentScoreEntry.playerId) {
+      this.#failCompatibility('session-mismatch', { reason: 'duel-status paused player outside score pair', message });
+      return;
+    }
+
+    if (lifecycle.revision !== undefined && message.revision < lifecycle.revision) {
+      // Stale pulse — a newer revision has already been applied. Even a
+      // reconnect snapshot can't be genuinely older than what's already
+      // applied (the server always builds it from current match state), so
+      // this holds unconditionally rather than only outside a reconnect.
+      return;
+    }
+    const isReconnectResync = lifecycle.forceNextStatus;
+    const isNewerRevision = lifecycle.revision === undefined || message.revision > lifecycle.revision;
+    if (isNewerRevision || isReconnectResync) {
+      // Ahead of the applied revision: the tab missed one or more events.
+      // Equal revision right after reconnect: still discard, since the
+      // animation (if any) was left over from before the gap and can't be
+      // trusted to represent the authoritative state below.
+      lifecycle.discardAnimation = true;
+      lifecycle.pendingTurnResult = null;
+    }
+    lifecycle.forceNextStatus = false;
+
+    lifecycle.board = message.board;
+    lifecycle.localScore = localScoreEntry.score;
+    lifecycle.opponentScore = opponentScoreEntry.score;
+    lifecycle.isMyTurn = message.activePlayerId === this.#playerId;
+    const remainingMs = Math.max(0, message.turnDeadline - message.serverTime);
+    lifecycle.turnDeadline = this.#clock.now() + remainingMs;
+    lifecycle.currentDisc = message.currentDisc;
+    lifecycle.nextDisc = message.nextDisc;
+    lifecycle.level = message.level;
+    lifecycle.turnsPerLevel = message.turnsPerLevel;
+    lifecycle.turnsRemaining = message.turnsRemaining;
+    lifecycle.paused = message.paused ? { by: message.pausedBy as string, remainingMs } : null;
+    lifecycle.opponentPlayerId = opponentScoreEntry.playerId;
+    // Never overwrite the responsive local columnCursor from a pulse — only
+    // the opponent's ghost is authoritatively driven by activeColumn here.
+    lifecycle.opponentColumnCursor = message.activePlayerId !== this.#playerId ? message.activeColumn : null;
+    lifecycle.revision = message.revision;
+    // A periodic same-revision pulse is not an acknowledgement of a submitted
+    // action; clearing here would allow a duplicate drop. Revision advancement,
+    // reconnect resync, or a corrective turn-assigned snapshot clears it.
+    if (isNewerRevision || isReconnectResync) lifecycle.turnSubmissionPending = false;
+  }
+
   #handleMatchFinished(message: MultiplayerServerMessage & { type: 'match-finished' }): void {
+    if (message.matchId !== this.#currentMatchId()) return;
     const localResult = localizeMultiplayerResult(message.result, this.#playerId);
     if (!localResult) return;
     this.#lifecycle = {
       kind: 'complete',
+      matchId: message.matchId,
       result: localResult,
       localReady: false,
       opponentReady: false,
@@ -387,7 +536,15 @@ export class SharedBoardSessionController {
   }
 
   #handleConnection(state: MultiplayerConnectionState): void {
+    const wasConnected = this.#connection === 'connected';
     this.#connection = state;
+    if (state === 'connected' && !wasConnected && this.#lifecycle.kind === 'playing') {
+      // The next duel-status must be applied unconditionally, even if its
+      // revision happens to equal what we last applied — a reconnect gap
+      // may have left stale presentation (a pause banner, an in-flight
+      // animation) that only a forced resync will clear.
+      this.#lifecycle.forceNextStatus = true;
+    }
   }
 
   #advanceForClock(): void {
@@ -411,6 +568,11 @@ export class SharedBoardSessionController {
         turnsRemaining: 1,
         pendingTurnResult: null,
         paused: null,
+        opponentPlayerId: null,
+        revision: undefined,
+        turnSubmissionPending: false,
+        discardAnimation: false,
+        forceNextStatus: false,
       };
     }
   }
@@ -435,6 +597,9 @@ export class SharedBoardSessionController {
       : lifecycle.kind === 'playing'
         ? lifecycle.turnDeadline
         : null;
+    const remainingMs = lifecycle.kind === 'playing' && lifecycle.paused
+      ? lifecycle.paused.remainingMs
+      : target === null ? null : Math.max(0, target - now);
 
     return {
       phase,
@@ -446,7 +611,7 @@ export class SharedBoardSessionController {
       opponentReady: lifecycle.kind === 'lobby' || lifecycle.kind === 'complete' ? lifecycle.opponentReady : true,
       matchId: ('match' in lifecycle && lifecycle.match) ? lifecycle.match.matchId : null,
       startsAt: ('match' in lifecycle && lifecycle.match) ? lifecycle.match.startsAt : null,
-      remainingMs: target === null ? null : Math.max(0, target - now),
+      remainingMs,
       isMyTurn: lifecycle.kind === 'playing' ? lifecycle.isMyTurn : false,
       turnDeadline: lifecycle.kind === 'playing' ? lifecycle.turnDeadline : null,
       localScore: lifecycle.kind === 'playing' ? lifecycle.localScore : 0,

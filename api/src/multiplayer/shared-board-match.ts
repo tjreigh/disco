@@ -8,6 +8,7 @@ import type { Board, Disc } from '#game-model';
 import { MULTIPLAYER_PROTOCOL_VERSION } from '#multiplayer-contracts';
 import type {
   MultiplayerModeIdentity,
+  MultiplayerPlayerScore,
   TurnResultWire,
   WireBoard,
   WireDisc,
@@ -36,9 +37,12 @@ export class SharedBoardMatch {
   readonly disruptionThreshold: number;
   readonly engine: GameEngine;
   private readonly scores: Record<string, number>;
+  private readonly cursors: Record<string, number>;
   currentPlayerIndex: number;
   turnDeadline: number;
   finished: boolean;
+  /** Monotonically increases after every accepted turn or timeout resolution. Cursor moves never change it. */
+  revision: number;
 
   constructor(config: SharedBoardMatchConfig) {
     this.id = config.matchId;
@@ -48,10 +52,15 @@ export class SharedBoardMatch {
     this.disruptionThreshold = config.disruptionThreshold;
     this.engine = new GameEngine({ seed: config.seed, rules: SHARED_DUEL_RULES });
     this.scores = {};
-    for (const id of config.playerIds) this.scores[id] = 0;
+    this.cursors = {};
+    for (const id of config.playerIds) {
+      this.scores[id] = 0;
+      this.cursors[id] = 3;
+    }
     this.currentPlayerIndex = 0;
     this.turnDeadline = 0;
     this.finished = false;
+    this.revision = 0;
   }
 
   get currentPlayerId(): string {
@@ -64,6 +73,18 @@ export class SharedBoardMatch {
 
   getScore(playerId: string): number {
     return this.scores[playerId] ?? 0;
+  }
+
+  getCursor(playerId: string): number {
+    return this.cursors[playerId] ?? 3;
+  }
+
+  /** Updates a known player's stored cursor column. Unknown players or out-of-range columns are silently ignored. */
+  setCursor(playerId: string, column: number): void {
+    if (!(playerId in this.cursors)) return;
+    const cols = this.engine.state.board[0]!.length;
+    if (!Number.isInteger(column) || column < 0 || column >= cols) return;
+    this.cursors[playerId] = column;
   }
 
   isCurrentPlayer(playerId: string): boolean {
@@ -94,6 +115,7 @@ export class SharedBoardMatch {
     const availableCol = this.randomAvailableColumn();
     if (availableCol === null) {
       this.finished = true;
+      this.revision += 1;
       return {
         kind: 'accepted',
         gameOver: true,
@@ -111,6 +133,7 @@ export class SharedBoardMatch {
     const turnResult = this.engine.drop(availableCol, playerId);
     if (!turnResult.accepted) {
       this.finished = true;
+      this.revision += 1;
       return {
         kind: 'accepted',
         gameOver: true,
@@ -168,6 +191,7 @@ export class SharedBoardMatch {
       playerId: this.currentPlayerId,
       turnDeadline: this.turnDeadline,
       board: this.serializeBoard(),
+      revision: this.revision,
       ...this.discSnapshot(),
     };
   }
@@ -187,6 +211,7 @@ export class SharedBoardMatch {
       board: this.serializeBoard(),
       turnResult,
       nextPlayerId: this.currentPlayerId,
+      revision: this.revision,
       ...this.discSnapshot(),
     };
   }
@@ -206,6 +231,45 @@ export class SharedBoardMatch {
       board: this.serializeBoard(),
       turnResult,
       nextPlayerId: this.currentPlayerId,
+      revision: this.revision,
+      ...this.discSnapshot(),
+    };
+  }
+
+  /** Every field is read from this one synchronous snapshot, so board/scores/player/timer/discs always describe the same instant. */
+  buildDuelStatusMessage(
+    roomId: string,
+    mode: MultiplayerModeIdentity,
+    matchId: string,
+    now: number,
+    paused: boolean,
+    pausedBy: string | null,
+    pausedSince: number | null,
+  ) {
+    // The stored deadline intentionally remains frozen while paused. Project
+    // it forward by the paused duration in snapshots so deadline-serverTime
+    // remains the same remaining turn budget for clock-skewed clients.
+    const effectiveTurnDeadline = pausedSince === null
+      ? this.turnDeadline
+      : this.turnDeadline + Math.max(0, now - pausedSince);
+    return {
+      protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+      roomId,
+      mode,
+      type: 'duel-status' as const,
+      matchId,
+      revision: this.revision,
+      serverTime: now,
+      activePlayerId: this.currentPlayerId,
+      turnDeadline: effectiveTurnDeadline,
+      activeColumn: this.getCursor(this.currentPlayerId),
+      paused,
+      pausedBy,
+      scores: this.playerIds.map(id => ({
+        playerId: id,
+        score: this.getScore(id),
+      })) as [MultiplayerPlayerScore, MultiplayerPlayerScore],
+      board: this.serializeBoard(),
       ...this.discSnapshot(),
     };
   }
@@ -219,6 +283,8 @@ export class SharedBoardMatch {
 
     this.scores[playerId] = (this.scores[playerId] ?? 0) + scoreDelta.triggerDelta;
     this.scores[this.opponentId] = (this.scores[this.opponentId] ?? 0) + scoreDelta.opponentDelta;
+    this.setCursor(playerId, this.engine.state.cursorCol);
+    this.revision += 1;
 
     if (turnResult.gameOver) {
       this.finished = true;

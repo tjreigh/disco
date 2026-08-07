@@ -156,6 +156,232 @@ test.describe('private Score Race pause menu', () => {
   });
 });
 
+test.describe('private Disco Duel sync and resilience', () => {
+  test('opponent ghost defaults to column 3 before any cursor move', async ({ browser }) => {
+    const hostContext = await multiplayerContext(browser);
+    const guestContext = await multiplayerContext(browser);
+    const host = await hostContext.newPage();
+    const guest = await guestContext.newPage();
+
+    try {
+      await enterDuelRoom(host, guest);
+      await readyUpDuel(host, guest);
+
+      // The very first duel-status pulse must carry activeColumn 3 for
+      // whichever player acts first, and it must arrive before any
+      // opponent-cursor relay — proving the ghost is correct by default,
+      // not just correct once the active player moves.
+      await expect.poll(
+        async () => await countIncoming(guest, 'duel-status'),
+        { message: 'guest should receive an initial duel-status' },
+      ).toBeGreaterThan(0);
+      const status = await guest.evaluate(() => {
+        const observed = (window as any).__discoMultiplayerTest;
+        return observed.incoming.find((m: any) => m.type === 'duel-status');
+      });
+      expect(status.activeColumn).toBe(3);
+
+      const orderedTypes: string[] = await guest.evaluate(() => {
+        const observed = (window as any).__discoMultiplayerTest;
+        return observed.incoming
+          .filter((m: any) => m.type === 'duel-status' || m.type === 'opponent-cursor')
+          .map((m: any) => m.type);
+      });
+      const firstStatus = orderedTypes.indexOf('duel-status');
+      const firstCursor = orderedTypes.indexOf('opponent-cursor');
+      if (firstCursor !== -1) expect(firstStatus).toBeLessThan(firstCursor);
+    } finally {
+      await hostContext.close();
+      await guestContext.close();
+    }
+  });
+
+  test('reload mid-match restores authoritative state instead of resetting scores', async ({ browser }) => {
+    const hostContext = await multiplayerContext(browser);
+    const guestContext = await multiplayerContext(browser);
+    const host = await hostContext.newPage();
+    const guest = await guestContext.newPage();
+
+    try {
+      const inviteUrl = await enterDuelRoom(host, guest);
+      await readyUpDuel(host, guest);
+
+      // Host always acts first (server assigns playerIds in join order).
+      await waitForDuelTurn(host, true);
+      await dropDuelTurn(host);
+      await waitForDuelTurn(guest, true);
+      await dropDuelTurn(guest);
+      await waitForDuelTurn(host, true);
+
+      const guestLocalBefore = await guest.locator('.multiplayer-hud__local-value').textContent();
+      const guestOpponentBefore = await guest.locator('.multiplayer-hud__opponent-value').textContent();
+
+      // A full reload tears down and reconstructs the transport/session from
+      // scratch — this is the exact path that used to force both scores to 0.
+      await host.reload();
+      await host.goto(inviteUrl);
+      await expect(host.locator('.multiplayer-hud__status')).toHaveText('LIVE', { timeout: 8_000 });
+
+      await expect(host.locator('.multiplayer-hud__opponent-value')).toHaveText(guestLocalBefore ?? '');
+      await expect(host.locator('.multiplayer-hud__local-value')).toHaveText(guestOpponentBefore ?? '');
+    } finally {
+      await hostContext.close();
+      await guestContext.close();
+    }
+  });
+
+  test('pause menu converges both players and resumes cleanly', async ({ browser }) => {
+    const hostContext = await multiplayerContext(browser);
+    const guestContext = await multiplayerContext(browser);
+    const host = await hostContext.newPage();
+    const guest = await guestContext.newPage();
+
+    try {
+      await enterDuelRoom(host, guest);
+      await readyUpDuel(host, guest);
+
+      await host.getByRole('button', { name: 'Game menu' }).click();
+      await expect(host.getByRole('heading', { name: 'MENU' })).toBeVisible();
+      await expect(guest.locator('.multiplayer-room')).toHaveAttribute('data-state', 'paused');
+      await expect(guest.getByText('Your opponent paused the match.')).toBeVisible();
+
+      // Pulses keep flowing while paused (they carry paused/pausedBy so a
+      // reconnecting client can't get stuck on stale pause state).
+      const pulsesWhilePaused = await countIncoming(guest, 'duel-status');
+      await guest.waitForTimeout(1_200);
+      await expect.poll(async () => await countIncoming(guest, 'duel-status'))
+        .toBeGreaterThan(pulsesWhilePaused);
+
+      await host.getByRole('button', { name: 'RESUME', exact: true }).click();
+      await expect(host.getByRole('heading', { name: 'MENU' })).toBeHidden();
+      await expect(guest.locator('.multiplayer-room')).toBeHidden();
+      await expect(host.locator('.multiplayer-hud__status')).toHaveText('LIVE');
+      await expect(guest.locator('.multiplayer-hud__status')).toHaveText('LIVE');
+    } finally {
+      await hostContext.close();
+      await guestContext.close();
+    }
+  });
+
+  test('disconnecting the pausing player auto-resumes and clears stale pause on reconnect', async ({ browser }) => {
+    const hostContext = await multiplayerContext(browser);
+    const guestContext = await multiplayerContext(browser);
+    const host = await hostContext.newPage();
+    const guest = await guestContext.newPage();
+
+    try {
+      await enterDuelRoom(host, guest);
+      await readyUpDuel(host, guest);
+
+      await host.getByRole('button', { name: 'Game menu' }).click();
+      await expect(guest.locator('.multiplayer-room')).toHaveAttribute('data-state', 'paused');
+
+      // Dropping the pausing player's connection must not permanently
+      // freeze the room for whoever's left.
+      await disconnectLiveSocket(host);
+      await expect(guest.locator('.multiplayer-room')).toBeHidden({ timeout: 6_000 });
+
+      await expect(host.locator('.multiplayer-hud__status')).toHaveText('LIVE', { timeout: 8_000 });
+      const lastStatus = await host.evaluate(() => {
+        const observed = (window as any).__discoMultiplayerTest;
+        return [...observed.incoming].reverse().find((m: any) => m.type === 'duel-status');
+      });
+      expect(lastStatus.paused).toBe(false);
+    } finally {
+      await hostContext.close();
+      await guestContext.close();
+    }
+  });
+
+  test('rapid repeated input does not duplicate a turn or break the connection', async ({ browser }) => {
+    const hostContext = await multiplayerContext(browser);
+    const guestContext = await multiplayerContext(browser);
+    const host = await hostContext.newPage();
+    const guest = await guestContext.newPage();
+
+    try {
+      await enterDuelRoom(host, guest);
+      await readyUpDuel(host, guest);
+      await waitForDuelTurn(host, true);
+
+      const canvas = host.locator('canvas');
+      const bounds = await canvas.boundingBox();
+      if (!bounds) throw new Error('Duel board is not visible');
+      // Fire a burst of clicks well before the server can respond to the
+      // first one — every click past the first should be rejected as a
+      // recoverable duplicate-drop, not accepted or fatal.
+      for (let i = 0; i < 6; i++) {
+        await canvas.click({ position: { x: bounds.width / 2, y: bounds.height / 2 }, force: true });
+      }
+
+      await waitForDuelTurn(guest, true);
+      const playTurnCount = await host.evaluate(() => {
+        const observed = (window as any).__discoMultiplayerTest;
+        return observed.outgoing.filter((m: any) => m.type === 'play-turn').length;
+      });
+      expect(playTurnCount).toBe(1);
+
+      // The connection survived the burst — a further valid action still works.
+      await dropDuelTurn(guest);
+      await expect(host.locator('.multiplayer-hud__status')).toHaveText('LIVE');
+      await expect(guest.locator('.multiplayer-hud__status')).toHaveText('LIVE');
+    } finally {
+      await hostContext.close();
+      await guestContext.close();
+    }
+  });
+});
+
+// "Reload during an in-flight animation" and "reload at a turn-timeout
+// boundary" are deliberately not covered here: pinning either to a real
+// browser reliably needs a precise, low-jitter timing race (landing a
+// reload inside a ~1s animation window, or within a few hundred ms of a
+// 15s server timeout) that would be flaky in CI. The client-side revision/
+// discard-animation logic those scenarios exercise is already covered
+// deterministically in src/test/app/shared-board-session-controller.test.ts.
+
+async function enterDuelRoom(host: Page, guest: Page): Promise<string> {
+  await host.goto('/?multiplayer=create&mode=shared-duel');
+  await expect(host).toHaveURL(/\?room=[A-Z2-9]{8}&mode=shared-duel$/);
+  const inviteUrl = host.url();
+  await guest.goto(inviteUrl);
+  await expect(guest.getByRole('heading', { name: 'ROOM CODE' })).toBeVisible();
+  return inviteUrl;
+}
+
+async function readyUpDuel(host: Page, guest: Page): Promise<void> {
+  await host.getByRole('button', { name: 'READY', exact: true }).click();
+  await guest.getByRole('button', { name: 'READY', exact: true }).click();
+  await expect(host.locator('.multiplayer-hud__status')).toHaveText('LIVE', { timeout: 6_000 });
+  await expect(guest.locator('.multiplayer-hud__status')).toHaveText('LIVE', { timeout: 6_000 });
+}
+
+async function isDuelTurn(page: Page): Promise<boolean> {
+  return (await page.locator('.multiplayer-hud').getAttribute('data-my-turn')) === 'true';
+}
+
+async function waitForDuelTurn(page: Page, expected: boolean): Promise<void> {
+  await expect.poll(() => isDuelTurn(page), { timeout: 8_000 }).toBe(expected);
+}
+
+async function dropDuelTurn(page: Page): Promise<void> {
+  const canvas = page.locator('canvas');
+  const bounds = await canvas.boundingBox();
+  if (!bounds) throw new Error('Duel board is not visible');
+  await canvas.click({ position: { x: bounds.width / 2, y: bounds.height / 2 } });
+  await expect.poll(async () => await page.evaluate(() => {
+    const observed = (window as any).__discoMultiplayerTest;
+    return observed.outgoing.some((m: any) => m.type === 'play-turn');
+  })).toBe(true);
+}
+
+async function countIncoming(page: Page, type: string): Promise<number> {
+  return await page.evaluate((messageType) => {
+    const observed = (window as any).__discoMultiplayerTest;
+    return observed.incoming.filter((message: any) => message.type === messageType).length;
+  }, type);
+}
+
 async function countOutgoing(page: Page, type: string): Promise<number> {
   return await page.evaluate((messageType) => {
     const observed = (window as any).__discoMultiplayerTest;

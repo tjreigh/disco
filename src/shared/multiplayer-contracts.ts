@@ -1,5 +1,5 @@
 /** Stable identities and value contracts shared by multiplayer messages. */
-export const MULTIPLAYER_PROTOCOL_VERSION = 2 as const;
+export const MULTIPLAYER_PROTOCOL_VERSION = 3 as const;
 export const SCORE_RACE_MODE_ID = 'score-race' as const;
 export const SCORE_RACE_MODE_VERSION = 1 as const;
 export const SCORE_RACE_RULES_VERSION = 1 as const;
@@ -143,6 +143,7 @@ export type MultiplayerServerMessage =
       readonly level: number;
       readonly turnsPerLevel: number;
       readonly turnsRemaining: number;
+      readonly revision: number;
     })
   | (ServerMessageBase & {
       readonly type: 'turn-played';
@@ -155,6 +156,7 @@ export type MultiplayerServerMessage =
       readonly level: number;
       readonly turnsPerLevel: number;
       readonly turnsRemaining: number;
+      readonly revision: number;
     })
   | (ServerMessageBase & {
       readonly type: 'turn-expired';
@@ -167,6 +169,7 @@ export type MultiplayerServerMessage =
       readonly level: number;
       readonly turnsPerLevel: number;
       readonly turnsRemaining: number;
+      readonly revision: number;
     })
   | (ServerMessageBase & {
       readonly type: 'opponent-cursor';
@@ -186,6 +189,28 @@ export type MultiplayerServerMessage =
        * instead of replicating the elapsed-time math themselves.
        */
       readonly deadline: number;
+    })
+  | (ServerMessageBase & {
+      readonly type: 'duel-status';
+      readonly matchId: string;
+      /** Monotonically increases after every accepted turn or timeout resolution. Unchanged by cursor moves. */
+      readonly revision: number;
+      /** API clock reading at the instant this status was built — pairs with turnDeadline to compute a local deadline immune to client/server clock skew. */
+      readonly serverTime: number;
+      readonly activePlayerId: string;
+      readonly turnDeadline: number;
+      /** The active player's currently stored column selection. */
+      readonly activeColumn: number;
+      readonly paused: boolean;
+      /** Non-null exactly when paused is true. */
+      readonly pausedBy: string | null;
+      readonly scores: readonly [MultiplayerPlayerScore, MultiplayerPlayerScore];
+      readonly board: WireBoard;
+      readonly currentDisc: WireDisc;
+      readonly nextDisc: WireDisc;
+      readonly level: number;
+      readonly turnsPerLevel: number;
+      readonly turnsRemaining: number;
     });
 
 export type MultiplayerConnectionState = 'connected' | 'disconnected' | 'reconnecting';

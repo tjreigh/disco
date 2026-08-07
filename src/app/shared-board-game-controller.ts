@@ -61,6 +61,8 @@ export class SharedBoardGame {
   #turnIndicators: ScoreIndicator[] = [];
   #scorePopups: ScorePopup[] = [];
   #wasMyTurn = false;
+  #frameId: number | null = null;
+  #destroyed = false;
 
   constructor(canvas: HTMLCanvasElement, mounts: UiMounts) {
     this.#canvas = canvas;
@@ -91,6 +93,11 @@ export class SharedBoardGame {
     const api = new MultiplayerApiClient();
     try {
       const admission = await this.#resolveAdmission(api);
+      // The only suspension point in this method — everything from here on
+      // is synchronous, so one check dominates every write it guards
+      // against (retaining admission, history, constructing transport/
+      // session, mounting UI, scheduling the loop).
+      if (this.#destroyed) return;
       this.#retainAdmission(admission);
       const inviteUrl = privateRoomUrl(admission.roomId);
       history.replaceState(null, '', inviteUrl);
@@ -135,8 +142,10 @@ export class SharedBoardGame {
         () => 'col' as const,
       );
 
-      requestAnimationFrame(this.#loop);
+      if (this.#destroyed) return;
+      this.#frameId = requestAnimationFrame(this.#loop);
     } catch (error) {
+      if (this.#destroyed) return;
       this.#roomOverlay.renderError(admissionErrorText(error));
     }
   }
@@ -146,23 +155,49 @@ export class SharedBoardGame {
   }
 
   destroy(): void {
+    if (this.#destroyed) return;
+    this.#destroyed = true;
+    if (this.#frameId !== null) {
+      cancelAnimationFrame(this.#frameId);
+      this.#frameId = null;
+    }
     this.#unsubTransportError?.();
+    this.#unsubTransportError = null;
     this.#input?.destroy();
+    this.#input = null;
     this.#controls?.destroy();
+    this.#controls = null;
     this.#gameHud?.destroy();
+    this.#gameHud = null;
     this.#sharedBoardHud?.destroy();
+    this.#sharedBoardHud = null;
     this.#session?.destroy();
+    this.#session = null;
     this.#transport?.destroy();
+    this.#transport = null;
     this.#roomOverlay.destroy();
     this.#pauseMenu.destroy();
+    this.#renderer = null;
+    this.#animQueue = null;
+    this.#visualBoard = null;
   }
 
   #loop = (now: DOMHighResTimeStamp): void => {
+    if (this.#destroyed) return;
     const session = this.#session;
     if (!session) return;
 
     session.tick();
     const view = session.view;
+
+    // A status that corrected state past what's currently animating (a
+    // missed revision, or the forced resync right after reconnect) must
+    // win over finishing that stale animation — discard before picking up
+    // any new pending turn result below.
+    if (session.consumeAnimationDiscard()) {
+      this.#animQueue = null;
+      this.#visualBoard = null;
+    }
 
     // Pop up "YOUR TURN" exactly on the edge into it becoming your turn
     // (including the match's opening turn), not on every frame it's true.

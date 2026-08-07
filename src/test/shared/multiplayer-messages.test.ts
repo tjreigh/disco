@@ -312,6 +312,7 @@ describe('turn-assigned server message', () => {
       playerId: 'p1',
       turnDeadline: 15_000,
       board: emptyBoard(),
+      revision: 0,
       ...discFields,
     });
     expect(result).toEqual({
@@ -324,6 +325,7 @@ describe('turn-assigned server message', () => {
         playerId: 'p1',
         turnDeadline: 15_000,
         board: emptyBoard(),
+        revision: 0,
         ...discFields,
       },
     });
@@ -339,6 +341,7 @@ describe('turn-assigned server message', () => {
       playerId: 'p1',
       turnDeadline: 15_000,
       board: emptyBoard(),
+      revision: 0,
       ...rest,
     });
     expect(result).toEqual({ ok: false, error: 'invalid-message' });
@@ -353,6 +356,7 @@ describe('turn-assigned server message', () => {
       playerId: 'p1',
       turnDeadline: 15_000,
       board: emptyBoard(),
+      revision: 0,
       ...discFields,
       nextDisc: { id: 203, value: 0, kind: 'numbered' },
     });
@@ -368,6 +372,7 @@ describe('turn-assigned server message', () => {
       playerId: 'p1',
       turnDeadline: 15_000,
       board: emptyBoard(),
+      revision: 0,
       ...discFields,
       level: 0,
     });
@@ -386,10 +391,43 @@ describe('turn-assigned server message', () => {
       playerId: 'p1',
       turnDeadline: 15_000,
       board: emptyBoard(),
+      revision: 0,
       ...discFields,
       turnsRemaining: 0,
     });
     expect(result.ok).toBe(true);
+  });
+
+  // Revision ties this message to a duel-status pulse describing the same
+  // state (see docs/fix-duel-sync-resilience-plan.md section 1) — a client
+  // can no longer infer it, so a missing or invalid one must be rejected.
+  test('rejects a missing revision', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'turn-assigned',
+      matchId: 'match-1',
+      playerId: 'p1',
+      turnDeadline: 15_000,
+      board: emptyBoard(),
+      ...discFields,
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects a negative revision', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'turn-assigned',
+      matchId: 'match-1',
+      playerId: 'p1',
+      turnDeadline: 15_000,
+      board: emptyBoard(),
+      revision: -1,
+      ...discFields,
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
   });
 });
 
@@ -422,6 +460,7 @@ describe('turn-played server message', () => {
       board: emptyBoard(),
       turnResult,
       nextPlayerId: 'p2',
+      revision: 1,
       ...discFields,
     });
     expect(result).toEqual({
@@ -434,6 +473,7 @@ describe('turn-played server message', () => {
         board: emptyBoard(),
         turnResult,
         nextPlayerId: 'p2',
+        revision: 1,
         ...discFields,
       },
     });
@@ -456,6 +496,7 @@ describe('turn-played server message', () => {
         }],
       },
       nextPlayerId: 'p2',
+      revision: 1,
       ...discFields,
     });
     expect(result).toEqual({ ok: false, error: 'invalid-message' });
@@ -478,6 +519,7 @@ describe('turn-played server message', () => {
         }],
       },
       nextPlayerId: 'p2',
+      revision: 1,
       ...discFields,
     });
     expect(result).toEqual({ ok: false, error: 'invalid-message' });
@@ -498,6 +540,7 @@ describe('turn-played server message', () => {
         gameOverReason: 'board-full',
       },
       nextPlayerId: 'p2',
+      revision: 1,
       ...discFields,
       turnsRemaining: 0,
     });
@@ -514,8 +557,169 @@ describe('turn-played server message', () => {
       board: emptyBoard(),
       turnResult,
       nextPlayerId: 'p2',
+      revision: 1,
       ...rest,
     });
     expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects a missing revision', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'turn-played',
+      matchId: 'match-1',
+      board: emptyBoard(),
+      turnResult,
+      nextPlayerId: 'p2',
+      ...discFields,
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects a negative revision', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'turn-expired',
+      matchId: 'match-1',
+      board: emptyBoard(),
+      turnResult,
+      nextPlayerId: 'p2',
+      revision: -1,
+      ...discFields,
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+});
+
+describe('duel-status server message', () => {
+  const scores = [
+    { playerId: 'p1', score: 120 },
+    { playerId: 'p2', score: 80 },
+  ];
+
+  function payload(overrides: Record<string, unknown> = {}) {
+    return {
+      ...base,
+      mode,
+      type: 'duel-status',
+      matchId: 'match-1',
+      revision: 2,
+      serverTime: 5_000,
+      activePlayerId: 'p1',
+      turnDeadline: 20_000,
+      activeColumn: 3,
+      paused: false,
+      pausedBy: null,
+      scores,
+      board: emptyBoard(),
+      currentDisc,
+      nextDisc,
+      level: 1,
+      turnsPerLevel: 7,
+      turnsRemaining: 5,
+      ...overrides,
+    };
+  }
+
+  test('parses a valid unpaused status', () => {
+    const result = parseMultiplayerServerMessage(payload());
+    expect(result).toEqual({ ok: true, message: payload() });
+  });
+
+  test('parses a valid paused status', () => {
+    const result = parseMultiplayerServerMessage(payload({ paused: true, pausedBy: 'p1' }));
+    expect(result.ok).toBe(true);
+  });
+
+  test('rejects paused true with a null pausedBy', () => {
+    const result = parseMultiplayerServerMessage(payload({ paused: true, pausedBy: null }));
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects paused false with a non-null pausedBy', () => {
+    const result = parseMultiplayerServerMessage(payload({ paused: false, pausedBy: 'p1' }));
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects a pausedBy outside the authoritative score pair', () => {
+    const result = parseMultiplayerServerMessage(payload({ paused: true, pausedBy: 'someone-else' }));
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects a negative revision', () => {
+    const result = parseMultiplayerServerMessage(payload({ revision: -1 }));
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects a negative serverTime', () => {
+    const result = parseMultiplayerServerMessage(payload({ serverTime: -1 }));
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects a negative turnDeadline', () => {
+    const result = parseMultiplayerServerMessage(payload({ turnDeadline: -1 }));
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects a cursor column outside 0-6', () => {
+    const result = parseMultiplayerServerMessage(payload({ activeColumn: 7 }));
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects duplicate score player IDs', () => {
+    const result = parseMultiplayerServerMessage(payload({
+      scores: [{ playerId: 'p1', score: 100 }, { playerId: 'p1', score: 50 }],
+    }));
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects a negative score', () => {
+    const result = parseMultiplayerServerMessage(payload({
+      scores: [{ playerId: 'p1', score: -1 }, { playerId: 'p2', score: 50 }],
+    }));
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects an activePlayerId outside the score pair', () => {
+    const result = parseMultiplayerServerMessage(payload({ activePlayerId: 'someone-else' }));
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects a board that is not exactly 7 rows', () => {
+    const result = parseMultiplayerServerMessage(payload({
+      board: Array.from({ length: 6 }, () => Array.from({ length: 7 }, () => null)),
+    }));
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects a ragged board row', () => {
+    const board = emptyBoard();
+    board[0] = Array.from({ length: 6 }, () => null);
+    const result = parseMultiplayerServerMessage(payload({ board }));
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects an empty board', () => {
+    const result = parseMultiplayerServerMessage(payload({ board: [] }));
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects a malformed disc on the board', () => {
+    const board = emptyBoard();
+    board[0]![0] = { id: 1, value: 9, kind: 'numbered' } as never;
+    const result = parseMultiplayerServerMessage(payload({ board }));
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects extra unknown fields', () => {
+    const result = parseMultiplayerServerMessage(payload({ extra: 'nope' }));
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects a protocol-version mismatch', () => {
+    const result = parseMultiplayerServerMessage(payload({ protocolVersion: MULTIPLAYER_PROTOCOL_VERSION + 1 }));
+    expect(result).toEqual({ ok: false, error: 'protocol-mismatch' });
   });
 });

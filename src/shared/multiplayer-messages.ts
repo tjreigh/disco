@@ -4,6 +4,7 @@ import type {
   MultiplayerMatchResult,
   MultiplayerModeIdentity,
   MultiplayerPlayerProgress,
+  MultiplayerPlayerScore,
   MultiplayerProgress,
   MultiplayerServerMessage,
   TurnResultWire,
@@ -19,6 +20,12 @@ import type {
   WireRevealStep,
   WireStep,
 } from './multiplayer-contracts.js';
+
+// Shared-duel's board is fixed at 7x7 (see SHARED_DUEL_RULES.board in
+// src/game/modes) — hardcoded here rather than imported so this parser stays
+// framework-free, same rationale as isLaneIndex's hardcoded 0-6 below.
+const SHARED_DUEL_BOARD_ROWS = 7;
+const SHARED_DUEL_BOARD_COLS = 7;
 
 export type MultiplayerMessageError = 'invalid-message' | 'protocol-mismatch';
 
@@ -215,14 +222,15 @@ export function parseMultiplayerServerMessage(
       if (!hasExactKeys(value, [
         'protocolVersion', 'roomId', 'mode', 'type',
         'matchId', 'playerId', 'turnDeadline', 'board',
-        'currentDisc', 'nextDisc', 'level', 'turnsPerLevel', 'turnsRemaining',
+        'currentDisc', 'nextDisc', 'level', 'turnsPerLevel', 'turnsRemaining', 'revision',
       ])
         || !isNonEmptyString(value.matchId)
         || !isNonEmptyString(value.playerId)
         || !isNonNegativeInteger(value.turnDeadline)
         || !isPositiveInteger(value.level)
         || !isPositiveInteger(value.turnsPerLevel)
-        || !isNonNegativeInteger(value.turnsRemaining)) return invalidMessage();
+        || !isNonNegativeInteger(value.turnsRemaining)
+        || !isNonNegativeInteger(value.revision)) return invalidMessage();
       const board = parseWireBoard(value.board);
       if (!board) return invalidMessage();
       const currentDisc = parseWireDisc(value.currentDisc);
@@ -242,6 +250,7 @@ export function parseMultiplayerServerMessage(
           level: value.level,
           turnsPerLevel: value.turnsPerLevel,
           turnsRemaining: value.turnsRemaining,
+          revision: value.revision,
         },
       };
     }
@@ -250,13 +259,14 @@ export function parseMultiplayerServerMessage(
       if (!hasExactKeys(value, [
         'protocolVersion', 'roomId', 'mode', 'type',
         'matchId', 'board', 'turnResult', 'nextPlayerId',
-        'currentDisc', 'nextDisc', 'level', 'turnsPerLevel', 'turnsRemaining',
+        'currentDisc', 'nextDisc', 'level', 'turnsPerLevel', 'turnsRemaining', 'revision',
       ])
         || !isNonEmptyString(value.matchId)
         || !isNonEmptyString(value.nextPlayerId)
         || !isPositiveInteger(value.level)
         || !isPositiveInteger(value.turnsPerLevel)
-        || !isNonNegativeInteger(value.turnsRemaining)) return invalidMessage();
+        || !isNonNegativeInteger(value.turnsRemaining)
+        || !isNonNegativeInteger(value.revision)) return invalidMessage();
       const board = parseWireBoard(value.board);
       if (!board) return invalidMessage();
       const turnResult = parseTurnResultWire(value.turnResult);
@@ -278,6 +288,7 @@ export function parseMultiplayerServerMessage(
           level: value.level,
           turnsPerLevel: value.turnsPerLevel,
           turnsRemaining: value.turnsRemaining,
+          revision: value.revision,
         },
       };
     }
@@ -321,9 +332,88 @@ export function parseMultiplayerServerMessage(
           deadline: value.deadline,
         },
       };
+    case 'duel-status': {
+      if (!hasExactKeys(value, [
+        'protocolVersion', 'roomId', 'mode', 'type',
+        'matchId', 'revision', 'serverTime', 'activePlayerId', 'turnDeadline', 'activeColumn',
+        'paused', 'pausedBy', 'scores', 'board', 'currentDisc', 'nextDisc',
+        'level', 'turnsPerLevel', 'turnsRemaining',
+      ])
+        || !isNonEmptyString(value.matchId)
+        || !isNonNegativeInteger(value.revision)
+        || !isNonNegativeInteger(value.serverTime)
+        || !isNonEmptyString(value.activePlayerId)
+        || !isNonNegativeInteger(value.turnDeadline)
+        || !isLaneIndex(value.activeColumn)
+        || typeof value.paused !== 'boolean'
+        || !isPositiveInteger(value.level)
+        || !isPositiveInteger(value.turnsPerLevel)
+        || !isNonNegativeInteger(value.turnsRemaining)) {
+        return invalidMessage();
+      }
+      if (value.paused ? !isNonEmptyString(value.pausedBy) : value.pausedBy !== null) {
+        return invalidMessage();
+      }
+      const scores = parseScorePair(value.scores);
+      if (!scores) return invalidMessage();
+      if (value.activePlayerId !== scores[0].playerId && value.activePlayerId !== scores[1].playerId) {
+        return invalidMessage();
+      }
+      if (value.paused
+        && value.pausedBy !== scores[0].playerId
+        && value.pausedBy !== scores[1].playerId) {
+        return invalidMessage();
+      }
+      const board = parseFixedWireBoard(value.board, SHARED_DUEL_BOARD_ROWS, SHARED_DUEL_BOARD_COLS);
+      if (!board) return invalidMessage();
+      const currentDisc = parseWireDisc(value.currentDisc);
+      const nextDisc = parseWireDisc(value.nextDisc);
+      if (!currentDisc || !nextDisc) return invalidMessage();
+      return {
+        ok: true,
+        message: {
+          ...base,
+          type: value.type,
+          matchId: value.matchId,
+          revision: value.revision,
+          serverTime: value.serverTime,
+          activePlayerId: value.activePlayerId,
+          turnDeadline: value.turnDeadline,
+          activeColumn: value.activeColumn,
+          paused: value.paused,
+          pausedBy: value.paused ? value.pausedBy as string : null,
+          scores,
+          board,
+          currentDisc,
+          nextDisc,
+          level: value.level,
+          turnsPerLevel: value.turnsPerLevel,
+          turnsRemaining: value.turnsRemaining,
+        },
+      };
+    }
     default:
       return invalidMessage();
   }
+}
+
+function parseScorePair(
+  value: unknown,
+): readonly [MultiplayerPlayerScore, MultiplayerPlayerScore] | null {
+  if (!Array.isArray(value) || value.length !== 2) return null;
+  const scores = value.map(score => {
+    if (!isRecord(score)
+      || !hasExactKeys(score, ['playerId', 'score'])
+      || !isNonEmptyString(score.playerId)
+      || !isNonNegativeInteger(score.score)) {
+      return null;
+    }
+    return { playerId: score.playerId, score: score.score };
+  });
+  const first = scores[0];
+  const second = scores[1];
+  if (!first || !second || first.playerId === second.playerId) return null;
+  return [first, second];
 }
 
 function parseModeIdentity(value: unknown): MultiplayerModeIdentity | null {
@@ -418,19 +508,37 @@ function parseWireBoard(value: unknown): WireBoard | null {
   const board: WireCell[][] = [];
   for (const row of value) {
     if (!Array.isArray(row) || row.length === 0) return null;
-    const parsedRow: WireCell[] = [];
-    for (const cell of row) {
-      if (cell === null) {
-        parsedRow.push(null);
-        continue;
-      }
-      const disc = parseWireDisc(cell);
-      if (!disc) return null;
-      parsedRow.push(disc);
-    }
+    const parsedRow = parseWireRow(row);
+    if (!parsedRow) return null;
     board.push(parsedRow);
   }
   return board;
+}
+
+function parseFixedWireBoard(value: unknown, rows: number, cols: number): WireBoard | null {
+  if (!Array.isArray(value) || value.length !== rows) return null;
+  const board: WireCell[][] = [];
+  for (const row of value) {
+    if (!Array.isArray(row) || row.length !== cols) return null;
+    const parsedRow = parseWireRow(row);
+    if (!parsedRow) return null;
+    board.push(parsedRow);
+  }
+  return board;
+}
+
+function parseWireRow(row: unknown[]): WireCell[] | null {
+  const parsedRow: WireCell[] = [];
+  for (const cell of row) {
+    if (cell === null) {
+      parsedRow.push(null);
+      continue;
+    }
+    const disc = parseWireDisc(cell);
+    if (!disc) return null;
+    parsedRow.push(disc);
+  }
+  return parsedRow;
 }
 
 function isDiscValue(value: unknown): value is number {

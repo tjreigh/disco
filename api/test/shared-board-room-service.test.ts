@@ -69,7 +69,10 @@ interface RoomHarness {
   readonly guestConnection: RoomConnection;
 }
 
-function createService(clock = new ManualClock()): SharedBoardRoomService {
+function createService(
+  clock = new ManualClock(),
+  overrides: Partial<{ statusPulseMs: number }> = {},
+): SharedBoardRoomService {
   return new SharedBoardRoomService({
     clock,
     values: new DeterministicRoomValues(),
@@ -77,6 +80,7 @@ function createService(clock = new ManualClock()): SharedBoardRoomService {
     lobbyTtlMs: LOBBY_TTL_MS,
     resultTtlMs: RESULT_TTL_MS,
     turnTimeoutMs: TURN_TIMEOUT_MS,
+    ...overrides,
   });
 }
 
@@ -99,6 +103,23 @@ function errorOf<T>(result: RoomServiceResult<T>): string {
   return result.error;
 }
 
+/** Asserts the failure is recoverable (socket stays open) and returns its corrective snapshot deliveries. */
+function recoverableOf<T>(result: RoomServiceResult<T>): readonly RoomDelivery[] {
+  expect(result.ok).toBe(false);
+  if (result.ok) throw new Error('Expected room service failure');
+  expect(result.disposition).toBe('recoverable');
+  expect(result.deliveries.length).toBeGreaterThan(0);
+  return result.deliveries;
+}
+
+/** Asserts the failure is fatal (socket closes). */
+function fatalOf<T>(result: RoomServiceResult<T>): string {
+  expect(result.ok).toBe(false);
+  if (result.ok) throw new Error('Expected room service failure');
+  expect(result.disposition).toBe('fatal');
+  return result.error;
+}
+
 function connect(service: SharedBoardRoomService, admission: RoomAdmission): RoomConnection {
   return valueOf(service.connect({
     roomId: admission.roomId,
@@ -107,9 +128,9 @@ function connect(service: SharedBoardRoomService, admission: RoomAdmission): Roo
   }));
 }
 
-function setupRoom(): RoomHarness {
+function setupRoom(overrides: Partial<{ statusPulseMs: number }> = {}): RoomHarness {
   const clock = new ManualClock();
-  const service = createService(clock);
+  const service = createService(clock, overrides);
   const host = valueOf(service.createRoom(admissionRequest()));
   const guest = valueOf(service.joinRoom({
     ...admissionRequest(),
@@ -452,6 +473,313 @@ describe('SharedBoardRoomService', () => {
   });
 });
 
+describe('SharedBoardRoomService duel-status pulses', () => {
+  function statusIn(deliveries: readonly RoomDelivery[], playerId?: string) {
+    const message = deliveries.find(d =>
+      d.message.type === 'duel-status' && (playerId === undefined || d.playerId === playerId),
+    )?.message;
+    if (message?.type !== 'duel-status') throw new Error('Expected duel-status');
+    return message;
+  }
+
+  // Regression: the confirmed bug this whole remediation exists for — a
+  // fresh turn-assigned carries no scores/cursor, so a reconnecting or
+  // just-started client used to show 0-0 scores and no opponent ghost until
+  // the opponent moved. The paired duel-status must correct both instantly.
+  test('the first duel-status after countdown reports revision 0, 0-0 scores, and the default cursor', () => {
+    const harness = setupRoom();
+    const countdown = startMatch(harness);
+    harness.clock.time = countdown.startsAt;
+    const tickResult = harness.service.tick();
+
+    const status = statusIn(tickResult.deliveries);
+    expect(status.revision).toBe(0);
+    expect(status.scores).toHaveLength(2);
+    for (const score of status.scores) expect(score.score).toBe(0);
+    expect(status.activeColumn).toBe(3);
+    expect([harness.host.playerId, harness.guest.playerId]).toContain(status.activePlayerId);
+    expect(status.paused).toBe(false);
+    expect(status.pausedBy).toBeNull();
+  });
+
+  test('a cursor move is retained: relayed immediately and read back on a later snapshot', () => {
+    const harness = setupRoom();
+    const { matchId, firstPlayerId } = startPlaying(harness);
+    const [connection, admission] = firstPlayerId === harness.host.playerId
+      ? [harness.hostConnection, harness.host]
+      : [harness.guestConnection, harness.guest];
+
+    const moved = harness.service.receive(
+      connection,
+      message(admission, { type: 'move-cursor', matchId, column: 5 }),
+    );
+    valueOf(moved);
+    const relay = moved.deliveries.find(d => d.message.type === 'opponent-cursor')?.message;
+    expect(relay?.type === 'opponent-cursor' && relay.column).toBe(5);
+
+    // Prove it's stored on the match (not just relayed once) by reading it
+    // back through an unrelated later snapshot: disconnect/reconnect the
+    // active player and check the targeted duel-status's activeColumn.
+    harness.service.disconnect(connection);
+    const reconnected = harness.service.connect({
+      roomId: admission.roomId,
+      playerId: admission.playerId,
+      reconnectCredential: admission.reconnectCredential,
+    });
+    valueOf(reconnected);
+    const status = statusIn(reconnected.deliveries);
+    expect(status.activeColumn).toBe(5);
+  });
+
+  test('a scored turn produces a duel-status with authoritative scores and revision 1', () => {
+    const harness = setupRoom();
+    const { matchId, firstPlayerId } = startPlaying(harness);
+    const [connection, admission] = firstPlayerId === harness.host.playerId
+      ? [harness.hostConnection, harness.host]
+      : [harness.guestConnection, harness.guest];
+    const opponentId = firstPlayerId === harness.host.playerId
+      ? harness.guest.playerId
+      : harness.host.playerId;
+
+    const result = harness.service.receive(
+      connection,
+      message(admission, { type: 'play-turn', matchId, column: 3 }),
+    );
+    valueOf(result);
+    const played = result.deliveries.find(d => d.message.type === 'turn-played')?.message;
+    if (played?.type !== 'turn-played') throw new Error('Expected turn-played');
+
+    const status = statusIn(result.deliveries);
+    expect(status.revision).toBe(1);
+    const triggerScore = status.scores.find(s => s.playerId === firstPlayerId)?.score;
+    const opponentScore = status.scores.find(s => s.playerId === opponentId)?.score;
+    expect(triggerScore).toBe(played.turnResult.triggerScoreDelta);
+    expect(opponentScore).toBe(played.turnResult.opponentScoreDelta);
+    expect(status.activePlayerId).toBe(opponentId);
+  });
+
+  test('a completed match receives no duel-status — match-finished is the terminal recovery message', () => {
+    const harness = setupRoom();
+    const { matchId, firstPlayerId } = startPlaying(harness);
+    const [connection, admission] = firstPlayerId === harness.host.playerId
+      ? [harness.hostConnection, harness.host]
+      : [harness.guestConnection, harness.guest];
+
+    const forfeited = harness.service.receive(
+      connection,
+      message(admission, { type: 'forfeit-match', matchId }),
+    );
+    valueOf(forfeited);
+    expect(forfeited.deliveries.some(d => d.message.type === 'match-finished')).toBe(true);
+    expect(forfeited.deliveries.some(d => d.message.type === 'duel-status')).toBe(false);
+  });
+
+  test('reconnecting after several turns restores scores, cursor, and revision via a targeted duel-status', () => {
+    const harness = setupRoom();
+    const { matchId, firstPlayerId } = startPlaying(harness);
+    let [connection, admission] = firstPlayerId === harness.host.playerId
+      ? [harness.hostConnection, harness.host]
+      : [harness.guestConnection, harness.guest];
+
+    for (let i = 0; i < 2; i++) {
+      const result = harness.service.receive(
+        connection,
+        message(admission, { type: 'play-turn', matchId, column: 3 }),
+      );
+      valueOf(result);
+      const nextTurn = result.deliveries.find(d => d.message.type === 'turn-assigned')?.message;
+      if (nextTurn?.type !== 'turn-assigned') throw new Error('Expected turn-assigned');
+      const isHostNext = nextTurn.playerId === harness.host.playerId;
+      connection = isHostNext ? harness.hostConnection : harness.guestConnection;
+      admission = isHostNext ? harness.host : harness.guest;
+    }
+
+    harness.service.disconnect(harness.hostConnection);
+    const reconnected = harness.service.connect({
+      roomId: harness.host.roomId,
+      playerId: harness.host.playerId,
+      reconnectCredential: harness.host.reconnectCredential,
+    });
+    valueOf(reconnected);
+    const status = statusIn(reconnected.deliveries, harness.host.playerId);
+    expect(status.revision).toBe(2);
+    expect(status.scores.every(s => s.score >= 0)).toBe(true);
+    // At least one player scored nothing extra by construction is not
+    // guaranteed, but scores must be internally consistent (present for
+    // both players, never negative) after two real drops.
+    expect(status.scores).toHaveLength(2);
+  });
+
+  test('periodic pulses fire at the configured interval and do not double-fire', () => {
+    // statusPulseMs deliberately well under TURN_TIMEOUT_MS (50) so a real
+    // turn expiry (which also emits its own duel-status) can't interfere.
+    const harness = setupRoom({ statusPulseMs: 10 });
+    startPlaying(harness);
+
+    harness.clock.time += 5;
+    expect(harness.service.tick().deliveries.some(d => d.message.type === 'duel-status')).toBe(false);
+
+    harness.clock.time += 10; // 15ms since start: past the 10ms interval, still under the 50ms turn timeout
+    const due = harness.service.tick();
+    expect(due.deliveries.some(d => d.message.type === 'duel-status')).toBe(true);
+
+    // Immediately again, before another interval elapses: no duplicate pulse.
+    const immediate = harness.service.tick();
+    expect(immediate.deliveries.some(d => d.message.type === 'duel-status')).toBe(false);
+  });
+
+  test('the periodic pulse keeps firing while paused, still reporting pause state', () => {
+    const harness = setupRoom({ statusPulseMs: 100 });
+    const { matchId, firstPlayerId } = startPlaying(harness);
+    const [connection, admission] = firstPlayerId === harness.host.playerId
+      ? [harness.hostConnection, harness.host]
+      : [harness.guestConnection, harness.guest];
+
+    const pauseResult = harness.service.receive(
+      connection,
+      message(admission, { type: 'set-paused', matchId, paused: true }),
+    );
+    valueOf(pauseResult);
+    const initialStatus = statusIn(pauseResult.deliveries);
+    const initialRemainingMs = initialStatus.turnDeadline - initialStatus.serverTime;
+
+    harness.clock.time += 150;
+    const due = harness.service.tick();
+    const status = statusIn(due.deliveries);
+    expect(status.paused).toBe(true);
+    expect(status.pausedBy).toBe(firstPlayerId);
+    expect(status.turnDeadline - status.serverTime).toBe(initialRemainingMs);
+  });
+});
+
+describe('SharedBoardRoomService recoverable vs. fatal failures', () => {
+  test('a queued set-ready arriving after the room starts is recoverable', () => {
+    const harness = setupRoom();
+    const { matchId } = startPlaying(harness);
+
+    const late = harness.service.receive(
+      harness.hostConnection,
+      message(harness.host, { type: 'set-ready', ready: true }),
+    );
+    const snapshot = recoverableOf(late);
+    expect(snapshot.some(delivery =>
+      delivery.message.type === 'turn-assigned' && delivery.message.matchId === matchId,
+    )).toBe(true);
+    expect(snapshot.some(delivery => delivery.message.type === 'duel-status')).toBe(true);
+  });
+
+  test('a late cursor move after turn ownership changed is recoverable with a corrective snapshot', () => {
+    const harness = setupRoom();
+    const { matchId, firstPlayerId } = startPlaying(harness);
+    const [staleConnection, staleAdmission] = firstPlayerId === harness.host.playerId
+      ? [harness.hostConnection, harness.host]
+      : [harness.guestConnection, harness.guest];
+    const [activeConnection, activeAdmission] = firstPlayerId === harness.host.playerId
+      ? [harness.guestConnection, harness.guest]
+      : [harness.hostConnection, harness.host];
+
+    // Pass the turn to the other player first.
+    valueOf(harness.service.receive(
+      staleConnection,
+      message(staleAdmission, { type: 'play-turn', matchId, column: 3 }),
+    ));
+
+    const late = harness.service.receive(
+      staleConnection,
+      message(staleAdmission, { type: 'move-cursor', matchId, column: 1 }),
+    );
+    const snapshot = recoverableOf(late);
+    expect(snapshot.some(d => d.message.type === 'turn-assigned' && d.playerId === staleAdmission.playerId)).toBe(true);
+    expect(snapshot.some(d => d.message.type === 'duel-status' && d.playerId === staleAdmission.playerId)).toBe(true);
+
+    // The connection is still usable for a subsequent valid action.
+    valueOf(harness.service.receive(
+      activeConnection,
+      message(activeAdmission, { type: 'move-cursor', matchId, column: 2 }),
+    ));
+  });
+
+  test('a duplicate play-turn for an already-resolved turn is recoverable', () => {
+    const harness = setupRoom();
+    const { matchId, firstPlayerId } = startPlaying(harness);
+    const [connection, admission] = firstPlayerId === harness.host.playerId
+      ? [harness.hostConnection, harness.host]
+      : [harness.guestConnection, harness.guest];
+
+    valueOf(harness.service.receive(
+      connection,
+      message(admission, { type: 'play-turn', matchId, column: 3 }),
+    ));
+    // Same player, same matchId, second drop attempt — no longer their turn.
+    const duplicate = harness.service.receive(
+      connection,
+      message(admission, { type: 'play-turn', matchId, column: 4 }),
+    );
+    recoverableOf(duplicate);
+  });
+
+  test('a stale matchId on play-turn, move-cursor, set-paused, and forfeit-match is recoverable', () => {
+    const harness = setupRoom();
+    const { firstPlayerId } = startPlaying(harness);
+    const [connection, admission] = firstPlayerId === harness.host.playerId
+      ? [harness.hostConnection, harness.host]
+      : [harness.guestConnection, harness.guest];
+
+    recoverableOf(harness.service.receive(
+      connection,
+      message(admission, { type: 'play-turn', matchId: 'stale-match', column: 3 }),
+    ));
+    recoverableOf(harness.service.receive(
+      connection,
+      message(admission, { type: 'move-cursor', matchId: 'stale-match', column: 3 }),
+    ));
+    recoverableOf(harness.service.receive(
+      connection,
+      message(admission, { type: 'set-paused', matchId: 'stale-match', paused: true }),
+    ));
+    recoverableOf(harness.service.receive(
+      connection,
+      message(admission, { type: 'forfeit-match', matchId: 'stale-match' }),
+    ));
+  });
+
+  test('a play-turn or move-cursor rejected while paused is recoverable, not fatal', () => {
+    const harness = setupRoom();
+    const { matchId, firstPlayerId } = startPlaying(harness);
+    const [connection, admission] = firstPlayerId === harness.host.playerId
+      ? [harness.hostConnection, harness.host]
+      : [harness.guestConnection, harness.guest];
+
+    valueOf(harness.service.receive(
+      connection,
+      message(admission, { type: 'set-paused', matchId, paused: true }),
+    ));
+    recoverableOf(harness.service.receive(
+      connection,
+      message(admission, { type: 'play-turn', matchId, column: 3 }),
+    ));
+    recoverableOf(harness.service.receive(
+      connection,
+      message(admission, { type: 'move-cursor', matchId, column: 3 }),
+    ));
+  });
+
+  test('an unrecognized connection (stale/replaced) is fatal', () => {
+    const harness = setupRoom();
+    startPlaying(harness);
+    // A connection object that was never returned by connect() for this
+    // room — simulates a stale/replaced socket's identity.
+    const bogusConnection: RoomConnection = Object.freeze({
+      roomId: harness.host.roomId,
+      playerId: harness.host.playerId,
+    });
+    fatalOf(harness.service.receive(
+      bogusConnection,
+      message(harness.host, { type: 'move-cursor', matchId: 'whatever', column: 1 }),
+    ));
+  });
+});
+
 describe('SharedBoardRoomService pause and forfeit', () => {
   test('pause blocks turn expiry and rejects gameplay input until the pauser resumes', () => {
     const harness = setupRoom();
@@ -468,10 +796,21 @@ describe('SharedBoardRoomService pause and forfeit', () => {
       message(admission, { type: 'set-paused', matchId, paused: true }),
     );
     valueOf(paused);
-    expect(paused.deliveries).toHaveLength(2);
-    for (const delivery of paused.deliveries) {
+    // 2 match-paused broadcasts + 2 duel-status broadcasts (pausing is one
+    // of the pulse points — see docs/fix-duel-sync-resilience-plan.md §3).
+    expect(paused.deliveries).toHaveLength(4);
+    const pausedMessages = paused.deliveries.filter(d => d.message.type === 'match-paused');
+    expect(pausedMessages).toHaveLength(2);
+    for (const delivery of pausedMessages) {
       expect(delivery.message).toEqual(expect.objectContaining({
         type: 'match-paused', paused: true, pausedBy: firstPlayerId,
+      }));
+    }
+    const statusMessages = paused.deliveries.filter(d => d.message.type === 'duel-status');
+    expect(statusMessages).toHaveLength(2);
+    for (const delivery of statusMessages) {
+      expect(delivery.message).toEqual(expect.objectContaining({
+        type: 'duel-status', paused: true, pausedBy: firstPlayerId,
       }));
     }
 
@@ -499,14 +838,23 @@ describe('SharedBoardRoomService pause and forfeit', () => {
       message(admission, { type: 'set-paused', matchId, paused: false }),
     );
     valueOf(resumed);
-    expect(resumed.deliveries).toHaveLength(2);
-    for (const delivery of resumed.deliveries) {
+    // 2 match-paused + 2 duel-status, same reasoning as the pause above —
+    // resume is also a pulse point.
+    expect(resumed.deliveries).toHaveLength(4);
+    const resumedPausedMessages = resumed.deliveries.filter(d => d.message.type === 'match-paused');
+    expect(resumedPausedMessages).toHaveLength(2);
+    for (const delivery of resumedPausedMessages) {
       expect(delivery.message.type).toBe('match-paused');
       if (delivery.message.type !== 'match-paused') continue;
       expect(delivery.message.paused).toBe(false);
       // The shifted deadline must be in the future, not left in the past
       // from before the pause.
       expect(delivery.message.deadline).toBeGreaterThan(harness.clock.time);
+    }
+    const resumedStatusMessages = resumed.deliveries.filter(d => d.message.type === 'duel-status');
+    expect(resumedStatusMessages).toHaveLength(2);
+    for (const delivery of resumedStatusMessages) {
+      expect(delivery.message).toEqual(expect.objectContaining({ type: 'duel-status', paused: false }));
     }
 
     // Turn play accepted again post-resume.
@@ -573,6 +921,9 @@ describe('SharedBoardRoomService pause and forfeit', () => {
     expect(pausedSnapshot).toEqual(expect.objectContaining({
       type: 'match-paused', paused: true, pausedBy: pauser.playerId,
     }));
+    const pausedIndex = reconnected.deliveries.findIndex(d => d.message.type === 'match-paused');
+    const statusIndex = reconnected.deliveries.findIndex(d => d.message.type === 'duel-status');
+    expect(statusIndex).toBeGreaterThan(pausedIndex);
   });
 
   test('forfeit always hands the win to the opponent, even mid-pause', () => {

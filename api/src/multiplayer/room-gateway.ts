@@ -39,6 +39,11 @@ const ROOM_TICK_MS = 250;
 const SOCKET_MAX_PAYLOAD_BYTES = 4_096;
 const CREATE_ROOM_RATE_LIMIT = { max: 10, timeWindow: '1 minute' } as const;
 const JOIN_ROOM_RATE_LIMIT = { max: 30, timeWindow: '1 minute' } as const;
+// Recoverable rejections (a late cursor move, a duplicate drop, ...) are
+// expected under normal play and must never spam production logs — sample
+// at most one log line per room+error combination per interval, reporting
+// how many occurred since the last one.
+const RECOVERABLE_LOG_INTERVAL_MS = 5_000;
 
 const modeIdentitySchema = z.object({
   id: z.string().trim().min(1).max(64),
@@ -102,6 +107,37 @@ export async function registerMultiplayerGateway(
   const sockets = new Map<string, ActiveSocket>();
   const roomOwners = new Map<string, MultiplayerRoomService>();
   const tickMs = options.tickMs ?? ROOM_TICK_MS;
+  const recoverableCounts = new Map<string, number>();
+  const recoverableLastLoggedAt = new Map<string, number>();
+
+  const recordRecoverableRejection = (
+    connection: RoomConnection,
+    error: RoomServiceError,
+    messageType: string,
+  ): void => {
+    const key = `${connection.roomId}:${error}`;
+    const count = (recoverableCounts.get(key) ?? 0) + 1;
+    recoverableCounts.set(key, count);
+    const now = Date.now();
+    const lastLoggedAt = recoverableLastLoggedAt.get(key) ?? 0;
+    if (now - lastLoggedAt < RECOVERABLE_LOG_INTERVAL_MS) return;
+    recoverableLastLoggedAt.set(key, now);
+    recoverableCounts.set(key, 0);
+    app.log.info(
+      { roomId: connection.roomId, playerId: connection.playerId, error, messageType, countSinceLastLog: count },
+      'multiplayer recoverable rejection',
+    );
+  };
+
+  const clearRecoverableRejections = (roomId: string): void => {
+    const prefix = `${roomId}:`;
+    for (const key of recoverableCounts.keys()) {
+      if (key.startsWith(prefix)) recoverableCounts.delete(key);
+    }
+    for (const key of recoverableLastLoggedAt.keys()) {
+      if (key.startsWith(prefix)) recoverableLastLoggedAt.delete(key);
+    }
+  };
 
   const dispatch = (deliveries: readonly RoomDelivery[]): void => {
     for (const delivery of deliveries) {
@@ -116,7 +152,10 @@ export async function registerMultiplayerGateway(
     for (const service of Object.values(servicesByModeId)) {
       const result = service.tick();
       dispatch(result.deliveries);
-      for (const roomId of result.expiredRoomIds) roomOwners.delete(roomId);
+      for (const roomId of result.expiredRoomIds) {
+        roomOwners.delete(roomId);
+        clearRecoverableRejections(roomId);
+      }
     }
   }, tickMs);
   timer.unref();
@@ -200,7 +239,18 @@ export async function registerMultiplayerGateway(
       }
       const result = ownerService.receive(connection, parsed);
       dispatch(result.deliveries);
-      if (!result.ok) closeWithError(socket, result.error);
+      if (!result.ok) {
+        // Only 'recoverable' keeps the socket open; every other (fatal)
+        // disposition closes it — a fail-closed default if a new
+        // disposition value is ever added without updating this branch.
+        if (result.disposition === 'recoverable') {
+          // Deliveries already dispatched above carry the corrective
+          // snapshot; the socket stays open for the next valid message.
+          recordRecoverableRejection(connection, result.error, parsed.type);
+        } else {
+          closeWithError(socket, result.error);
+        }
+      }
     });
 
     socket.on('close', () => {
@@ -271,5 +321,5 @@ function copyMode(mode: MultiplayerModeIdentity): MultiplayerModeIdentity {
 }
 
 function modeMismatch(): RoomServiceResult<never> {
-  return { ok: false, error: 'mode-mismatch', deliveries: [] };
+  return { ok: false, disposition: 'fatal', error: 'mode-mismatch', deliveries: [] };
 }

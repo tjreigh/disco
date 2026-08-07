@@ -10,6 +10,10 @@ import {
   SCORE_RACE_ROOM_MODE,
   ScoreRaceRoomService,
 } from '../src/multiplayer/room-service.js';
+import {
+  SHARED_DUEL_ROOM_MODE,
+  SharedBoardRoomService,
+} from '../src/multiplayer/shared-board-room-service.js';
 import { createTestConfig, createTestDb } from './helpers.js';
 
 let db: Database.Database | null = null;
@@ -285,3 +289,255 @@ function retainMessages(socket: WebSocket): void {
     else inbox.messages.push(message);
   });
 }
+
+// --- Shared Duel: recoverable vs. fatal disposition ---------------------
+//
+// room-gateway.ts used to close the socket on *any* room-service rejection.
+// It now keeps the socket open for `disposition: 'recoverable'` failures
+// (benign gameplay races) and dispatches a corrective snapshot to the
+// rejecting player instead, while genuinely fatal failures (bad credential,
+// protocol mismatch, malformed frames) still close the socket exactly as
+// before. These tests exercise that split end-to-end through two real
+// sockets, not just the room-service unit in isolation.
+
+const duelAdmissionRequest = {
+  protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+  mode: SHARED_DUEL_ROOM_MODE,
+};
+
+async function createDuelApp(): Promise<FastifyInstance> {
+  db = createTestDb();
+  const sharedBoardRoomService = new SharedBoardRoomService({
+    clock: { now: () => Date.now() },
+    countdownMs: 5,
+  });
+  app = await buildApp(createTestConfig(), db, { sharedBoardRoomService, roomTickMs: 5 });
+  await app.ready();
+  return app;
+}
+
+async function duelAdmit(instance: FastifyInstance, url: string): Promise<Admission> {
+  const response = await instance.inject({
+    method: 'POST',
+    url,
+    payload: duelAdmissionRequest,
+  });
+  expect(response.statusCode).toBe(201);
+  return response.json() as Admission;
+}
+
+interface DuelPlayers {
+  readonly host: Admission;
+  readonly guest: Admission;
+  readonly hostSocket: WebSocket;
+  readonly guestSocket: WebSocket;
+  readonly matchId: string;
+  readonly activeAdmission: Admission;
+  readonly activeSocket: WebSocket;
+  readonly inactiveAdmission: Admission;
+  readonly inactiveSocket: WebSocket;
+}
+
+/** Admits two duel players, readies both, and waits for the first turn-assigned. */
+async function startDuel(instance: FastifyInstance): Promise<DuelPlayers> {
+  const host = await duelAdmit(instance, '/multiplayer/rooms');
+  const guest = await duelAdmit(instance, `/multiplayer/rooms/${host.roomId}/join`);
+  const hostSocket = await connect(instance, host);
+  const guestSocket = await connect(instance, guest);
+
+  await readyPlayer(hostSocket, true);
+  await readyPlayer(guestSocket, true);
+  await nextMessageOfType(hostSocket, 'match-countdown');
+  await nextMessageOfType(guestSocket, 'match-countdown');
+
+  const assigned = await nextMessageOfType(hostSocket, 'turn-assigned');
+  // The guest sees the same broadcast; drain it so its inbox doesn't carry
+  // a stale turn-assigned into the next assertion.
+  await nextMessageOfType(guestSocket, 'turn-assigned');
+  // Both sockets also receive the paired duel-status pulse — drain it too.
+  await nextMessageOfType(hostSocket, 'duel-status');
+  await nextMessageOfType(guestSocket, 'duel-status');
+
+  const activePlayerId: string = assigned.playerId;
+  const [activeAdmission, activeSocket, inactiveAdmission, inactiveSocket] =
+    activePlayerId === host.playerId
+      ? [host, hostSocket, guest, guestSocket] as const
+      : [guest, guestSocket, host, hostSocket] as const;
+
+  return {
+    host,
+    guest,
+    hostSocket,
+    guestSocket,
+    matchId: assigned.matchId,
+    activeAdmission,
+    activeSocket,
+    inactiveAdmission,
+    inactiveSocket,
+  };
+}
+
+/** Proves the match is still live and convergent: the active player drops, both sockets see the result. */
+async function assertMatchStillUsable(duel: DuelPlayers): Promise<void> {
+  duel.activeSocket.send(JSON.stringify({
+    ...clientEnvelope(duel.activeAdmission),
+    type: 'play-turn',
+    matchId: duel.matchId,
+    column: 3,
+  }));
+  const hostPlayed = await nextMessageOfType(duel.hostSocket, 'turn-played');
+  const guestPlayed = await nextMessageOfType(duel.guestSocket, 'turn-played');
+  expect(hostPlayed.turnResult.playerId).toBe(duel.activeAdmission.playerId);
+  expect(guestPlayed.turnResult.playerId).toBe(duel.activeAdmission.playerId);
+}
+
+describe('multiplayer room gateway — shared duel recoverable failures', () => {
+  it('keeps the socket open and sends a corrective snapshot for a cursor move from the inactive player', async () => {
+    const instance = await createDuelApp();
+    const duel = await startDuel(instance);
+
+    duel.inactiveSocket.send(JSON.stringify({
+      ...clientEnvelope(duel.inactiveAdmission),
+      type: 'move-cursor',
+      matchId: duel.matchId,
+      column: 5,
+    }));
+
+    // Recoverable playing-state snapshot is turn-assigned followed by duel-status.
+    const snapshotAssigned = await nextMessageOfType(duel.inactiveSocket, 'turn-assigned');
+    expect(snapshotAssigned.matchId).toBe(duel.matchId);
+    expect(snapshotAssigned.playerId).toBe(duel.activeAdmission.playerId);
+    const snapshotStatus = await nextMessageOfType(duel.inactiveSocket, 'duel-status');
+    expect(snapshotStatus.matchId).toBe(duel.matchId);
+    expect(snapshotStatus.activePlayerId).toBe(duel.activeAdmission.playerId);
+
+    expect(duel.inactiveSocket.readyState).toBe(duel.inactiveSocket.OPEN);
+    expect(duel.activeSocket.readyState).toBe(duel.activeSocket.OPEN);
+    await assertMatchStillUsable(duel);
+  });
+
+  it('keeps the socket open for a duplicate/stale play-turn from the player who just moved', async () => {
+    const instance = await createDuelApp();
+    const duel = await startDuel(instance);
+
+    // The active player plays a real turn — the turn now belongs to the opponent.
+    const mover = duel.activeAdmission;
+    const moverSocket = duel.activeSocket;
+    moverSocket.send(JSON.stringify({
+      ...clientEnvelope(mover),
+      type: 'play-turn',
+      matchId: duel.matchId,
+      column: 2,
+    }));
+    await nextMessageOfType(duel.hostSocket, 'turn-played');
+    await nextMessageOfType(duel.guestSocket, 'turn-played');
+    await nextMessageOfType(duel.hostSocket, 'turn-assigned');
+    await nextMessageOfType(duel.guestSocket, 'turn-assigned');
+    await nextMessageOfType(duel.hostSocket, 'duel-status');
+    await nextMessageOfType(duel.guestSocket, 'duel-status');
+
+    // The player who just moved tries to move again immediately — duplicate/stale.
+    moverSocket.send(JSON.stringify({
+      ...clientEnvelope(mover),
+      type: 'play-turn',
+      matchId: duel.matchId,
+      column: 1,
+    }));
+    const snapshotAssigned = await nextMessageOfType(moverSocket, 'turn-assigned');
+    expect(snapshotAssigned.playerId).not.toBe(mover.playerId);
+    await nextMessageOfType(moverSocket, 'duel-status');
+
+    expect(moverSocket.readyState).toBe(moverSocket.OPEN);
+    // Rebuild the active/inactive pairing since the turn has since passed.
+    const refreshed: DuelPlayers = {
+      ...duel,
+      activeAdmission: duel.inactiveAdmission,
+      activeSocket: duel.inactiveSocket,
+      inactiveAdmission: duel.activeAdmission,
+      inactiveSocket: duel.activeSocket,
+    };
+    await assertMatchStillUsable(refreshed);
+  });
+
+  it('keeps the socket open for a stale matchId on play-turn, set-paused, and forfeit-match', async () => {
+    const instance = await createDuelApp();
+    const duel = await startDuel(instance);
+    const staleMatchId = 'not-this-match';
+
+    for (const type of ['play-turn', 'set-paused', 'forfeit-match'] as const) {
+      const payload = type === 'play-turn'
+        ? { type, matchId: staleMatchId, column: 3 }
+        : type === 'set-paused'
+          ? { type, matchId: staleMatchId, paused: true }
+          : { type, matchId: staleMatchId };
+      duel.activeSocket.send(JSON.stringify({
+        ...clientEnvelope(duel.activeAdmission),
+        ...payload,
+      }));
+      const snapshotAssigned = await nextMessageOfType(duel.activeSocket, 'turn-assigned');
+      expect(snapshotAssigned.matchId).toBe(duel.matchId);
+      await nextMessageOfType(duel.activeSocket, 'duel-status');
+      expect(duel.activeSocket.readyState).toBe(duel.activeSocket.OPEN);
+    }
+
+    await assertMatchStillUsable(duel);
+  });
+
+  it('samples repeated identical recoverable rejections without breaking the connection', async () => {
+    const instance = await createDuelApp();
+    const duel = await startDuel(instance);
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      duel.inactiveSocket.send(JSON.stringify({
+        ...clientEnvelope(duel.inactiveAdmission),
+        type: 'move-cursor',
+        matchId: duel.matchId,
+        column: attempt,
+      }));
+      await nextMessageOfType(duel.inactiveSocket, 'turn-assigned');
+      await nextMessageOfType(duel.inactiveSocket, 'duel-status');
+    }
+
+    expect(duel.inactiveSocket.readyState).toBe(duel.inactiveSocket.OPEN);
+    await assertMatchStillUsable(duel);
+  });
+
+  it('still closes the socket for a malformed frame sent after authentication', async () => {
+    const instance = await createDuelApp();
+    const duel = await startDuel(instance);
+
+    duel.activeSocket.send('not json');
+
+    expect(await nextJson(duel.activeSocket)).toEqual({
+      type: 'room-transport-error',
+      error: 'invalid-message',
+    });
+    await new Promise<void>(resolve => duel.activeSocket.once('close', () => resolve()));
+    expect(duel.activeSocket.readyState).toBe(duel.activeSocket.CLOSED);
+  });
+
+  it('still closes the socket for a protocol-version mismatch sent after authentication', async () => {
+    const instance = await createDuelApp();
+    const duel = await startDuel(instance);
+
+    duel.activeSocket.send(JSON.stringify({
+      ...clientEnvelope(duel.activeAdmission),
+      protocolVersion: MULTIPLAYER_PROTOCOL_VERSION + 1,
+      type: 'play-turn',
+      matchId: duel.matchId,
+      column: 3,
+    }));
+
+    // parseClientMessage collapses every post-auth client parse failure
+    // (including a protocol mismatch) into a generic 'invalid-message' close
+    // reason — pre-existing gateway behavior, unrelated to the fatal/
+    // recoverable disposition split. What matters here is that it still
+    // closes the socket rather than silently accepting a mismatched frame.
+    expect(await nextJson(duel.activeSocket)).toEqual({
+      type: 'room-transport-error',
+      error: 'invalid-message',
+    });
+    await new Promise<void>(resolve => duel.activeSocket.once('close', () => resolve()));
+    expect(duel.activeSocket.readyState).toBe(duel.activeSocket.CLOSED);
+  });
+});

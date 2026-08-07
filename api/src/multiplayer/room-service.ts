@@ -108,17 +108,33 @@ export type RoomServiceError =
   | 'conflicting-progress'
   | 'non-monotonic-progress';
 
+/**
+ * A recoverable failure always carries at least one delivery: the corrective
+ * snapshot sent back to the requesting player so a benign race (late cursor
+ * move, duplicate drop, stale match ID, ...) can resync instead of losing the
+ * connection. See room-gateway.ts, which closes the socket only for `fatal`.
+ */
+export type RoomServiceFailure =
+  | {
+    readonly ok: false;
+    readonly disposition: 'fatal';
+    readonly error: RoomServiceError;
+    readonly deliveries: readonly RoomDelivery[];
+  }
+  | {
+    readonly ok: false;
+    readonly disposition: 'recoverable';
+    readonly error: RoomServiceError;
+    readonly deliveries: readonly [RoomDelivery, ...RoomDelivery[]];
+  };
+
 export type RoomServiceResult<T> =
   | {
     readonly ok: true;
     readonly value: T;
     readonly deliveries: readonly RoomDelivery[];
   }
-  | {
-    readonly ok: false;
-    readonly error: RoomServiceError;
-    readonly deliveries: readonly RoomDelivery[];
-  };
+  | RoomServiceFailure;
 
 export interface RoomTickResult {
   readonly deliveries: readonly RoomDelivery[];
@@ -801,11 +817,14 @@ function success<T>(
   return { ok: true, value, deliveries };
 }
 
+// Score Race keeps its pre-existing fatal-on-any-error behavior in this pass
+// (see docs/fix-duel-sync-resilience-plan.md section 4) — it has no
+// corrective snapshot to send back, unlike Disco Duel's duel-status.
 function failure<T>(
   error: RoomServiceError,
   deliveries: readonly RoomDelivery[] = [],
 ): RoomServiceResult<T> {
-  return { ok: false, error, deliveries };
+  return { ok: false, disposition: 'fatal', error, deliveries };
 }
 
 function emptyProgress(): MultiplayerProgress {

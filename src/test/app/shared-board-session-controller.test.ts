@@ -106,6 +106,7 @@ describe('SharedBoardSessionController', () => {
       level: 1,
       turnsPerLevel: 7,
       turnsRemaining: 7,
+      revision: 0,
     }));
     expect(controller.view.remainingMs).toBe(15_000);
     clock.value = 5_000;
@@ -128,6 +129,7 @@ describe('SharedBoardSessionController', () => {
       level: 1,
       turnsPerLevel: 7,
       turnsRemaining: 7,
+      revision: 0,
     }));
     expect(controller.view.isMyTurn).toBe(false);
     clock.value = 1_000;
@@ -151,6 +153,7 @@ describe('SharedBoardSessionController', () => {
       level: 1,
       turnsPerLevel: 7,
       turnsRemaining: 7,
+      revision: 0,
     }));
     expect(controller.view.currentDisc).toEqual(discA);
     expect(controller.view.nextDisc).toEqual(discB);
@@ -177,6 +180,7 @@ describe('SharedBoardSessionController', () => {
       level: 1,
       turnsPerLevel: 7,
       turnsRemaining: 6,
+      revision: 1,
     }));
     expect(controller.view.currentDisc).toEqual(discC);
     expect(controller.view.nextDisc).toEqual(discA);
@@ -209,6 +213,7 @@ describe('SharedBoardSessionController', () => {
       level: 1,
       turnsPerLevel: 7,
       turnsRemaining: 7,
+      revision: 0,
     }));
     expect(controller.view.matchId).toBe('match-9');
     expect(controller.view.startsAt).toBe(500);
@@ -230,6 +235,7 @@ describe('SharedBoardSessionController', () => {
       level: 1,
       turnsPerLevel: 7,
       turnsRemaining: 7,
+      revision: 0,
     }));
     expect(controller.consumePendingTurnResult()).toBeNull();
 
@@ -261,6 +267,7 @@ describe('SharedBoardSessionController', () => {
       level: 1,
       turnsPerLevel: 7,
       turnsRemaining: 6,
+      revision: 1,
     }));
 
     // The view's board is already the post-turn authoritative state...
@@ -291,6 +298,7 @@ describe('SharedBoardSessionController', () => {
       level: 1,
       turnsPerLevel: 7,
       turnsRemaining: 7,
+      revision: 0,
     }));
     transport.receive(serverMessage({
       type: 'turn-played',
@@ -311,6 +319,7 @@ describe('SharedBoardSessionController', () => {
       level: 1,
       turnsPerLevel: 7,
       turnsRemaining: 6,
+      revision: 1,
     }));
     transport.receive(serverMessage({
       type: 'turn-assigned',
@@ -323,6 +332,7 @@ describe('SharedBoardSessionController', () => {
       level: 1,
       turnsPerLevel: 7,
       turnsRemaining: 6,
+      revision: 1,
     }));
     expect(controller.consumePendingTurnResult()).not.toBeNull();
   });
@@ -341,6 +351,7 @@ describe('SharedBoardSessionController', () => {
       level: 1,
       turnsPerLevel: 7,
       turnsRemaining: 7,
+      revision: 0,
     }));
     expect(controller.view.columnCursor).toBe(3);
 
@@ -378,6 +389,7 @@ describe('SharedBoardSessionController', () => {
       level: 1,
       turnsPerLevel: 7,
       turnsRemaining: 7,
+      revision: 0,
     }));
     expect(controller.view.opponentColumnCursor).toBeNull();
 
@@ -397,7 +409,29 @@ describe('SharedBoardSessionController', () => {
     }));
     expect(controller.view.opponentColumnCursor).toBe(2);
 
-    // A fresh turn-assigned clears it until the new active player moves again.
+    // Resolve the current turn, then the paired fresh assignment clears the
+    // cursor until the new active player moves again.
+    transport.receive(serverMessage({
+      type: 'turn-played',
+      matchId: 'match-1',
+      board: emptyBoard(),
+      turnResult: {
+        playerId: 'opponent-player',
+        column: 2,
+        triggerScoreDelta: 0,
+        opponentScoreDelta: 0,
+        stackSize: 0,
+        steps: [],
+        gameOver: false,
+      },
+      nextPlayerId: 'local-player',
+      currentDisc: discC,
+      nextDisc: discA,
+      level: 1,
+      turnsPerLevel: 7,
+      turnsRemaining: 6,
+      revision: 1,
+    }));
     transport.receive(serverMessage({
       type: 'turn-assigned',
       matchId: 'match-1',
@@ -409,6 +443,7 @@ describe('SharedBoardSessionController', () => {
       level: 1,
       turnsPerLevel: 7,
       turnsRemaining: 6,
+      revision: 1,
     }));
     expect(controller.view.opponentColumnCursor).toBeNull();
   });
@@ -427,6 +462,7 @@ describe('SharedBoardSessionController', () => {
       level: 1,
       turnsPerLevel: 7,
       turnsRemaining: 7,
+      revision: 0,
     }));
     transport.receive(serverMessage({
       type: 'opponent-cursor',
@@ -435,5 +471,500 @@ describe('SharedBoardSessionController', () => {
       column: 4,
     }));
     expect(controller.view.opponentColumnCursor).toBeNull();
+  });
+});
+
+interface DuelStatusOverrides {
+  matchId?: string;
+  revision?: number;
+  serverTime?: number;
+  activePlayerId?: string;
+  turnDeadline?: number;
+  activeColumn?: number;
+  paused?: boolean;
+  pausedBy?: string | null;
+  scores?: readonly [{ playerId: string; score: number }, { playerId: string; score: number }];
+  board?: WireBoard;
+  currentDisc?: WireDisc;
+  nextDisc?: WireDisc;
+  level?: number;
+  turnsPerLevel?: number;
+  turnsRemaining?: number;
+}
+
+function duelStatusMessage(overrides: DuelStatusOverrides = {}): MultiplayerServerMessage {
+  return serverMessage({
+    type: 'duel-status',
+    matchId: 'match-1',
+    revision: 1,
+    serverTime: 0,
+    activePlayerId: 'opponent-player',
+    turnDeadline: 16_000,
+    activeColumn: 3,
+    paused: false,
+    pausedBy: null,
+    scores: [
+      { playerId: 'local-player', score: 0 },
+      { playerId: 'opponent-player', score: 0 },
+    ],
+    board: emptyBoard(),
+    currentDisc: discA,
+    nextDisc: discB,
+    level: 1,
+    turnsPerLevel: 7,
+    turnsRemaining: 7,
+    ...overrides,
+  });
+}
+
+function assignTurn(
+  transport: FakeMultiplayerTransport,
+  overrides: { playerId?: string; revision?: number; matchId?: string } = {},
+): void {
+  transport.receive(serverMessage({
+    type: 'turn-assigned',
+    matchId: 'match-1',
+    playerId: 'opponent-player',
+    turnDeadline: 16_000,
+    board: emptyBoard(),
+    currentDisc: discA,
+    nextDisc: discB,
+    level: 1,
+    turnsPerLevel: 7,
+    turnsRemaining: 7,
+    revision: 0,
+    ...overrides,
+  }));
+}
+
+describe('SharedBoardSessionController duel-status reconciliation', () => {
+  // Regression (problem 2 in the sync spec): a fresh turn's opponentColumnCursor
+  // starts null and only a move would set it — so the ghost was invisible
+  // until the opponent actually moved. The paired duel-status must place it
+  // at the opponent's real stored cursor (column 3 by default) immediately.
+  test('the opponent ghost appears at column 3 from duel-status, before any opponent-cursor move', () => {
+    const { transport, controller } = createSession();
+    startCountdown(transport);
+    assignTurn(transport, { playerId: 'opponent-player', revision: 0 });
+    expect(controller.view.opponentColumnCursor).toBeNull();
+
+    transport.receive(duelStatusMessage({ revision: 0, activePlayerId: 'opponent-player', activeColumn: 3 }));
+    expect(controller.view.opponentColumnCursor).toBe(3);
+  });
+
+  test('never overwrites opponentColumnCursor with activeColumn when the local player is active', () => {
+    const { transport, controller } = createSession();
+    startCountdown(transport);
+    assignTurn(transport, { playerId: 'local-player', revision: 0 });
+    transport.receive(duelStatusMessage({ revision: 0, activePlayerId: 'local-player', activeColumn: 5 }));
+    expect(controller.view.opponentColumnCursor).toBeNull();
+  });
+
+  // Regression (problem 1 in the sync spec): a reconnect snapshot's
+  // turn-assigned alone forces scores to a 0-0 placeholder. Only the paired
+  // duel-status carries the real authoritative scores.
+  test('a reconnect snapshot restores non-zero scores instead of leaving the turn-assigned placeholder', () => {
+    const { transport, controller } = createSession();
+    startCountdown(transport);
+    // Simulates reconnecting mid-match: the very first message this fresh
+    // controller ever sees is already at revision 3.
+    assignTurn(transport, { playerId: 'opponent-player', revision: 3 });
+    expect(controller.view.localScore).toBe(0);
+    expect(controller.view.opponentScore).toBe(0);
+
+    transport.receive(duelStatusMessage({
+      revision: 3,
+      activePlayerId: 'opponent-player',
+      scores: [
+        { playerId: 'local-player', score: 120 },
+        { playerId: 'opponent-player', score: 80 },
+      ],
+    }));
+    expect(controller.view.localScore).toBe(120);
+    expect(controller.view.opponentScore).toBe(80);
+  });
+
+  test('a same-revision status updates scalar state without requesting an animation discard', () => {
+    const { transport, controller } = createSession();
+    startCountdown(transport);
+    assignTurn(transport, { playerId: 'local-player', revision: 0 });
+    transport.receive(duelStatusMessage({ revision: 0, activePlayerId: 'local-player' }));
+    expect(controller.consumeAnimationDiscard()).toBe(false);
+  });
+
+  test('a status ahead of the applied revision requests an animation discard and fast-forwards', () => {
+    const { transport, controller } = createSession();
+    startCountdown(transport);
+    assignTurn(transport, { playerId: 'local-player', revision: 0 });
+    // Revision 2 arrives with nothing locally applied in between — the tab
+    // missed at least one turn-played/turn-expired event.
+    transport.receive(duelStatusMessage({
+      revision: 2,
+      activePlayerId: 'opponent-player',
+      scores: [
+        { playerId: 'local-player', score: 50 },
+        { playerId: 'opponent-player', score: 30 },
+      ],
+    }));
+    expect(controller.consumeAnimationDiscard()).toBe(true);
+    expect(controller.view.localScore).toBe(50);
+    expect(controller.view.isMyTurn).toBe(false);
+    // One-shot: consuming it again returns false until the next discard-worthy status.
+    expect(controller.consumeAnimationDiscard()).toBe(false);
+  });
+
+  test('a fast-forward discards an unconsumed pending turn result as well as an active animation', () => {
+    const { transport, controller } = createSession();
+    startCountdown(transport);
+    assignTurn(transport, { playerId: 'local-player', revision: 0 });
+    transport.receive(serverMessage({
+      type: 'turn-played',
+      matchId: 'match-1',
+      board: emptyBoard(),
+      turnResult: {
+        playerId: 'local-player',
+        column: 3,
+        triggerScoreDelta: 10,
+        opponentScoreDelta: 0,
+        stackSize: 1,
+        steps: [],
+        gameOver: false,
+      },
+      nextPlayerId: 'opponent-player',
+      currentDisc: discC,
+      nextDisc: discA,
+      level: 1,
+      turnsPerLevel: 7,
+      turnsRemaining: 6,
+      revision: 1,
+    }));
+    expect(controller.consumePendingTurnResult()).not.toBeNull();
+
+    // Create another pending result, then skip ahead before the render loop
+    // consumes it. The snapshot must prevent that stale result from starting.
+    assignTurn(transport, { playerId: 'opponent-player', revision: 1 });
+    transport.receive(serverMessage({
+      type: 'turn-played',
+      matchId: 'match-1',
+      board: emptyBoard(),
+      turnResult: {
+        playerId: 'opponent-player',
+        column: 3,
+        triggerScoreDelta: 0,
+        opponentScoreDelta: 0,
+        stackSize: 1,
+        steps: [],
+        gameOver: false,
+      },
+      nextPlayerId: 'local-player',
+      currentDisc: discA,
+      nextDisc: discB,
+      level: 1,
+      turnsPerLevel: 7,
+      turnsRemaining: 5,
+      revision: 2,
+    }));
+    transport.receive(duelStatusMessage({ revision: 3, activePlayerId: 'opponent-player' }));
+
+    expect(controller.consumeAnimationDiscard()).toBe(true);
+    expect(controller.consumePendingTurnResult()).toBeNull();
+  });
+
+  test('a skipped turn revision waits for duel-status instead of applying a partial delta', () => {
+    const { transport, controller } = createSession();
+    startCountdown(transport);
+    assignTurn(transport, { playerId: 'local-player', revision: 0 });
+
+    transport.receive(serverMessage({
+      type: 'turn-played',
+      matchId: 'match-1',
+      board: emptyBoard(),
+      turnResult: {
+        playerId: 'local-player',
+        column: 3,
+        triggerScoreDelta: 999,
+        opponentScoreDelta: 0,
+        stackSize: 1,
+        steps: [],
+        gameOver: false,
+      },
+      nextPlayerId: 'opponent-player',
+      currentDisc: discC,
+      nextDisc: discA,
+      level: 1,
+      turnsPerLevel: 7,
+      turnsRemaining: 5,
+      revision: 2,
+    }));
+    assignTurn(transport, { playerId: 'opponent-player', revision: 2 });
+    expect(controller.view.localScore).toBe(0);
+    expect(controller.view.isMyTurn).toBe(true);
+    expect(controller.consumePendingTurnResult()).toBeNull();
+
+    transport.receive(duelStatusMessage({
+      revision: 2,
+      activePlayerId: 'opponent-player',
+      scores: [
+        { playerId: 'local-player', score: 40 },
+        { playerId: 'opponent-player', score: 25 },
+      ],
+    }));
+    expect(controller.view.localScore).toBe(40);
+    expect(controller.view.isMyTurn).toBe(false);
+    expect(controller.consumeAnimationDiscard()).toBe(true);
+  });
+
+  test('a paused status keeps remaining time frozen across client time and later pulses', () => {
+    const { clock, transport, controller } = createSession();
+    startCountdown(transport);
+    assignTurn(transport, { playerId: 'local-player', revision: 0 });
+    transport.receive(duelStatusMessage({
+      revision: 0,
+      serverTime: 10_000,
+      turnDeadline: 10_050,
+      activePlayerId: 'local-player',
+      paused: true,
+      pausedBy: 'local-player',
+    }));
+    expect(controller.view.remainingMs).toBe(50);
+
+    clock.value = 5_000;
+    expect(controller.view.remainingMs).toBe(50);
+    transport.receive(duelStatusMessage({
+      revision: 0,
+      serverTime: 11_000,
+      turnDeadline: 11_050,
+      activePlayerId: 'local-player',
+      paused: true,
+      pausedBy: 'local-player',
+    }));
+    expect(controller.view.remainingMs).toBe(50);
+  });
+
+  test('a stale status (older than the applied revision) is ignored entirely', () => {
+    const { transport, controller } = createSession();
+    startCountdown(transport);
+    assignTurn(transport, { playerId: 'local-player', revision: 0 });
+    transport.receive(duelStatusMessage({
+      revision: 2,
+      activePlayerId: 'opponent-player',
+      scores: [
+        { playerId: 'local-player', score: 50 },
+        { playerId: 'opponent-player', score: 30 },
+      ],
+    }));
+    controller.consumeAnimationDiscard();
+
+    // An older, stale pulse must not undo the already-applied revision-2 state.
+    transport.receive(duelStatusMessage({
+      revision: 1,
+      activePlayerId: 'local-player',
+      scores: [
+        { playerId: 'local-player', score: 999 },
+        { playerId: 'opponent-player', score: 999 },
+      ],
+    }));
+    expect(controller.view.localScore).toBe(50);
+    expect(controller.view.isMyTurn).toBe(false);
+    expect(controller.consumeAnimationDiscard()).toBe(false);
+  });
+
+  // Regression: "after reconnect, the first accepted status clears stale
+  // animation even when its revision equals the last locally applied
+  // revision" — otherwise a reconnect that happens to land back on the same
+  // revision would leave a stale animation/pause banner on screen.
+  test('reconnecting forces the next status to discard stale animation even at an equal revision', () => {
+    const { transport, controller } = createSession();
+    startCountdown(transport);
+    assignTurn(transport, { playerId: 'local-player', revision: 0 });
+    transport.receive(duelStatusMessage({ revision: 0, activePlayerId: 'local-player' }));
+    expect(controller.consumeAnimationDiscard()).toBe(false);
+
+    transport.setConnection('reconnecting');
+    transport.setConnection('connected');
+
+    // Same revision as already applied — would normally be a no-op merge.
+    transport.receive(duelStatusMessage({ revision: 0, activePlayerId: 'local-player' }));
+    expect(controller.consumeAnimationDiscard()).toBe(true);
+  });
+
+  test('reconnecting never accepts an older status and keeps the forced resync for the next current snapshot', () => {
+    const { transport, controller } = createSession();
+    startCountdown(transport);
+    assignTurn(transport, { playerId: 'local-player', revision: 0 });
+    transport.receive(duelStatusMessage({
+      revision: 2,
+      activePlayerId: 'opponent-player',
+      scores: [
+        { playerId: 'local-player', score: 50 },
+        { playerId: 'opponent-player', score: 30 },
+      ],
+    }));
+    controller.consumeAnimationDiscard();
+
+    transport.setConnection('reconnecting');
+    transport.setConnection('connected');
+    transport.receive(duelStatusMessage({
+      revision: 1,
+      activePlayerId: 'local-player',
+      scores: [
+        { playerId: 'local-player', score: 999 },
+        { playerId: 'opponent-player', score: 999 },
+      ],
+    }));
+    expect(controller.view.localScore).toBe(50);
+    expect(controller.view.isMyTurn).toBe(false);
+    expect(controller.consumeAnimationDiscard()).toBe(false);
+
+    transport.receive(duelStatusMessage({
+      revision: 2,
+      activePlayerId: 'opponent-player',
+      scores: [
+        { playerId: 'local-player', score: 50 },
+        { playerId: 'opponent-player', score: 30 },
+      ],
+    }));
+    expect(controller.consumeAnimationDiscard()).toBe(true);
+  });
+
+  test('a duel-status missing the local player\'s score fails as session-mismatch', () => {
+    const { transport, controller } = createSession();
+    startCountdown(transport);
+    assignTurn(transport, { playerId: 'local-player', revision: 0 });
+    transport.receive(duelStatusMessage({
+      scores: [
+        { playerId: 'opponent-player', score: 10 },
+        { playerId: 'someone-else', score: 20 },
+      ],
+    }));
+    expect(controller.view.compatibilityError).toBe('session-mismatch');
+    expect(controller.view.phase).toBe('finished');
+  });
+
+  test('a duel-status for a stale matchId is ignored and does not mutate the current match', () => {
+    const { transport, controller } = createSession();
+    startCountdown(transport);
+    assignTurn(transport, { playerId: 'local-player', revision: 0 });
+    const before = controller.view;
+    transport.receive(duelStatusMessage({
+      matchId: 'not-this-match',
+      revision: 5,
+      scores: [
+        { playerId: 'local-player', score: 999 },
+        { playerId: 'opponent-player', score: 999 },
+      ],
+    }));
+    expect(controller.view.localScore).toBe(before.localScore);
+    expect(controller.view.opponentScore).toBe(before.opponentScore);
+    expect(controller.view.compatibilityError).toBeNull();
+  });
+
+  test('a turn-played for a stale matchId is ignored and does not mutate the current match', () => {
+    const { transport, controller } = createSession();
+    startCountdown(transport);
+    assignTurn(transport, { playerId: 'local-player', revision: 0 });
+    const boardBefore = controller.view.board;
+    transport.receive(serverMessage({
+      type: 'turn-played',
+      matchId: 'not-this-match',
+      board: emptyBoard(),
+      turnResult: {
+        playerId: 'local-player',
+        column: 3,
+        triggerScoreDelta: 999,
+        opponentScoreDelta: 999,
+        stackSize: 0,
+        steps: [],
+        gameOver: false,
+      },
+      nextPlayerId: 'opponent-player',
+      currentDisc: discC,
+      nextDisc: discA,
+      level: 1,
+      turnsPerLevel: 7,
+      turnsRemaining: 6,
+      revision: 1,
+    }));
+    expect(controller.view.localScore).toBe(0);
+    expect(controller.view.board).toEqual(boardBefore);
+    expect(controller.consumePendingTurnResult()).toBeNull();
+  });
+});
+
+describe('SharedBoardSessionController action hardening', () => {
+  test('a duplicate local playTurn while a submission is pending sends only once', () => {
+    const { transport, controller } = createSession();
+    startCountdown(transport);
+    assignTurn(transport, { playerId: 'local-player', revision: 0 });
+
+    controller.playTurn(3);
+    controller.playTurn(3);
+    controller.playTurn(4);
+    const sends = transport.sent.filter(m => m.type === 'play-turn');
+    expect(sends).toHaveLength(1);
+
+    // A turn-played clears the pending flag so the next real turn can send.
+    transport.receive(serverMessage({
+      type: 'turn-played',
+      matchId: 'match-1',
+      board: emptyBoard(),
+      turnResult: {
+        playerId: 'local-player',
+        column: 3,
+        triggerScoreDelta: 0,
+        opponentScoreDelta: 0,
+        stackSize: 0,
+        steps: [],
+        gameOver: false,
+      },
+      nextPlayerId: 'local-player',
+      currentDisc: discC,
+      nextDisc: discA,
+      level: 1,
+      turnsPerLevel: 7,
+      turnsRemaining: 6,
+      revision: 1,
+    }));
+    controller.playTurn(2);
+    expect(transport.sent.filter(m => m.type === 'play-turn')).toHaveLength(2);
+  });
+
+  test('a same-revision status pulse does not release a pending turn submission', () => {
+    const { transport, controller } = createSession();
+    startCountdown(transport);
+    assignTurn(transport, { playerId: 'local-player', revision: 0 });
+
+    controller.playTurn(3);
+    transport.receive(duelStatusMessage({ revision: 0, activePlayerId: 'local-player' }));
+    controller.playTurn(4);
+    expect(transport.sent.filter(message => message.type === 'play-turn')).toHaveLength(1);
+
+    // A corrective assignment at the current revision is the explicit server
+    // rejection path and does release the submission for retry.
+    assignTurn(transport, { playerId: 'local-player', revision: 0 });
+    controller.playTurn(4);
+    expect(transport.sent.filter(message => message.type === 'play-turn')).toHaveLength(2);
+  });
+
+  test('no gameplay action is sent while disconnected or reconnecting', () => {
+    const { transport, controller } = createSession();
+    startCountdown(transport);
+    assignTurn(transport, { playerId: 'local-player', revision: 0 });
+
+    transport.setConnection('disconnected');
+    controller.playTurn(3);
+    controller.moveCursor(5);
+    controller.requestPause(true);
+    controller.forfeit();
+    expect(transport.sent).toHaveLength(0);
+
+    transport.setConnection('reconnecting');
+    controller.playTurn(3);
+    controller.moveCursor(5);
+    expect(transport.sent).toHaveLength(0);
+
+    transport.setConnection('connected');
+    controller.moveCursor(5);
+    expect(transport.sent).toHaveLength(1);
   });
 });
