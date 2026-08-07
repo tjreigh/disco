@@ -25,10 +25,10 @@ describe('SharedBoardHud', () => {
     expect(document.querySelector('.multiplayer-hud__status')?.textContent).toBe('LIVE');
     expect(document.querySelector('.multiplayer-hud__local-value')?.textContent).toBe('30');
     expect(document.querySelector('.multiplayer-hud__opponent-value')?.textContent).toBe('10');
-    expect(document.querySelector('.multiplayer-hud__turn-value')?.textContent).toBe('YOUR TURN');
+    expect(document.querySelector('.multiplayer-hud__turn-sr')?.textContent).toBe('YOUR TURN');
     expect(document.querySelector('.multiplayer-hud__timer-label')?.textContent).toBe('TIME LEFT');
     expect(document.querySelector('.multiplayer-hud__timer')?.textContent).toBe('0:13');
-    expect(document.querySelector('.multiplayer-hud')?.getAttribute('data-my-turn')).toBe('true');
+    expect(document.querySelector('.multiplayer-hud')?.getAttribute('data-turn')).toBe('mine');
   });
 
   // Regression: the opponent's turn timer used to be invisible entirely.
@@ -46,9 +46,9 @@ describe('SharedBoardHud', () => {
       compatibilityError: null,
     });
 
-    expect(document.querySelector('.multiplayer-hud__turn-value')?.textContent).toBe("OPPONENT'S TURN");
+    expect(document.querySelector('.multiplayer-hud__turn-sr')?.textContent).toBe("OPPONENT'S TURN");
     expect(document.querySelector('.multiplayer-hud__timer')?.textContent).toBe('0:08');
-    expect(document.querySelector('.multiplayer-hud')?.getAttribute('data-my-turn')).toBe('false');
+    expect(document.querySelector('.multiplayer-hud')?.getAttribute('data-turn')).toBe('opponent');
   });
 
   test('renders lobby/countdown/compatibility-error status text', () => {
@@ -64,7 +64,8 @@ describe('SharedBoardHud', () => {
       compatibilityError: null,
     });
     expect(document.querySelector('.multiplayer-hud__status')?.textContent).toBe('LOBBY');
-    expect(document.querySelector('.multiplayer-hud__turn-value')?.textContent).toBe('—');
+    expect(document.querySelector('.multiplayer-hud__turn-sr')?.textContent).toBe('');
+    expect(document.querySelector('.multiplayer-hud')?.getAttribute('data-turn')).toBe('none');
 
     hud.render({
       phase: 'countdown',

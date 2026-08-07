@@ -39,7 +39,7 @@ export class SharedBoardHud {
   private readonly status: HTMLElement;
   private readonly localValue: HTMLElement;
   private readonly opponentValue: HTMLElement;
-  private readonly turnValue: HTMLElement;
+  private readonly turnAnnouncement: HTMLElement;
   private readonly timerLabel: HTMLElement;
   private readonly timer: HTMLElement;
   private readonly result: HTMLElement;
@@ -54,7 +54,7 @@ export class SharedBoardHud {
     this.status = mustQuery(fragment, '.multiplayer-hud__status');
     this.localValue = mustQuery(fragment, '.multiplayer-hud__local-value');
     this.opponentValue = mustQuery(fragment, '.multiplayer-hud__opponent-value');
-    this.turnValue = mustQuery(fragment, '.multiplayer-hud__turn-value');
+    this.turnAnnouncement = mustQuery(fragment, '.multiplayer-hud__turn-sr');
     this.timerLabel = mustQuery(fragment, '.multiplayer-hud__timer-label');
     this.timer = mustQuery(fragment, '.multiplayer-hud__timer');
     this.result = mustQuery(fragment, '.multiplayer-hud__result');
@@ -67,13 +67,13 @@ export class SharedBoardHud {
     this.status.textContent = statusText(view.phase, view.compatibilityError);
     this.localValue.textContent = view.localScore.toLocaleString('en-US');
     this.opponentValue.textContent = view.opponentScore.toLocaleString('en-US');
-    this.turnValue.textContent = turnText(view.phase, view.isMyTurn);
+    this.turnAnnouncement.textContent = turnText(view.phase, view.isMyTurn);
     this.timerLabel.textContent = timerLabelText(view.phase);
     this.timer.textContent = timerText(view.phase, view.remainingMs);
     this.result.textContent = resultText(view.result);
     this.result.hidden = view.result === null;
     this.root.dataset.result = String(view.result !== null);
-    this.root.dataset.myTurn = String(view.phase === 'playing' && view.isMyTurn);
+    this.root.dataset.turn = view.phase !== 'playing' ? 'none' : view.isMyTurn ? 'mine' : 'opponent';
   }
 
   destroy(): void {
@@ -101,7 +101,7 @@ function statusText(
 }
 
 function turnText(phase: SharedBoardHudPhase, isMyTurn: boolean): string {
-  if (phase !== 'playing') return '—';
+  if (phase !== 'playing') return '';
   return isMyTurn ? 'YOUR TURN' : "OPPONENT'S TURN";
 }
 

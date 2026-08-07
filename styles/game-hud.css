@@ -206,26 +206,79 @@
 }
 .multiplayer-hud__metric {
   display: grid;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   gap: 3px;
   min-width: 0;
-  padding: 0 12px;
+  padding: 3px 12px;
 }
 .multiplayer-hud__metric:first-child { padding-left: 0; }
 .multiplayer-hud__metric + .multiplayer-hud__metric {
   border-left: 1px solid rgba(159, 179, 200, .3);
 }
+/* Shrink priority when the row is too wide for the viewport: the match
+   title gives up space first (it's the most decorative/duplicative
+   string), scores shrink moderately, and the clock never shrinks — the
+   timer must stay fully legible. */
+.multiplayer-hud__match { flex-shrink: 3; }
+.multiplayer-hud__local,
+.multiplayer-hud__opponent { flex-shrink: 1; }
+.multiplayer-hud__clock { flex-shrink: 0; }
 .multiplayer-hud__label {
+  min-width: 0;
+  overflow: hidden;
   color: #829ab1;
   font-size: 9px;
   letter-spacing: .1em;
   line-height: 1;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Whose-turn indicator: a dot on the active player's own metric, not a
+   separate "YOUR TURN"/"OPPONENT'S TURN" text field — a text field there
+   forced the whole HUD to resize every time the turn (and therefore the
+   field's text length) flipped. The dot is decorative; .multiplayer-hud__turn-sr
+   carries the equivalent text for screen readers. */
+.multiplayer-hud__turn-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: transparent;
+  vertical-align: middle;
+}
+.multiplayer-hud__turn-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.multiplayer-hud[data-turn="mine"] .multiplayer-hud__local {
+  background: rgba(129, 230, 179, .24);
+}
+.multiplayer-hud[data-turn="mine"] .multiplayer-hud__local .multiplayer-hud__turn-dot {
+  background: #81e6b3;
+  box-shadow: 0 0 4px #81e6b3;
+}
+.multiplayer-hud[data-turn="opponent"] .multiplayer-hud__opponent {
+  background: rgba(246, 173, 85, .24);
+}
+.multiplayer-hud[data-turn="opponent"] .multiplayer-hud__opponent .multiplayer-hud__turn-dot {
+  background: #f6ad55;
+  box-shadow: 0 0 4px #f6ad55;
+}
 .multiplayer-hud__status {
+  min-width: 0;
+  overflow: hidden;
   color: #81e6b3;
   font-size: 14px;
   line-height: 1;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .multiplayer-hud__local-value,
@@ -255,16 +308,6 @@
 }
 .multiplayer-hud__result[hidden] { display: none; }
 .multiplayer-hud[data-result="true"] .multiplayer-hud__metric { display: none; }
-.multiplayer-hud__turn-value {
-  min-width: 0;
-  overflow: hidden;
-  font-size: 13px;
-  line-height: 1;
-  color: #d9e2ec;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.multiplayer-hud[data-my-turn="true"] .multiplayer-hud__turn-value { color: #81e6b3; }
 .game-hud__instability--pressured {
   border-color: #d8b4fe;
   box-shadow: 0 0 12px rgba(168, 85, 247, .28);
@@ -378,6 +421,13 @@
     right: max(16px, env(safe-area-inset-right), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2));
     left: auto;
   }
+  .multiplayer-hud { padding: 4px 8px; }
+  .multiplayer-hud__metric { padding: 0 8px; }
+  .multiplayer-hud__label { font-size: 8px; }
+  .multiplayer-hud__status { font-size: 12px; }
+  .multiplayer-hud__local-value,
+  .multiplayer-hud__opponent-value { font-size: 16px; }
+  .multiplayer-hud__timer { font-size: 15px; }
 }
 @media (max-width: 420px) {
   .game-hud__top { height: 96px; }
@@ -396,4 +446,14 @@
   }
   .game-hud__instability-value { font-size: 8px; }
   .game-hud__pressure { font-size: 6px; }
+  .multiplayer-hud {
+    max-width: calc(100% - 16px);
+    padding: 3px 6px;
+  }
+  .multiplayer-hud__metric { padding: 0 6px; }
+  .multiplayer-hud__mode-label { display: none; }
+  .multiplayer-hud__status { font-size: 11px; }
+  .multiplayer-hud__local-value,
+  .multiplayer-hud__opponent-value { font-size: 14px; }
+  .multiplayer-hud__timer { font-size: 13px; }
 }

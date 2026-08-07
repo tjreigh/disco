@@ -157,6 +157,31 @@ test.describe('private Score Race pause menu', () => {
 });
 
 test.describe('private Disco Duel sync and resilience', () => {
+  test('HUD row stays within viewport bounds at a narrow mobile width', async ({ browser }) => {
+    const hostContext = await multiplayerContext(browser);
+    const guestContext = await multiplayerContext(browser);
+    const host = await hostContext.newPage();
+    const guest = await guestContext.newPage();
+
+    try {
+      await enterDuelRoom(host, guest);
+      await readyUpDuel(host, guest);
+
+      // Ready-up puts both HUDs in the LIVE/playing state, the widest
+      // combination of visible fields either multiplayer-hud variant renders.
+      await expectHudLayout(host);
+      await expectHudLayout(guest);
+
+      await host.setViewportSize({ width: 393, height: 852 });
+      await guest.setViewportSize({ width: 393, height: 852 });
+      await expectHudLayout(host);
+      await expectHudLayout(guest);
+    } finally {
+      await hostContext.close();
+      await guestContext.close();
+    }
+  });
+
   test('opponent ghost defaults to column 3 before any cursor move', async ({ browser }) => {
     const hostContext = await multiplayerContext(browser);
     const guestContext = await multiplayerContext(browser);
@@ -357,7 +382,7 @@ async function readyUpDuel(host: Page, guest: Page): Promise<void> {
 }
 
 async function isDuelTurn(page: Page): Promise<boolean> {
-  return (await page.locator('.multiplayer-hud').getAttribute('data-my-turn')) === 'true';
+  return (await page.locator('.multiplayer-hud').getAttribute('data-turn')) === 'mine';
 }
 
 async function waitForDuelTurn(page: Page, expected: boolean): Promise<void> {
