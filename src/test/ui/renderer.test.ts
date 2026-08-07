@@ -173,10 +173,11 @@ describe('resize', () => {
     const localCtx = makeFakeContext();
     const localCanvas = makeCanvas(localCtx);
     const stage = document.createElement('div');
-    stage.getBoundingClientRect = () => ({
-      width: 375, height: 667, top: 0, left: 0, right: 375, bottom: 667,
-      x: 0, y: 0, toJSON: () => {},
-    });
+    // clientWidth/clientHeight (not getBoundingClientRect) is what resize()
+    // measures, deliberately — see the comment in renderer.ts — since it
+    // stays accurate even when a CSS zoom transform is applied to the stage.
+    Object.defineProperty(stage, 'clientWidth', { configurable: true, value: 375 });
+    Object.defineProperty(stage, 'clientHeight', { configurable: true, value: 667 });
     stage.append(localCanvas);
     document.body.append(stage);
 
@@ -191,17 +192,15 @@ describe('resize', () => {
     const localCtx = makeFakeContext();
     const localCanvas = makeCanvas(localCtx);
     const stage = document.createElement('div');
-    let bounds = { width: 393, height: 852 };
-    stage.getBoundingClientRect = () => ({
-      ...bounds, top: 0, left: 0, right: bounds.width, bottom: bounds.height,
-      x: 0, y: 0, toJSON: () => {},
-    });
+    Object.defineProperty(stage, 'clientWidth', { configurable: true, value: 393 });
+    Object.defineProperty(stage, 'clientHeight', { configurable: true, value: 852 });
     stage.append(localCanvas);
     document.body.append(stage);
     const localRenderer = new Renderer(localCanvas);
     const first = stage.style.getPropertyValue('--game-canvas-width');
 
-    bounds = { width: 375, height: 667 };
+    Object.defineProperty(stage, 'clientWidth', { configurable: true, value: 375 });
+    Object.defineProperty(stage, 'clientHeight', { configurable: true, value: 667 });
     localRenderer.resize();
 
     expect(stage.style.getPropertyValue('--game-canvas-width')).not.toBe(first);

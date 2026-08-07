@@ -28,6 +28,7 @@ import { MultiplayerRoomOverlay } from '../ui/multiplayer-room-overlay.js';
 import { setGridSize } from '../ui/rendering/layout.js';
 import { Renderer } from '../ui/rendering/renderer.js';
 import type { UiMounts } from '../ui/ui-root.js';
+import type { ZoomControls } from '../ui/zoom-controls.js';
 import {
   MultiplayerSessionController,
 } from './multiplayer-session-controller.js';
@@ -64,13 +65,13 @@ export class MultiplayerGame {
   private transportError: MultiplayerTransportError | null = null;
   private rafId = 0;
 
-  static async create(canvas: HTMLCanvasElement, mounts: UiMounts): Promise<MultiplayerGame> {
-    const game = new MultiplayerGame(canvas, mounts);
+  static async create(canvas: HTMLCanvasElement, mounts: UiMounts, zoomControls?: ZoomControls): Promise<MultiplayerGame> {
+    const game = new MultiplayerGame(canvas, mounts, zoomControls);
     await game.initialize();
     return game;
   }
 
-  private constructor(canvas: HTMLCanvasElement, mounts: UiMounts) {
+  private constructor(canvas: HTMLCanvasElement, mounts: UiMounts, zoomControls?: ZoomControls) {
     this.canvas = canvas;
     this.mounts = mounts;
     this.roomOverlay = new MultiplayerRoomOverlay('SCORE RACE', mounts.overlays);
@@ -86,6 +87,13 @@ export class MultiplayerGame {
       this.userSettings.setAdvancedHud(enabled);
       this.pauseMenu.setAdvancedHudEnabled(enabled);
     };
+    if (zoomControls) {
+      this.pauseMenu.onRequestZoomIn = () => zoomControls.zoomIn();
+      this.pauseMenu.onRequestZoomOut = () => zoomControls.zoomOut();
+      this.pauseMenu.onRequestZoomReset = () => zoomControls.resetZoom();
+      zoomControls.onScaleChange = scale => this.pauseMenu.updateZoomState(scale);
+      this.pauseMenu.updateZoomState(zoomControls.getScale());
+    }
     this.pauseMenu.setSoundEnabled(this.audio.isEnabled());
     this.pauseMenu.setAdvancedHudEnabled(this.userSettings.get().advancedHud);
     document.title = 'Disco — Score Race';

@@ -361,6 +361,38 @@ describe('HomeScreen', () => {
     expect(document.querySelector('.home-footer')?.classList).not.toContain('home-footer--hidden');
   });
 
+  test('zoom row callbacks fire on click and updateZoomState toggles disabled state', () => {
+    const home = createHome();
+    const onZoomIn = vi.fn();
+    const onZoomOut = vi.fn();
+    const onZoomReset = vi.fn();
+    home.onRequestZoomIn = onZoomIn;
+    home.onRequestZoomOut = onZoomOut;
+    home.onRequestZoomReset = onZoomReset;
+    home.openGameMenu();
+
+    const zoomIn = document.querySelector<HTMLButtonElement>('[data-game-menu-action="zoom-in"]')!;
+    const zoomOut = document.querySelector<HTMLButtonElement>('[data-game-menu-action="zoom-out"]')!;
+    const zoomReset = document.querySelector<HTMLButtonElement>('[data-game-menu-action="zoom-reset"]')!;
+
+    home.updateZoomState(1); // MIN_ZOOM
+    expect(zoomOut.disabled).toBe(true);
+    expect(zoomReset.disabled).toBe(true);
+    expect(zoomIn.disabled).toBe(false);
+
+    home.updateZoomState(2.5); // MAX_ZOOM
+    expect(zoomIn.disabled).toBe(true);
+    expect(zoomOut.disabled).toBe(false);
+
+    home.updateZoomState(1.5);
+    zoomIn.click();
+    zoomOut.click();
+    zoomReset.click();
+    expect(onZoomIn).toHaveBeenCalledOnce();
+    expect(onZoomOut).toHaveBeenCalledOnce();
+    expect(onZoomReset).toHaveBeenCalledOnce();
+  });
+
   test('uses a labelled three-line menu icon while retaining the desktop label', () => {
     const home = createHome();
     home.close();

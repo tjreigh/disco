@@ -148,7 +148,13 @@ export class GameHud {
     this.gravityArrow.setAttribute('stroke', COLOR_GRAVITY_ACCENT);
     this.gravityArrowhead.setAttribute('fill', COLOR_GRAVITY_ACCENT);
 
-    (container ?? document.querySelector<HTMLElement>('.game-stage') ?? document.body).append(fragment);
+    // Real callers always pass an explicit container (mounts.stage, i.e.
+    // .zoom-layer); this fallback only matters for a caller that forgets to.
+    // It must resolve to .zoom-layer, not the outer .game-stage — HUD bands
+    // read --game-canvas-width/height via CSS inheritance from whichever
+    // element Renderer.resize() sets them on (.zoom-layer), and .game-stage
+    // is that element's *ancestor*, not a place inheritance would reach.
+    (container ?? document.querySelector<HTMLElement>('.zoom-layer') ?? document.body).append(fragment);
   }
 
   render(state: GameHudState): void {

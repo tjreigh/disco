@@ -15,7 +15,10 @@ describe('UiRoot', () => {
     const ui = new UiRoot(container);
 
     expect(container.firstElementChild).toBe(ui.root);
-    expect(ui.mounts.stage.classList).toContain('game-stage');
+    // mounts.stage is the inner .zoom-layer (the transform/content-mount
+    // target), nested inside the outer, fixed .game-stage clipping viewport.
+    expect(ui.mounts.stage.classList).toContain('zoom-layer');
+    expect(ui.mounts.stage.closest('.game-stage')).not.toBeNull();
     expect(ui.mounts.stage.contains(ui.canvas)).toBe(true);
     expect(ui.mounts.controls.classList).toContain('shell-region--bottom');
     expect(ui.mounts.overlays.dataset.uiLayer).toBe('overlays');

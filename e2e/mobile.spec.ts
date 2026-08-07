@@ -101,14 +101,17 @@ test.describe('mobile playability', () => {
     await gotoSeeded(page);
     await playMode(page, 'Classic');
 
-    const before = await page.locator('.game-stage').evaluate(stage => ({
+    // --game-canvas-width/height and --game-grid-width are set on
+    // .zoom-layer (the content/transform layer inside the fixed, clipping
+    // .game-stage viewport), not .game-stage itself — see ui-root.template.html.
+    const before = await page.locator('.zoom-layer').evaluate(stage => ({
       canvasWidth: stage.style.getPropertyValue('--game-canvas-width'),
       canvasHeight: stage.style.getPropertyValue('--game-canvas-height'),
       gridWidth: stage.style.getPropertyValue('--game-grid-width'),
     }));
     await page.setViewportSize({ width: 375, height: 667 });
     await page.waitForTimeout(50);
-    const after = await page.locator('.game-stage').evaluate(stage => ({
+    const after = await page.locator('.zoom-layer').evaluate(stage => ({
       canvasWidth: stage.style.getPropertyValue('--game-canvas-width'),
       canvasHeight: stage.style.getPropertyValue('--game-canvas-height'),
       gridWidth: stage.style.getPropertyValue('--game-grid-width'),
@@ -118,5 +121,37 @@ test.describe('mobile playability', () => {
     expect(after.canvasHeight).not.toBe(before.canvasHeight);
     expect(Number.parseFloat(after.gridWidth)).toBeLessThanOrEqual(Number.parseFloat(after.canvasWidth));
     await expect(page.locator('.game-hud')).toBeVisible();
+  });
+
+  test('zooming in never moves or resizes the outer clipping viewport, even on the smallest phones', async ({ page }) => {
+    // At 320x568 the MIN_CELL_SIZE-floored board can already exceed the
+    // available stage height before any zoom is applied (see layout.ts) —
+    // the outer .game-stage must stay a fixed clipping viewport regardless,
+    // or a pan could move the clip boundary itself and reveal empty page
+    // background past the board's edges instead of only panning within it.
+    // .zoom-layer, nested inside it, is what actually gets transformed.
+    await page.setViewportSize({ width: 320, height: 568 });
+    await gotoSeeded(page);
+    await playMode(page, 'Classic');
+
+    const rect = () => page.locator('.game-stage').evaluate(el => {
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, width: r.width, height: r.height };
+    });
+    const stageRectBefore = await rect();
+
+    await page.locator('.home-back-button').click();
+    await expect(page.locator('.game-menu')).toHaveClass(/game-menu--open/);
+    await page.locator('[data-game-menu-action="zoom-in"]').click();
+    await page.locator('[data-game-menu-action="zoom-in"]').click();
+    await page.waitForTimeout(200); // let the button-driven transition settle
+
+    const zoomLayerScale = await page.locator('.zoom-layer').evaluate(el => {
+      const match = /scale\(([^)]+)\)/.exec(el.style.transform);
+      return match ? Number.parseFloat(match[1]!) : 1;
+    });
+    expect(zoomLayerScale).toBeGreaterThan(1); // sanity: a real zoom happened
+
+    expect(await rect()).toEqual(stageRectBefore);
   });
 });

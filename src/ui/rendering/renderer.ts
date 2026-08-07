@@ -81,10 +81,14 @@ export class Renderer {
 
   resize(): void {
     // Recompute cell size first — all geometry functions depend on it.
+    // clientWidth/clientHeight (not getBoundingClientRect()) are used
+    // deliberately: transform doesn't affect layout, so these stay the
+    // stage's pre-transform size even while a CSS zoom transform is applied
+    // to it, avoiding a feedback loop where a zoomed-in stage gets measured
+    // as bigger and the board grows again on top of the visual zoom.
     const stage = this.canvas.parentElement;
-    const bounds = stage?.getBoundingClientRect();
-    const stageBounds = bounds && bounds.width > 0 && bounds.height > 0
-      ? { width: bounds.width, height: bounds.height }
+    const stageBounds = stage && stage.clientWidth > 0 && stage.clientHeight > 0
+      ? { width: stage.clientWidth, height: stage.clientHeight }
       : undefined;
     updateCellSize(stageBounds);
     this.dpr = window.devicePixelRatio || 1;

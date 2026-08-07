@@ -26,6 +26,7 @@ import { AnimationQueue, spawnScoreIndicator, tickScoreIndicators, tickScorePopu
 import type { ScoreIndicator, ScorePopup } from '../ui/rendering/animation-types.js';
 import { Renderer } from '../ui/rendering/renderer.js';
 import type { UiMounts } from '../ui/ui-root.js';
+import type { ZoomControls } from '../ui/zoom-controls.js';
 import { applyStepToVisualBoard } from './visual-board.js';
 import { SharedBoardSessionController } from './shared-board-session-controller.js';
 import type { SharedBoardSessionView, SharedBoardPhase } from './shared-board-session-controller.js';
@@ -73,7 +74,7 @@ export class SharedBoardGame {
   #frameId: number | null = null;
   #destroyed = false;
 
-  constructor(canvas: HTMLCanvasElement, mounts: UiMounts) {
+  constructor(canvas: HTMLCanvasElement, mounts: UiMounts, zoomControls?: ZoomControls) {
     this.#canvas = canvas;
     this.#mounts = mounts;
     this.#roomOverlay = new MultiplayerRoomOverlay('DISCO DUEL', mounts.overlays);
@@ -89,13 +90,20 @@ export class SharedBoardGame {
       this.#userSettings.setAdvancedHud(enabled);
       this.#pauseMenu.setAdvancedHudEnabled(enabled);
     };
+    if (zoomControls) {
+      this.#pauseMenu.onRequestZoomIn = () => zoomControls.zoomIn();
+      this.#pauseMenu.onRequestZoomOut = () => zoomControls.zoomOut();
+      this.#pauseMenu.onRequestZoomReset = () => zoomControls.resetZoom();
+      zoomControls.onScaleChange = scale => this.#pauseMenu.updateZoomState(scale);
+      this.#pauseMenu.updateZoomState(zoomControls.getScale());
+    }
     this.#pauseMenu.setSoundEnabled(this.#audio.isEnabled());
     this.#pauseMenu.setAdvancedHudEnabled(this.#userSettings.get().advancedHud);
     void this.#initialize();
   }
 
-  static async create(canvas: HTMLCanvasElement, mounts: UiMounts): Promise<SharedBoardGame> {
-    return new SharedBoardGame(canvas, mounts);
+  static async create(canvas: HTMLCanvasElement, mounts: UiMounts, zoomControls?: ZoomControls): Promise<SharedBoardGame> {
+    return new SharedBoardGame(canvas, mounts, zoomControls);
   }
 
   async #initialize(): Promise<void> {

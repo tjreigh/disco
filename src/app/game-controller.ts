@@ -32,6 +32,7 @@ import type { UiMounts } from '../ui/ui-root.js';
 import { LocalBoardSession } from './local-board-session.js';
 import { PlayTimeTracker } from './play-time-tracker.js';
 import { UserSettingsStore } from '../platform/user-settings-store.js';
+import type { ZoomControls } from '../ui/zoom-controls.js';
 
 const TURN_PIP_CAPACITY = Math.max(
   ...SOLO_MODES.map(mode => mode.rules.progression.initialTurnsPerLevel),
@@ -87,7 +88,7 @@ export class SoloSessionController {
     }
   };
 
-  constructor(canvas: HTMLCanvasElement, mounts?: UiMounts) {
+  constructor(canvas: HTMLCanvasElement, mounts?: UiMounts, zoomControls?: ZoomControls) {
     const stageMount = mounts?.stage ?? canvas.parentElement ?? document.body;
     const controlsMount = mounts?.controls
       ?? document.querySelector<HTMLElement>('.shell-region--bottom')
@@ -142,6 +143,13 @@ export class SoloSessionController {
     this.homeScreen.onRequestHome = () => void this.saveAndReturnToMenu();
     this.homeScreen.onRequestToggleSound = () => this.toggleSound();
     this.homeScreen.onRequestToggleAdvancedHud = () => this.toggleAdvancedHud();
+    if (zoomControls) {
+      this.homeScreen.onRequestZoomIn = () => zoomControls.zoomIn();
+      this.homeScreen.onRequestZoomOut = () => zoomControls.zoomOut();
+      this.homeScreen.onRequestZoomReset = () => zoomControls.resetZoom();
+      zoomControls.onScaleChange = scale => this.homeScreen.updateZoomState(scale);
+      this.homeScreen.updateZoomState(zoomControls.getScale());
+    }
     this.homeScreen.onRequestDebug = () => this.openDebugPanel();
     this.homeScreen.onRequestAdvancedStats = modeId => this.advancedStatsDialog.open({
       modes: SOLO_MODES.map(mode => ({ mode, stats: this.statsStore.loadStats(mode.id) })),
@@ -972,8 +980,8 @@ export class SoloSessionController {
 export class Game {
   private readonly solo: SoloSessionController;
 
-  constructor(canvas: HTMLCanvasElement, mounts?: UiMounts) {
-    this.solo = new SoloSessionController(canvas, mounts);
+  constructor(canvas: HTMLCanvasElement, mounts?: UiMounts, zoomControls?: ZoomControls) {
+    this.solo = new SoloSessionController(canvas, mounts, zoomControls);
   }
 
   handleResize(): void {

@@ -357,6 +357,77 @@ test.describe('private Disco Duel sync and resilience', () => {
   });
 });
 
+test.describe('private Disco Duel zoom', () => {
+  // Duel constructs its own InputHandler instance independently of the
+  // solo-mode one covered in e2e/zoom.spec.ts, so this proves the shared
+  // zoom transform's hit-testing correctness holds there too, not just in
+  // the solo mode's own controller.
+  test('a zoomed-in tap still registers as a valid drop', async ({ browser }) => {
+    const hostContext = await multiplayerContext(browser);
+    const guestContext = await multiplayerContext(browser);
+    const host = await hostContext.newPage();
+    const guest = await guestContext.newPage();
+
+    try {
+      await enterDuelRoom(host, guest);
+      await readyUpDuel(host, guest);
+      await waitForDuelTurn(host, true);
+
+      // The zoom controls live in the pause menu, not floating on-screen
+      // buttons — opening it also pauses the match for both players, which
+      // conveniently avoids racing the turn timer while this test zooms in.
+      await host.getByRole('button', { name: 'Game menu' }).click();
+      await expect(host.locator('.game-menu')).toHaveClass(/game-menu--open/);
+      await host.locator('[data-pause-menu-action="zoom-in"]').click();
+      await host.locator('[data-pause-menu-action="zoom-in"]').click();
+      // .zoom-layer, not the outer .game-stage, is what ZoomControls
+      // transforms — .game-stage is the fixed, clipping viewport and is
+      // never itself transformed. See the class doc comment on ZoomControls.
+      const scale = await host.locator('.zoom-layer').evaluate(el => {
+        const match = /scale\(([^)]+)\)/.exec(el.style.transform);
+        return match ? Number.parseFloat(match[1]!) : 1;
+      });
+      expect(scale).toBeGreaterThan(1);
+      // Button-driven zoom animates over 150ms (.zoom-layer--transitioning,
+      // styles/zoom-controls.css) — wait it out before reading boundingBox()
+      // below, or the computed transform (and so the click position) would
+      // be read mid-transition instead of at its settled scale.
+      await host.waitForTimeout(200);
+      await host.getByRole('button', { name: 'RESUME', exact: true }).click();
+      await expect(host.locator('.game-menu')).not.toHaveClass(/game-menu--open/);
+
+      const canvas = host.locator('canvas');
+      const bounds = await canvas.boundingBox();
+      if (!bounds) throw new Error('Duel board is not visible');
+      // Off-center on purpose, and derived from the grid's own exposed
+      // geometry (--game-canvas-width/--game-grid-width) rather than a
+      // guessed fraction of the whole canvas — the grid is centered inside
+      // a wider canvas on desktop, so a naive small fraction can land in
+      // that empty margin instead of on the board, which would also never
+      // send a play-turn message and look identical to a real hit-testing
+      // regression from the zoom transform.
+      const { canvasWidth, gridWidth } = await host.locator('.zoom-layer').evaluate(el => ({
+        canvasWidth: Number.parseFloat(el.style.getPropertyValue('--game-canvas-width')),
+        gridWidth: Number.parseFloat(el.style.getPropertyValue('--game-grid-width')),
+      }));
+      const cols = 7;
+      const targetColumn = 1;
+      const gridStartX = (canvasWidth - gridWidth) / 2;
+      const cellWidth = gridWidth / cols;
+      const fraction = (gridStartX + (targetColumn + 0.5) * cellWidth) / canvasWidth;
+      await canvas.click({ position: { x: bounds.width * fraction, y: bounds.height / 2 } });
+
+      await expect.poll(async () => await host.evaluate(() => {
+        const observed = (window as any).__discoMultiplayerTest;
+        return observed.outgoing.some((m: any) => m.type === 'play-turn');
+      })).toBe(true);
+    } finally {
+      await hostContext.close();
+      await guestContext.close();
+    }
+  });
+});
+
 // "Reload during an in-flight animation" and "reload at a turn-timeout
 // boundary" are deliberately not covered here: pinning either to a real
 // browser reliably needs a precise, low-jitter timing race (landing a
@@ -547,7 +618,9 @@ async function expectHudLayout(page: Page): Promise<void> {
       element => element.scrollWidth <= element.clientWidth,
     );
     if (!contentFits) return 'multiplayer HUD content overflows';
-    const gridWidth = await page.locator('.game-stage').evaluate(element =>
+    // --game-grid-width is set on .zoom-layer (the content/transform layer
+    // inside the fixed, clipping .game-stage viewport), not .game-stage itself.
+    const gridWidth = await page.locator('.zoom-layer').evaluate(element =>
       Number.parseFloat(getComputedStyle(element).getPropertyValue('--game-grid-width')));
     const boardBottom = canvas.y + 96 + 8 + (gridWidth / 7) * 7.5;
     const bottomGap = queue.y - boardBottom;

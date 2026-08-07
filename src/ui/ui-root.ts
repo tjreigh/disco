@@ -19,7 +19,12 @@ export class UiRoot {
     this.root = mustQuery(fragment, '.app-root');
     this.canvas = mustQuery(fragment, 'canvas');
     const shell = mustQuery<HTMLElement>(fragment, '.app-shell');
-    const stage = mustQuery<HTMLElement>(fragment, '.game-stage');
+    // `.game-stage` is the fixed, clipping viewport (overflow: hidden, never
+    // transformed); `.zoom-layer` — the actual content mount point — is the
+    // element ZoomControls transforms, so a zoom/pan can never reveal empty
+    // space past the stage's own edges by moving the clipping container
+    // itself. See ZoomControls' class doc comment.
+    const stage = mustQuery<HTMLElement>(fragment, '.zoom-layer');
     const controls = mustQuery<HTMLElement>(fragment, '.shell-region--bottom');
     const overlays = mustQuery<HTMLElement>(fragment, '.ui-overlay-layer');
     const utilities = mustQuery<HTMLElement>(fragment, '.ui-utility-layer');
