@@ -42,6 +42,7 @@ const DEFAULT_COUNTDOWN_MS = 3_000;
 const DEFAULT_LOBBY_TTL_MS = 30 * 60 * 1_000;
 const DEFAULT_RESULT_TTL_MS = 5 * 60 * 1_000;
 const DEFAULT_STATUS_PULSE_MS = 1_000;
+const DEFAULT_ABANDON_TIMEOUT_MS = 3 * 60 * 1_000;
 
 export const SHARED_DUEL_ROOM_MODE = multiplayerModeIdentity({
   id: SHARED_DUEL_MODE_ID,
@@ -61,6 +62,7 @@ export interface SharedBoardRoomServiceOptions {
   readonly turnTimeoutMs?: number;
   readonly disruptionThreshold?: number;
   readonly statusPulseMs?: number;
+  readonly abandonTimeoutMs?: number;
 }
 
 interface RoomPlayer {
@@ -68,6 +70,8 @@ interface RoomPlayer {
   readonly credentialDigest: Buffer;
   ready: boolean;
   connection: RoomConnection | null;
+  /** Set when this player's socket drops during an active match; cleared on reconnect. Tracked independently of a manual pause. */
+  disconnectedAt: number | null;
 }
 
 interface DuelMatch {
@@ -86,7 +90,10 @@ interface DuelRoom {
   readonly id: string;
   readonly players: RoomPlayer[];
   lifecycle: DuelRoomLifecycle;
+  /** A manual, explicit pause — who requested it and when. Only that player may resume it. Independent of connection state. */
   paused: { readonly by: string; readonly since: number } | null;
+  /** When the turn clock most recently became frozen (by a manual pause, a disconnect, or both), continuously. Null while running. */
+  clockFrozenAt: number | null;
   /** Only broadcast duel-status delivery updates this — targeted (reconnect/recovery) status never postpones the periodic pulse owed to the room. */
   lastStatusBroadcastAt: number | null;
 }
@@ -115,6 +122,7 @@ export class SharedBoardRoomService {
   private readonly turnTimeoutMs: number;
   private readonly disruptionThreshold: number;
   private readonly statusPulseMs: number;
+  private readonly abandonTimeoutMs: number;
 
   constructor(options: SharedBoardRoomServiceOptions) {
     this.clock = options.clock;
@@ -127,6 +135,7 @@ export class SharedBoardRoomService {
     this.statusPulseMs = options.statusPulseMs !== undefined
       ? requirePositiveDuration(options.statusPulseMs)
       : DEFAULT_STATUS_PULSE_MS;
+    this.abandonTimeoutMs = options.abandonTimeoutMs ?? DEFAULT_ABANDON_TIMEOUT_MS;
   }
 
   createRoom(request: RoomAdmissionRequest): RoomServiceResult<RoomAdmission> {
@@ -140,9 +149,10 @@ export class SharedBoardRoomService {
 
     const room: DuelRoom = {
       id: roomId,
-      players: [{ id: playerId, credentialDigest: digest, ready: false, connection: null }],
+      players: [{ id: playerId, credentialDigest: digest, ready: false, connection: null, disconnectedAt: null }],
       lifecycle: { kind: 'lobby', expiresAt: this.clock.now() + this.lobbyTtlMs },
       paused: null,
+      clockFrozenAt: null,
       lastStatusBroadcastAt: null,
     };
     this.rooms.set(roomId, room);
@@ -168,7 +178,7 @@ export class SharedBoardRoomService {
     const credential = this.values.createReconnectCredential();
     const digest = sha256Digest(credential);
 
-    room.players.push({ id: playerId, credentialDigest: digest, ready: false, connection: null });
+    room.players.push({ id: playerId, credentialDigest: digest, ready: false, connection: null, disconnectedAt: null });
     this.touchReadyRoom(room);
     return {
       ok: true,
@@ -185,10 +195,48 @@ export class SharedBoardRoomService {
       return fatal('invalid-credential', []);
     }
 
-    const deliveries = this.advanceRoom(room);
     const connection: RoomConnection = Object.freeze({ roomId: room.id, playerId: player.id });
+
+    if (room.lifecycle.kind === 'playing'
+      && player.disconnectedAt !== null
+      && this.clock.now() - player.disconnectedAt >= this.abandonTimeoutMs) {
+      // Arrives at or past the abandonment deadline: treat this reconnect as
+      // already too late rather than handing back a fresh turn clock — a
+      // tick() may not have processed the abandonment yet.
+      const opponent = room.players.find(p => p.id !== player.id)!;
+      // completeAsForfeit's broadcast reaches both players, but the
+      // reconnecting player's own copy would race the snapshot below:
+      // match-finished (broadcast), then match-countdown, then a second
+      // match-finished (snapshotDeliveries' 'complete' branch always leads
+      // with a countdown message). The client's match-countdown handler
+      // deliberately allows re-triggering from 'complete' to support a real
+      // rematch flow, so it would accept that stray countdown and
+      // transiently flip away from the result it just applied. Keep the
+      // broadcast for the opponent only — the reconnecting player gets
+      // their result exclusively from the snapshot's clean
+      // countdown-then-finished pair.
+      const deliveries = this.completeAsForfeit(room, room.lifecycle.match, player, opponent, [])
+        .filter(delivery => delivery.playerId !== player.id);
+      player.connection = connection;
+      player.disconnectedAt = null;
+      this.touchReadyRoom(room);
+      return { ok: true, value: connection, deliveries: [...deliveries, ...this.snapshotDeliveries(room, player)] };
+    }
+
     player.connection = connection;
+    player.disconnectedAt = null;
     this.touchReadyRoom(room);
+
+    // Repair the frozen turn deadline before advanceRoom() can look at it —
+    // otherwise a reconnect landing right after one missed turn timeout (but
+    // before any tick processed it) could trigger a bogus expireTurn()
+    // against a deadline that's still stuck in the past.
+    let deliveries: RoomDelivery[] = [];
+    if (room.lifecycle.kind === 'playing') {
+      deliveries = this.syncClockFreeze(room, player.id, deliveries, room.lifecycle.match.id);
+    }
+    deliveries.push(...this.advanceRoom(room));
+
     const snapshot = room.lifecycle.kind === 'lobby'
       ? this.roomStateDeliveries(room)
       : this.snapshotDeliveries(room, player);
@@ -198,20 +246,19 @@ export class SharedBoardRoomService {
   disconnect(connection: RoomConnection): readonly RoomDelivery[] {
     const active = this.activePlayer(connection);
     if (!active) return [];
-    active.player.connection = null;
-    if (active.room.lifecycle.kind === 'lobby' || active.room.lifecycle.kind === 'complete') {
-      active.player.ready = false;
-      return this.roomStateDeliveries(active.room);
+    const { room, player } = active;
+    player.connection = null;
+    if (room.lifecycle.kind === 'lobby' || room.lifecycle.kind === 'complete') {
+      player.ready = false;
+      return this.roomStateDeliveries(room);
     }
-    // Dropping the pausing player's connection must not permanently freeze
-    // the room for whoever's left — resume on their behalf, same as an
-    // explicit resume request, rather than soft-locking the opponent.
-    if (active.room.lifecycle.kind === 'playing'
-      && active.room.paused
-      && active.room.paused.by === active.player.id) {
-      return this.resumeMatchClock(active.room, active.player.id, [], active.room.lifecycle.match.id);
+    // Tracked from countdown onward so a drop during the pre-match countdown
+    // still counts toward abandonment once the match actually starts.
+    if (room.lifecycle.kind === 'countdown' || room.lifecycle.kind === 'playing') {
+      player.disconnectedAt = this.clock.now();
     }
-    return [];
+    if (room.lifecycle.kind !== 'playing') return [];
+    return this.syncClockFreeze(room, player.id, [], room.lifecycle.match.id);
   }
 
   receive(connection: RoomConnection, message: MultiplayerClientMessage): RoomServiceResult<null> {
@@ -302,7 +349,7 @@ export class SharedBoardRoomService {
     if (matchId !== room.lifecycle.match.id) {
       return recoverable('match-mismatch', [...priorDeliveries, ...this.recoverySnapshot(room, player)]);
     }
-    if (room.paused) {
+    if (this.isClockFrozen(room)) {
       return recoverable('invalid-state', [...priorDeliveries, ...this.recoverySnapshot(room, player)]);
     }
 
@@ -361,7 +408,7 @@ export class SharedBoardRoomService {
     if (matchId !== room.lifecycle.match.id) {
       return recoverable('match-mismatch', [...priorDeliveries, ...this.recoverySnapshot(room, player)]);
     }
-    if (room.paused) {
+    if (this.isClockFrozen(room)) {
       return recoverable('invalid-state', [...priorDeliveries, ...this.recoverySnapshot(room, player)]);
     }
     if (!room.lifecycle.match.match.isCurrentPlayer(player.id)) {
@@ -386,16 +433,10 @@ export class SharedBoardRoomService {
     if (room.lifecycle.kind !== 'playing' || matchId !== room.lifecycle.match.id) {
       return recoverable('invalid-state', [...priorDeliveries, ...this.recoverySnapshot(room, player)]);
     }
-    const duelMatch = room.lifecycle.match;
     if (paused) {
       if (room.paused) return { ok: true, value: null, deliveries: priorDeliveries };
       room.paused = { by: player.id, since: this.clock.now() };
-      const deliveries = [
-        ...priorDeliveries,
-        ...this.broadcast(room, () =>
-          this.pausedMessage(room, matchId, true, player.id, duelMatch.match.turnDeadline)),
-        ...this.broadcastDuelStatus(room, duelMatch),
-      ];
+      const deliveries = this.syncClockFreeze(room, player.id, priorDeliveries, matchId);
       return { ok: true, value: null, deliveries };
     }
     if (!room.paused) return { ok: true, value: null, deliveries: priorDeliveries };
@@ -405,7 +446,8 @@ export class SharedBoardRoomService {
     if (room.paused.by !== player.id) {
       return recoverable('invalid-state', [...priorDeliveries, ...this.recoverySnapshot(room, player)]);
     }
-    const deliveries = this.resumeMatchClock(room, player.id, priorDeliveries, matchId);
+    room.paused = null;
+    const deliveries = this.syncClockFreeze(room, player.id, priorDeliveries, matchId);
     return { ok: true, value: null, deliveries };
   }
 
@@ -421,47 +463,73 @@ export class SharedBoardRoomService {
     // race — fatal is the safer default.
     if (!opponent) return fatal('invalid-state', priorDeliveries);
 
-    // A forfeit always hands the win to the opponent — unlike a normal
-    // finish, the current score comparison is irrelevant to who won.
-    const result: MultiplayerMatchResult = {
-      winnerId: opponent.id,
-      scores: [
-        { playerId: player.id, score: duelMatch.match.getScore(player.id) },
-        { playerId: opponent.id, score: duelMatch.match.getScore(opponent.id) },
-      ],
-      forfeitedBy: player.id,
-    };
-    room.paused = null;
-    for (const roomPlayer of room.players) roomPlayer.ready = false;
-    room.lifecycle = { kind: 'complete', match: duelMatch, result, expiresAt: this.clock.now() + this.resultTtlMs };
-
-    const deliveries = [
-      ...priorDeliveries,
-      ...this.broadcast(room, () =>
-        this.finishedMessage(room, matchId, room.lifecycle as { kind: 'complete'; result: MultiplayerMatchResult }),
-      ),
-    ];
+    const deliveries = this.completeAsForfeit(room, duelMatch, player, opponent, priorDeliveries);
     return { ok: true, value: null, deliveries };
   }
 
-  private resumeMatchClock(room: DuelRoom, resumedBy: string, priorDeliveries: RoomDelivery[], matchId: string): RoomDelivery[] {
-    if (!room.paused) return priorDeliveries;
-    const elapsed = this.clock.now() - room.paused.since;
-    let deadline = 0;
-    const duelMatch = room.lifecycle.kind === 'playing' ? room.lifecycle.match : null;
-    if (duelMatch) {
-      duelMatch.match.shiftTurnTimer(elapsed);
-      deadline = duelMatch.match.turnDeadline;
+  /** Whether the turn clock must be frozen right now: an explicit pause, or any player missing a live connection. */
+  private isClockFrozen(room: DuelRoom): boolean {
+    return room.paused !== null || room.players.some(p => p.disconnectedAt !== null);
+  }
+
+  /** Who the freeze is currently attributed to on the wire — the manual pauser if any, else whichever player is disconnected. */
+  private freezeOwner(room: DuelRoom): string | null {
+    if (room.paused) return room.paused.by;
+    return room.players.find(p => p.disconnectedAt !== null)?.id ?? null;
+  }
+
+  // Reconciles clockFrozenAt with the current combination of manual pause
+  // and connection gaps. Only shifts the turn deadline on the transition
+  // from frozen to fully unfrozen, using the original clockFrozenAt — so an
+  // overlapping second reason never resets the elapsed-time baseline.
+  // Re-broadcasts match-paused/duel-status whenever frozen-ness changes, or
+  // the attributed owner changes while still frozen (e.g. the manual pauser
+  // resumes but the match stays frozen because the other player is still
+  // disconnected — clients must see that ownership flip).
+  private syncClockFreeze(room: DuelRoom, triggeredBy: string, priorDeliveries: RoomDelivery[], matchId: string): RoomDelivery[] {
+    if (room.lifecycle.kind !== 'playing') return priorDeliveries;
+    const duelMatch = room.lifecycle.match;
+    const frozen = this.isClockFrozen(room);
+    const wasFrozen = room.clockFrozenAt !== null;
+    if (!wasFrozen && !frozen) return priorDeliveries;
+
+    let pausedBy = triggeredBy;
+    if (wasFrozen && !frozen) {
+      duelMatch.match.shiftTurnTimer(this.clock.now() - room.clockFrozenAt!);
+      room.clockFrozenAt = null;
+    } else {
+      if (!wasFrozen) room.clockFrozenAt = this.clock.now();
+      pausedBy = this.freezeOwner(room) ?? triggeredBy;
     }
-    room.paused = null;
-    const deliveries = [
+    return [
       ...priorDeliveries,
-      ...this.broadcast(room, () => this.pausedMessage(room, matchId, false, resumedBy, deadline)),
+      ...this.broadcast(room, () => this.pausedMessage(room, matchId, frozen, pausedBy, duelMatch.match.turnDeadline)),
+      ...this.broadcastDuelStatus(room, duelMatch),
     ];
-    if (duelMatch) {
-      deliveries.push(...this.broadcastDuelStatus(room, duelMatch));
-    }
-    return deliveries;
+  }
+
+  /** Ends the match as a forfeit by `forfeitingPlayer` — shared by a voluntary forfeit-match message and the abandonment timeout. */
+  private completeAsForfeit(
+    room: DuelRoom, duelMatch: DuelMatch, forfeitingPlayer: RoomPlayer, opponent: RoomPlayer, priorDeliveries: RoomDelivery[],
+  ): RoomDelivery[] {
+    const result: MultiplayerMatchResult = {
+      winnerId: opponent.id,
+      scores: [
+        { playerId: forfeitingPlayer.id, score: duelMatch.match.getScore(forfeitingPlayer.id) },
+        { playerId: opponent.id, score: duelMatch.match.getScore(opponent.id) },
+      ],
+      forfeitedBy: forfeitingPlayer.id,
+    };
+    room.paused = null;
+    room.clockFrozenAt = null;
+    for (const roomPlayer of room.players) roomPlayer.ready = false;
+    room.lifecycle = { kind: 'complete', match: duelMatch, result, expiresAt: this.clock.now() + this.resultTtlMs };
+    return [
+      ...priorDeliveries,
+      ...this.broadcast(room, () =>
+        this.finishedMessage(room, duelMatch.id, room.lifecycle as { kind: 'complete'; result: MultiplayerMatchResult }),
+      ),
+    ];
   }
 
   private pausedMessage(
@@ -495,12 +563,25 @@ export class SharedBoardRoomService {
       deliveries.push(...this.broadcast(room, () =>
         match.buildTurnAssignedMessage(room.id, SHARED_DUEL_ROOM_MODE, lifecycle.match.id),
       ));
+      // A player who disconnected during the countdown window must freeze
+      // the fresh match immediately rather than silently burn their first
+      // turn timeout — this may emit a redundant duel-status pulse
+      // alongside the one below, which is harmless (see the periodic-pulse
+      // comment further down).
+      deliveries.push(...this.syncClockFreeze(room, lifecycle.playerOrder[0], [], lifecycle.match.id));
       deliveries.push(...this.broadcastDuelStatus(room, lifecycle.match));
       return deliveries;
     }
 
     if (lifecycle.kind === 'playing') {
-      if (!room.paused && lifecycle.match.match.isTurnExpired(now)) {
+      const abandoned = room.players.find(p =>
+        p.disconnectedAt !== null && now - p.disconnectedAt >= this.abandonTimeoutMs);
+      if (abandoned) {
+        const opponent = room.players.find(p => p.id !== abandoned.id)!;
+        return this.completeAsForfeit(room, lifecycle.match, abandoned, opponent, deliveries);
+      }
+
+      if (!this.isClockFrozen(room) && lifecycle.match.match.isTurnExpired(now)) {
         const match = lifecycle.match.match;
         const result = match.expireTurn();
 
@@ -537,7 +618,7 @@ export class SharedBoardRoomService {
         }
       }
 
-      // Periodic pulse while playing, including while paused — the board is
+      // Periodic pulse while playing, including while frozen — the board is
       // frozen but the pulse still repairs missed pause/menu state. Runs
       // even on ticks that already broadcast above; the fresh
       // lastStatusBroadcastAt from that broadcast keeps this a no-op then.
@@ -555,7 +636,7 @@ export class SharedBoardRoomService {
     room.lastStatusBroadcastAt = now;
     return this.broadcast(room, () => duelMatch.match.buildDuelStatusMessage(
       room.id, SHARED_DUEL_ROOM_MODE, duelMatch.id, now,
-      room.paused !== null, room.paused?.by ?? null, room.paused?.since ?? null,
+      this.isClockFrozen(room), this.freezeOwner(room), room.clockFrozenAt,
     ));
   }
 
@@ -565,7 +646,7 @@ export class SharedBoardRoomService {
       playerId,
       message: duelMatch.match.buildDuelStatusMessage(
         room.id, SHARED_DUEL_ROOM_MODE, duelMatch.id, now,
-        room.paused !== null, room.paused?.by ?? null, room.paused?.since ?? null,
+        this.isClockFrozen(room), this.freezeOwner(room), room.clockFrozenAt,
       ),
     }];
   }
@@ -632,11 +713,11 @@ export class SharedBoardRoomService {
           room.id, SHARED_DUEL_ROOM_MODE, lifecycle.match.id,
         ),
       });
-      if (room.paused) {
+      if (this.isClockFrozen(room)) {
         deliveries.push({
           playerId: player.id,
           message: this.pausedMessage(
-            room, lifecycle.match.id, true, room.paused.by, lifecycle.match.match.turnDeadline,
+            room, lifecycle.match.id, true, this.freezeOwner(room) ?? player.id, lifecycle.match.match.turnDeadline,
           ),
         });
       }

@@ -71,7 +71,7 @@ interface RoomHarness {
 
 function createService(
   clock = new ManualClock(),
-  overrides: Partial<{ statusPulseMs: number }> = {},
+  overrides: Partial<{ statusPulseMs: number; abandonTimeoutMs: number }> = {},
 ): SharedBoardRoomService {
   return new SharedBoardRoomService({
     clock,
@@ -128,7 +128,7 @@ function connect(service: SharedBoardRoomService, admission: RoomAdmission): Roo
   }));
 }
 
-function setupRoom(overrides: Partial<{ statusPulseMs: number }> = {}): RoomHarness {
+function setupRoom(overrides: Partial<{ statusPulseMs: number; abandonTimeoutMs: number }> = {}): RoomHarness {
   const clock = new ManualClock();
   const service = createService(clock, overrides);
   const host = valueOf(service.createRoom(admissionRequest()));
@@ -864,13 +864,64 @@ describe('SharedBoardRoomService pause and forfeit', () => {
     ));
   });
 
-  test('disconnecting the pausing player auto-resumes so the opponent is not soft-locked', () => {
+  test('disconnecting an unpaused player during play freezes the match instead of leaving the clock running', () => {
+    const harness = setupRoom();
+    const { matchId, firstPlayerId } = startPlaying(harness);
+    const [connection, otherAdmission] = firstPlayerId === harness.host.playerId
+      ? [harness.hostConnection, harness.guest]
+      : [harness.guestConnection, harness.host];
+
+    // This service's broadcast() sends to both players unconditionally
+    // (offline sockets are no-ops at the gateway layer) — unlike Score
+    // Race's room service, which filters by live connection.
+    const disconnectDeliveries = harness.service.disconnect(connection);
+    const otherDelivery = disconnectDeliveries.find(d => d.playerId === otherAdmission.playerId);
+    expect(otherDelivery?.message).toEqual(expect.objectContaining({
+      type: 'match-paused', paused: true, pausedBy: firstPlayerId,
+    }));
+
+    // The clock is frozen — a turn timeout that would otherwise have fired does nothing.
+    harness.clock.time += TURN_TIMEOUT_MS * 5;
+    expect(harness.service.tick().deliveries).toEqual([]);
+  });
+
+  test('a manual pause resuming does not un-freeze the match while a different player is still disconnected', () => {
+    const harness = setupRoom();
+    const { matchId, firstPlayerId } = startPlaying(harness);
+    const [pauserConnection, pauserAdmission] = firstPlayerId === harness.host.playerId
+      ? [harness.hostConnection, harness.host]
+      : [harness.guestConnection, harness.guest];
+    const [otherConnection, otherAdmission] = firstPlayerId === harness.host.playerId
+      ? [harness.guestConnection, harness.guest]
+      : [harness.hostConnection, harness.host];
+
+    valueOf(harness.service.receive(
+      pauserConnection,
+      message(pauserAdmission, { type: 'set-paused', matchId, paused: true }),
+    ));
+    harness.service.disconnect(otherConnection);
+
+    const resumed = harness.service.receive(
+      pauserConnection,
+      message(pauserAdmission, { type: 'set-paused', matchId, paused: false }),
+    );
+    valueOf(resumed);
+    // Still frozen — attribution flips to whoever is actually still gone.
+    const statusMessage = resumed.deliveries.find(d => d.message.type === 'duel-status')?.message;
+    expect(statusMessage).toEqual(expect.objectContaining({
+      type: 'duel-status', paused: true, pausedBy: otherAdmission.playerId,
+    }));
+
+    harness.clock.time += TURN_TIMEOUT_MS * 5;
+    expect(harness.service.tick().deliveries).toEqual([]);
+  });
+
+  test('the pausing player disconnecting while their own pause is active does not auto-resume the match', () => {
     const harness = setupRoom();
     const { matchId, firstPlayerId } = startPlaying(harness);
     const [connection, admission] = firstPlayerId === harness.host.playerId
       ? [harness.hostConnection, harness.host]
       : [harness.guestConnection, harness.guest];
-    const otherAdmission = firstPlayerId === harness.host.playerId ? harness.guest : harness.host;
 
     valueOf(harness.service.receive(
       connection,
@@ -878,19 +929,157 @@ describe('SharedBoardRoomService pause and forfeit', () => {
     ));
 
     harness.clock.time += TURN_TIMEOUT_MS;
-    // This service's broadcast() sends to both players unconditionally
-    // (offline sockets are no-ops at the gateway layer) — unlike Score
-    // Race's room service, which filters by live connection.
     const disconnectDeliveries = harness.service.disconnect(connection);
-    const otherDelivery = disconnectDeliveries.find(d => d.playerId === otherAdmission.playerId);
-    expect(otherDelivery?.message).toEqual(expect.objectContaining({
-      type: 'match-paused', paused: false, pausedBy: firstPlayerId,
+    // No resume broadcast — the freeze remains, still attributed to the pauser.
+    expect(disconnectDeliveries.some(d => d.message.type === 'match-paused' && d.message.paused === false))
+      .toBe(false);
+
+    harness.clock.time += TURN_TIMEOUT_MS * 5;
+    expect(harness.service.tick().deliveries).toEqual([]);
+  });
+
+  test('reconnecting the only disconnected player fully unfreezes the match and shifts the deadline', () => {
+    const harness = setupRoom();
+    const { firstPlayerId } = startPlaying(harness);
+    const [connection, admission] = firstPlayerId === harness.host.playerId
+      ? [harness.hostConnection, harness.host]
+      : [harness.guestConnection, harness.guest];
+
+    harness.service.disconnect(connection);
+    harness.clock.time += TURN_TIMEOUT_MS;
+
+    const reconnected = harness.service.connect({
+      roomId: admission.roomId,
+      playerId: admission.playerId,
+      reconnectCredential: admission.reconnectCredential,
+    });
+    valueOf(reconnected);
+    const pausedFalse = reconnected.deliveries.find(d => d.message.type === 'match-paused')?.message;
+    expect(pausedFalse).toEqual(expect.objectContaining({ type: 'match-paused', paused: false }));
+    if (pausedFalse?.type === 'match-paused') {
+      expect(pausedFalse.deadline).toBeGreaterThan(harness.clock.time);
+    }
+
+    // Normal turn-expiry ticks fire again.
+    harness.clock.time += TURN_TIMEOUT_MS;
+    expect(harness.service.tick().deliveries.some(d => d.message.type === 'turn-expired')).toBe(true);
+  });
+
+  test('reconnecting shortly after a missed turn timeout does not trigger a bogus expireTurn against the stale deadline', () => {
+    const harness = setupRoom();
+    const { matchId, firstPlayerId } = startPlaying(harness);
+    const [connection, admission] = firstPlayerId === harness.host.playerId
+      ? [harness.hostConnection, harness.host]
+      : [harness.guestConnection, harness.guest];
+
+    harness.service.disconnect(connection);
+    // Past one turn timeout, but nowhere near the (default) abandonment
+    // timeout, and — critically — no tick() has run to process anything.
+    harness.clock.time += TURN_TIMEOUT_MS * 3;
+
+    const reconnected = harness.service.connect({
+      roomId: admission.roomId,
+      playerId: admission.playerId,
+      reconnectCredential: admission.reconnectCredential,
+    });
+    valueOf(reconnected);
+    expect(reconnected.deliveries.some(d => d.message.type === 'turn-expired')).toBe(false);
+    const assigned = reconnected.deliveries.find(d => d.message.type === 'turn-assigned')?.message;
+    expect(assigned).toEqual(expect.objectContaining({ matchId, playerId: firstPlayerId, revision: 0 }));
+  });
+
+  test('reconnecting at or past the abandonment deadline is treated as already abandoned', () => {
+    const abandonTimeoutMs = TURN_TIMEOUT_MS * 4;
+    const harness = setupRoom({ abandonTimeoutMs });
+    const { firstPlayerId } = startPlaying(harness);
+    const [connection, admission] = firstPlayerId === harness.host.playerId
+      ? [harness.hostConnection, harness.host]
+      : [harness.guestConnection, harness.guest];
+    const opponentId = firstPlayerId === harness.host.playerId ? harness.guest.playerId : harness.host.playerId;
+
+    harness.service.disconnect(connection);
+    harness.clock.time += abandonTimeoutMs;
+
+    // Reconnecting right at the deadline, with no intervening tick().
+    const reconnected = harness.service.connect({
+      roomId: admission.roomId,
+      playerId: admission.playerId,
+      reconnectCredential: admission.reconnectCredential,
+    });
+    valueOf(reconnected);
+    const finished = reconnected.deliveries.find(d => d.message.type === 'match-finished')?.message;
+    expect(finished).toEqual(expect.objectContaining({
+      type: 'match-finished',
+      result: expect.objectContaining({ winnerId: opponentId, forfeitedBy: admission.playerId }),
     }));
 
-    // The room resumed — a normal turn-expiry tick can fire again.
-    harness.clock.time += TURN_TIMEOUT_MS;
+    // Exact per-player sequence: the opponent (not reconnecting) gets a
+    // single broadcast match-finished. The reconnecting player must NOT
+    // also receive that broadcast copy ahead of their snapshot — only their
+    // own clean countdown-then-finished snapshot pair, or a client that
+    // just applied 'complete' would transiently flip back to 'countdown'
+    // (its match-countdown handler deliberately allows that transition from
+    // 'complete' to support a real rematch).
+    const opponentTypes = reconnected.deliveries
+      .filter(d => d.playerId === opponentId)
+      .map(d => d.message.type);
+    expect(opponentTypes).toEqual(['match-finished']);
+    const reconnectingTypes = reconnected.deliveries
+      .filter(d => d.playerId === admission.playerId)
+      .map(d => d.message.type);
+    expect(reconnectingTypes).toEqual(['match-countdown', 'match-finished']);
+  });
+
+  test('a player who never reconnects is auto-forfeited once the abandonment timeout elapses, even under an unrelated manual pause', () => {
+    const abandonTimeoutMs = TURN_TIMEOUT_MS * 4;
+    const harness = setupRoom({ abandonTimeoutMs });
+    const { matchId, firstPlayerId } = startPlaying(harness);
+    const [vanishingConnection, vanishingAdmission] = firstPlayerId === harness.host.playerId
+      ? [harness.hostConnection, harness.host]
+      : [harness.guestConnection, harness.guest];
+    const [stayingConnection, stayingAdmission] = firstPlayerId === harness.host.playerId
+      ? [harness.guestConnection, harness.guest]
+      : [harness.hostConnection, harness.host];
+
+    harness.service.disconnect(vanishingConnection);
+    // The staying player separately manually pauses — this must not block
+    // abandonment from firing against the vanished player.
+    valueOf(harness.service.receive(
+      stayingConnection,
+      message(stayingAdmission, { type: 'set-paused', matchId, paused: true }),
+    ));
+
+    harness.clock.time += abandonTimeoutMs;
     const tickResult = harness.service.tick();
-    expect(tickResult.deliveries.some(d => d.message.type === 'turn-expired')).toBe(true);
+    const finished = tickResult.deliveries.find(d => d.message.type === 'match-finished')?.message;
+    expect(finished).toEqual(expect.objectContaining({
+      type: 'match-finished',
+      result: expect.objectContaining({
+        winnerId: stayingAdmission.playerId,
+        forfeitedBy: vanishingAdmission.playerId,
+      }),
+    }));
+
+    harness.clock.time += TURN_TIMEOUT_MS * 5;
+    expect(harness.service.tick().deliveries).toEqual([]);
+  });
+
+  test('a disconnect during countdown freezes the match immediately once it transitions to playing', () => {
+    const harness = setupRoom();
+    const countdown = startMatch(harness);
+    harness.service.disconnect(harness.hostConnection);
+
+    harness.clock.time = countdown.startsAt;
+    const tickResult = harness.service.tick();
+    expect(tickResult.deliveries.some(d => d.message.type === 'turn-expired')).toBe(false);
+    const pausedTrue = tickResult.deliveries.find(d => d.message.type === 'match-paused')?.message;
+    expect(pausedTrue).toEqual(expect.objectContaining({
+      type: 'match-paused', paused: true, pausedBy: harness.host.playerId,
+    }));
+
+    // Frozen — no turn-expiry fires against the missing player.
+    harness.clock.time += TURN_TIMEOUT_MS * 5;
+    expect(harness.service.tick().deliveries).toEqual([]);
   });
 
   test('a reconnecting player receives the current pause state', () => {
