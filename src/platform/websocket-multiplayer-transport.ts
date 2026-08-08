@@ -113,11 +113,13 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
     if (this.terminal) return;
     this.authenticated = false;
     this.setState('reconnecting');
+    console.log('[shared-duel] transport connecting');
     const socket = new WebSocket(this.url);
     this.socket = socket;
 
     socket.addEventListener('open', () => {
       if (this.socket !== socket || this.terminal) return;
+      console.log('[shared-duel] transport socket open, sending credentials');
       socket.send(JSON.stringify({
         type: 'authenticate-room',
         protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
@@ -159,6 +161,7 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
         // no user input or queued send can interleave with it.
         this.authenticated = true;
         this.setState('connected');
+        console.log('[shared-duel] transport authenticated');
         for (const listener of this.messageListeners) listener(raw);
         this.flushReadiness(socket);
         return;
@@ -169,6 +172,14 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
 
     socket.addEventListener('close', event => {
       if (this.socket !== socket) return;
+      // The code/reason distinguish a clean client-initiated close (1000),
+      // an explicit server rejection (1008, 4001 "Connection replaced"),
+      // and an abrupt drop with no code — that last case is what a
+      // server-side heartbeat terminate() or a genuine network failure
+      // both look like from here.
+      console.warn(
+        `[shared-duel] transport socket closed (code=${event.code} reason="${event.reason}" wasClean=${event.wasClean})`,
+      );
       this.socket = null;
       this.authenticated = false;
       if (this.terminal || event.code === 1000) {
@@ -181,6 +192,7 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
   }
 
   private failAuthentication(socket: WebSocket, error: MultiplayerTransportError): void {
+    console.error(`[shared-duel] transport authentication failed: ${error}`);
     this.terminal = true;
     for (const listener of this.errorListeners) listener(error);
     socket.close(1008, error);
@@ -199,6 +211,7 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
       Math.min(this.reconnectAttempt, RECONNECT_DELAYS_MS.length - 1)
     ] ?? RECONNECT_DELAYS_MS[RECONNECT_DELAYS_MS.length - 1];
     this.reconnectAttempt++;
+    console.log(`[shared-duel] transport reconnecting in ${delay}ms (attempt ${this.reconnectAttempt})`);
     this.setState('reconnecting');
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
@@ -208,6 +221,7 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
 
   private setState(state: MultiplayerConnectionState): void {
     if (state === this.state) return;
+    console.log(`[shared-duel] transport connection state: ${this.state} -> ${state}`);
     this.state = state;
     for (const listener of this.connectionListeners) listener(state);
   }

@@ -150,6 +150,10 @@ export class SharedBoardSessionController {
   readonly #unsubConnection: () => void;
   #connection: MultiplayerConnectionState;
   #lifecycle: MatchLifecycle;
+  // Diagnostic only: timestamps a local play-turn send so the matching
+  // turn-played can log a round-trip latency. Cleared on apply or on any
+  // resync that makes the pairing unreliable (see #handleDuelStatus).
+  #lastSubmitAt: number | null = null;
 
   constructor(options: SharedBoardSessionControllerOptions) {
     this.#roomId = options.roomId;
@@ -187,10 +191,25 @@ export class SharedBoardSessionController {
 
   playTurn(column: number): void {
     const lifecycle = this.#lifecycle;
-    if (lifecycle.kind !== 'playing' || !lifecycle.isMyTurn || lifecycle.paused) return;
-    if (this.#connection !== 'connected') return;
-    if (lifecycle.turnSubmissionPending) return;
+    if (lifecycle.kind !== 'playing' || !lifecycle.isMyTurn || lifecycle.paused) {
+      console.debug('[shared-duel] playTurn ignored: not a legal moment to play', {
+        lifecycleKind: lifecycle.kind,
+        isMyTurn: lifecycle.kind === 'playing' ? lifecycle.isMyTurn : null,
+        paused: lifecycle.kind === 'playing' && lifecycle.paused !== null,
+      });
+      return;
+    }
+    if (this.#connection !== 'connected') {
+      console.debug('[shared-duel] playTurn ignored: transport not connected', { connection: this.#connection });
+      return;
+    }
+    if (lifecycle.turnSubmissionPending) {
+      console.debug('[shared-duel] playTurn ignored: a submission is already pending');
+      return;
+    }
     lifecycle.turnSubmissionPending = true;
+    this.#lastSubmitAt = this.#clock.now();
+    console.log(`[shared-duel] playTurn sending column=${column} revision=${lifecycle.revision}`);
     this.#transport.send({
       protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
       roomId: this.#roomId,
@@ -220,7 +239,11 @@ export class SharedBoardSessionController {
 
   requestPause(paused: boolean): void {
     const lifecycle = this.#lifecycle;
-    if (lifecycle.kind !== 'playing' || this.#connection !== 'connected') return;
+    if (lifecycle.kind !== 'playing' || this.#connection !== 'connected') {
+      console.debug('[shared-duel] requestPause ignored', { paused, lifecycleKind: lifecycle.kind, connection: this.#connection });
+      return;
+    }
+    console.log(`[shared-duel] requestPause sending: ${paused}`);
     this.#transport.send({
       protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
       roomId: this.#roomId,
@@ -233,7 +256,11 @@ export class SharedBoardSessionController {
 
   forfeit(): void {
     const lifecycle = this.#lifecycle;
-    if (lifecycle.kind !== 'playing' || this.#connection !== 'connected') return;
+    if (lifecycle.kind !== 'playing' || this.#connection !== 'connected') {
+      console.debug('[shared-duel] forfeit ignored', { lifecycleKind: lifecycle.kind, connection: this.#connection });
+      return;
+    }
+    console.log('[shared-duel] forfeit sending');
     this.#transport.send({
       protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
       roomId: this.#roomId,
@@ -337,6 +364,7 @@ export class SharedBoardSessionController {
       this.#failCompatibility('session-mismatch', { reason: 'match-paused player outside match', message });
       return;
     }
+    console.log(`[shared-duel] match-paused: ${message.paused} (by ${message.pausedBy})`);
     lifecycle.paused = message.paused
       ? {
           by: message.pausedBy,
@@ -370,19 +398,31 @@ export class SharedBoardSessionController {
 
   #handleTurnAssigned(message: MultiplayerServerMessage & { type: 'turn-assigned' }): void {
     const lifecycle = this.#lifecycle;
-    if (lifecycle.kind !== 'countdown' && lifecycle.kind !== 'playing') return;
-    if (message.matchId !== lifecycle.match.matchId) return;
+    if (lifecycle.kind !== 'countdown' && lifecycle.kind !== 'playing') {
+      console.debug('[shared-duel] turn-assigned ignored: lifecycle is', lifecycle.kind);
+      return;
+    }
+    if (message.matchId !== lifecycle.match.matchId) {
+      console.warn('[shared-duel] turn-assigned ignored: matchId mismatch', {
+        expected: lifecycle.match.matchId, got: message.matchId,
+      });
+      return;
+    }
     if (lifecycle.kind === 'playing'
       && lifecycle.revision !== undefined
       && message.revision !== lifecycle.revision) {
       // turn-assigned is paired with the resolution at the same revision. A
       // different revision means an event was missed (or this assignment is
       // stale); only duel-status may bridge that gap authoritatively.
+      console.warn('[shared-duel] turn-assigned DROPPED: revision mismatch, waiting on duel-status to resync', {
+        expectedRevision: lifecycle.revision, gotRevision: message.revision,
+      });
       return;
     }
 
     const board = message.board;
     const isMyTurn = message.playerId === this.#playerId;
+    console.debug('[shared-duel] turn-assigned applied', { revision: message.revision, isMyTurn });
 
     this.#lifecycle = {
       kind: 'playing',
@@ -419,11 +459,23 @@ export class SharedBoardSessionController {
 
   #handleTurnPlayed(message: MultiplayerServerMessage & { type: 'turn-played' | 'turn-expired' }): void {
     const lifecycle = this.#lifecycle;
-    if (lifecycle.kind !== 'playing' || message.matchId !== lifecycle.match.matchId) return;
+    if (lifecycle.kind !== 'playing' || message.matchId !== lifecycle.match.matchId) {
+      console.debug('[shared-duel] turn-played/expired ignored: lifecycle/match mismatch', { lifecycleKind: lifecycle.kind });
+      return;
+    }
     // Incremental events are safe only when they are exactly next. Duplicate,
     // stale, or skipped revisions wait for the paired authoritative status;
     // applying a delta across a gap would corrupt scores and animation state.
-    if (lifecycle.revision === undefined || message.revision !== lifecycle.revision + 1) return;
+    if (lifecycle.revision === undefined || message.revision !== lifecycle.revision + 1) {
+      console.warn('[shared-duel] turn-played/expired DROPPED: revision gap, waiting on duel-status to resync', {
+        expectedRevision: lifecycle.revision === undefined ? undefined : lifecycle.revision + 1,
+        gotRevision: message.revision,
+      });
+      return;
+    }
+    console.debug(`[shared-duel] ${message.type} applied`, {
+      revision: message.revision, triggerPlayerId: message.turnResult.playerId, gameOver: message.turnResult.gameOver,
+    });
 
     const boardBefore = lifecycle.board;
     lifecycle.board = message.board;
@@ -437,6 +489,10 @@ export class SharedBoardSessionController {
     if (message.turnResult.playerId === this.#playerId) {
       lifecycle.localScore += message.turnResult.triggerScoreDelta;
       lifecycle.opponentScore += message.turnResult.opponentScoreDelta;
+      if (this.#lastSubmitAt !== null) {
+        console.log(`[shared-duel] turn round-trip: ${Math.round(this.#clock.now() - this.#lastSubmitAt)}ms`);
+        this.#lastSubmitAt = null;
+      }
     } else {
       lifecycle.localScore += message.turnResult.opponentScoreDelta;
       lifecycle.opponentScore += message.turnResult.triggerScoreDelta;
@@ -487,6 +543,9 @@ export class SharedBoardSessionController {
       // reconnect snapshot can't be genuinely older than what's already
       // applied (the server always builds it from current match state), so
       // this holds unconditionally rather than only outside a reconnect.
+      console.debug('[shared-duel] duel-status ignored: stale', {
+        currentRevision: lifecycle.revision, statusRevision: message.revision,
+      });
       return;
     }
     const isReconnectResync = lifecycle.forceNextStatus;
@@ -496,8 +555,15 @@ export class SharedBoardSessionController {
       // Equal revision right after reconnect: still discard, since the
       // animation (if any) was left over from before the gap and can't be
       // trusted to represent the authoritative state below.
+      console.warn('[shared-duel] duel-status forcing a resync — animation discarded, snapping to authoritative state', {
+        reason: isReconnectResync ? 'reconnect' : 'missed-revision',
+        currentRevision: lifecycle.revision, statusRevision: message.revision,
+      });
       lifecycle.discardAnimation = true;
       lifecycle.pendingTurnResult = null;
+      // Whatever our own pending submission was waiting on is now subsumed
+      // by this snapshot — it will never get a clean turn-played to measure.
+      this.#lastSubmitAt = null;
     }
     lifecycle.forceNextStatus = false;
 
@@ -525,9 +591,16 @@ export class SharedBoardSessionController {
   }
 
   #handleMatchFinished(message: MultiplayerServerMessage & { type: 'match-finished' }): void {
-    if (message.matchId !== this.#currentMatchId()) return;
+    if (message.matchId !== this.#currentMatchId()) {
+      console.debug('[shared-duel] match-finished ignored: matchId mismatch', { got: message.matchId });
+      return;
+    }
     const localResult = localizeMultiplayerResult(message.result, this.#playerId);
-    if (!localResult) return;
+    if (!localResult) {
+      console.warn('[shared-duel] match-finished: could not localize result', message.result);
+      return;
+    }
+    console.log('[shared-duel] match finished', localResult);
     this.#lifecycle = {
       kind: 'complete',
       matchId: message.matchId,
@@ -539,12 +612,14 @@ export class SharedBoardSessionController {
 
   #handleConnection(state: MultiplayerConnectionState): void {
     const wasConnected = this.#connection === 'connected';
+    console.log(`[shared-duel] session sees connection: ${this.#connection} -> ${state}`);
     this.#connection = state;
     if (state === 'connected' && !wasConnected && this.#lifecycle.kind === 'playing') {
       // The next duel-status must be applied unconditionally, even if its
       // revision happens to equal what we last applied — a reconnect gap
       // may have left stale presentation (a pause banner, an in-flight
       // animation) that only a forced resync will clear.
+      console.warn('[shared-duel] reconnected mid-match: next duel-status will force a resync');
       this.#lifecycle.forceNextStatus = true;
     }
   }

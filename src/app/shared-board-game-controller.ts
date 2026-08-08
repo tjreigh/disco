@@ -234,6 +234,9 @@ export class SharedBoardGame {
     const sinceLastFrame = this.#lastFrameTime === null ? 0 : now - this.#lastFrameTime;
     this.#lastFrameTime = now;
     if (this.#animQueue && sinceLastFrame > STALE_FRAME_GAP_MS) {
+      console.warn(
+        `[shared-duel] animation abandoned: frame gap ${Math.round(sinceLastFrame)}ms exceeded ${STALE_FRAME_GAP_MS}ms (tab backgrounded/throttled, not a network event)`,
+      );
       this.#animQueue = null;
       this.#visualBoard = null;
     }
