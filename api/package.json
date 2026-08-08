@@ -10,7 +10,8 @@
     "#game-scoring": "./dist/game/scoring/owner-attribution.js",
     "#game-save": "./dist/game/save.js",
     "#game-model": "./dist/game/model.js",
-    "#game-modes": "./dist/game/modes/index.js"
+    "#game-modes": "./dist/game/modes/index.js",
+    "#game-board": "./dist/game/board.js"
   },
   "scripts": {
     "clean": "rm -rf dist",

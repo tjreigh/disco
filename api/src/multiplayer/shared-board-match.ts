@@ -4,6 +4,7 @@ import { GameEngine } from '#game-engine';
 import type { TurnResult } from '#game-engine';
 import type { PhysicsStep } from '#game-engine';
 import { computeOwnerScoreDelta } from '#game-scoring';
+import { isColumnFull } from '#game-board';
 import type { Board, Disc } from '#game-model';
 import { MULTIPLAYER_PROTOCOL_VERSION } from '#multiplayer-contracts';
 import type {
@@ -27,6 +28,8 @@ export interface SharedBoardMatchConfig {
   readonly seed: number;
   readonly turnTimeoutMs: number;
   readonly disruptionThreshold: number;
+  /** Chooses which open column expireTurn() auto-drops into. Defaults to a uniform random pick; overridable so tests can make timeout resolution deterministic. */
+  readonly pickAvailableColumn?: (available: readonly number[]) => number;
 }
 
 export class SharedBoardMatch {
@@ -38,6 +41,7 @@ export class SharedBoardMatch {
   readonly engine: GameEngine;
   private readonly scores: Record<string, number>;
   private readonly cursors: Record<string, number>;
+  private readonly pickAvailableColumn: (available: readonly number[]) => number;
   currentPlayerIndex: number;
   turnDeadline: number;
   finished: boolean;
@@ -53,6 +57,8 @@ export class SharedBoardMatch {
     this.engine = new GameEngine({ seed: config.seed, rules: SHARED_DUEL_RULES });
     this.scores = {};
     this.cursors = {};
+    this.pickAvailableColumn = config.pickAvailableColumn
+      ?? ((available) => available[randomInt(available.length)]!);
     for (const id of config.playerIds) {
       this.scores[id] = 0;
       this.cursors[id] = 3;
@@ -320,13 +326,12 @@ export class SharedBoardMatch {
 
   private randomAvailableColumn(): number | null {
     const cols = this.engine.state.board[0]!.length;
-    const bottomRow = this.engine.state.board.length - 1;
     const available: number[] = [];
     for (let col = 0; col < cols; col++) {
-      if (this.engine.state.board[bottomRow]![col] === null) available.push(col);
+      if (!isColumnFull(this.engine.state.board, col)) available.push(col);
     }
     if (available.length === 0) return null;
-    return available[randomInt(available.length)]!;
+    return this.pickAvailableColumn(available);
   }
 }
 
