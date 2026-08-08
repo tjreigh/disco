@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
@@ -210,6 +210,7 @@ async function connect(instance: FastifyInstance, admission: Admission): Promise
   const socket = await instance.injectWS('/multiplayer/socket');
   sockets.push(socket);
   retainMessages(socket);
+  attachHeartbeatResponder(socket);
   socketAdmissions.set(socket, admission);
   socket.send(JSON.stringify({
     type: 'authenticate-room',
@@ -217,6 +218,24 @@ async function connect(instance: FastifyInstance, admission: Admission): Promise
     reconnectCredential: admission.reconnectCredential,
   }));
   await nextMessageOfType(socket, 'room-state');
+  return socket;
+}
+
+/** Like connect(), but for a reconnect while the match is already 'playing' — that snapshot leads with turn-assigned, not room-state. */
+async function reconnectMidMatch(instance: FastifyInstance, admission: Admission): Promise<WebSocket> {
+  const socket = await instance.injectWS('/multiplayer/socket');
+  sockets.push(socket);
+  retainMessages(socket);
+  attachHeartbeatResponder(socket);
+  socketAdmissions.set(socket, admission);
+  socket.send(JSON.stringify({
+    type: 'authenticate-room',
+    ...clientEnvelope(admission),
+    reconnectCredential: admission.reconnectCredential,
+  }));
+  await nextMessageOfType(socket, 'turn-assigned');
+  // Status is deliberately last in the snapshot (see snapshotDeliveries) — drain it too.
+  await nextMessageOfType(socket, 'duel-status');
   return socket;
 }
 
@@ -290,6 +309,32 @@ function retainMessages(socket: WebSocket): void {
   });
 }
 
+interface HeartbeatResponderState {
+  enabled: boolean;
+}
+
+const heartbeatResponders = new WeakMap<WebSocket, HeartbeatResponderState>();
+
+// injectWS's in-process test client does not auto-respond to ping frames
+// the way a real browser does, so heartbeat tests need to simulate that
+// themselves. Attached immediately after every socket is created (not
+// after a multi-step setup like startDuel() completes) so a real
+// connection is never mistaken for unresponsive purely because setup took
+// longer than a test's (deliberately short) heartbeat interval.
+function attachHeartbeatResponder(socket: WebSocket): void {
+  const state: HeartbeatResponderState = { enabled: true };
+  heartbeatResponders.set(socket, state);
+  socket.on('ping', () => {
+    if (state.enabled) socket.pong();
+  });
+}
+
+function setHeartbeatResponsive(socket: WebSocket, enabled: boolean): void {
+  const state = heartbeatResponders.get(socket);
+  if (!state) throw new Error('Heartbeat responder was not attached to this socket');
+  state.enabled = enabled;
+}
+
 // --- Shared Duel: recoverable vs. fatal disposition ---------------------
 //
 // room-gateway.ts used to close the socket on *any* room-service rejection.
@@ -312,6 +357,21 @@ async function createDuelApp(): Promise<FastifyInstance> {
     countdownMs: 5,
   });
   app = await buildApp(createTestConfig(), db, { sharedBoardRoomService, roomTickMs: 5 });
+  await app.ready();
+  return app;
+}
+
+async function createDuelAppWithHeartbeat(heartbeatMs: number): Promise<FastifyInstance> {
+  db = createTestDb();
+  const sharedBoardRoomService = new SharedBoardRoomService({
+    clock: { now: () => Date.now() },
+    countdownMs: 5,
+  });
+  app = await buildApp(createTestConfig(), db, {
+    sharedBoardRoomService,
+    roomTickMs: 5,
+    roomHeartbeatMs: heartbeatMs,
+  });
   await app.ready();
   return app;
 }
@@ -539,5 +599,123 @@ describe('multiplayer room gateway — shared duel recoverable failures', () => 
     });
     await new Promise<void>(resolve => duel.activeSocket.once('close', () => resolve()));
     expect(duel.activeSocket.readyState).toBe(duel.activeSocket.CLOSED);
+  });
+});
+
+// --- Connection heartbeat -------------------------------------------------
+//
+// room-gateway.ts only learns a connection is gone via the socket's own
+// 'close' event. A clean drop (tab closed, client reconnect logic kicking
+// in) always fires that. A silently dead connection (network partition, a
+// device sleeping mid-connection) may never fire it on its own — nothing
+// else in the stack would ever notice, so the freeze/abandonment behavior
+// from shared-board-room-service.ts would never engage for it. The
+// heartbeat pings each socket periodically and terminates it if a pong
+// doesn't come back, which forces that same 'close' event.
+//
+// injectWS's in-process test client does not auto-respond to ping frames
+// (verified empirically — unlike a real browser, which does this at the
+// protocol level automatically). connect()/reconnectMidMatch() attach a
+// controllable responder (default: on) to every socket the instant it's
+// created — before any multi-step setup like startDuel() runs — so a real
+// connection is never mistaken for unresponsive purely because setup took
+// longer than a test's (deliberately short) heartbeat interval. Tests that
+// want to simulate a dead connection call setHeartbeatResponsive(socket,
+// false) only after setup has completed.
+
+describe('multiplayer room gateway — connection heartbeat', () => {
+  it('a responsive socket (one that answers pings) survives many heartbeat intervals', async () => {
+    const heartbeatMs = 20;
+    const instance = await createDuelAppWithHeartbeat(heartbeatMs);
+    const duel = await startDuel(instance);
+
+    await new Promise(resolve => setTimeout(resolve, heartbeatMs * 6));
+
+    expect(duel.hostSocket.readyState).toBe(duel.hostSocket.OPEN);
+    expect(duel.guestSocket.readyState).toBe(duel.guestSocket.OPEN);
+    await assertMatchStillUsable(duel);
+  });
+
+  it('an unresponsive socket is terminated, which freezes the match for the opponent', async () => {
+    const heartbeatMs = 20;
+    const instance = await createDuelAppWithHeartbeat(heartbeatMs);
+    const duel = await startDuel(instance);
+
+    // The active player's socket goes quiet only now, after setup — the
+    // opponent's responder stays on (its default), simulating a connection
+    // that died without ever firing 'close' on its own.
+    setHeartbeatResponsive(duel.activeSocket, false);
+
+    await new Promise<void>(resolve => duel.activeSocket.once('close', () => resolve()));
+    expect(duel.activeSocket.readyState).toBe(duel.activeSocket.CLOSED);
+
+    const paused = await nextMessageOfType(duel.inactiveSocket, 'match-paused');
+    expect(paused).toEqual(expect.objectContaining({
+      type: 'match-paused', paused: true, pausedBy: duel.activeAdmission.playerId,
+    }));
+  });
+
+  it('a replacement socket is unaffected by the old socket\'s heartbeat state', async () => {
+    const heartbeatMs = 20;
+    const instance = await createDuelAppWithHeartbeat(heartbeatMs);
+    const duel = await startDuel(instance);
+
+    // The old socket goes quiet only now, after setup — about to be
+    // superseded by a reconnect before its own heartbeat would ever have a
+    // chance to terminate it. The opponent's responder stays on throughout.
+    const staleSocket = duel.activeSocket;
+    setHeartbeatResponsive(staleSocket, false);
+
+    const reconnected = await reconnectMidMatch(instance, duel.activeAdmission);
+
+    // The gateway's explicit "connection replaced" close beats the heartbeat here.
+    await new Promise<void>(resolve => staleSocket.once('close', () => resolve()));
+    expect(staleSocket.readyState).toBe(staleSocket.CLOSED);
+
+    // Give the old socket's now-defunct heartbeat entry plenty of chances
+    // to (wrongly) terminate the new connection or disconnect it from the
+    // room — the existing connection-identity check in the close handler
+    // should make this a no-op regardless of who closes the stale socket.
+    await new Promise(resolve => setTimeout(resolve, heartbeatMs * 6));
+
+    expect(reconnected.readyState).toBe(reconnected.OPEN);
+    const refreshed: DuelPlayers = duel.activeAdmission.playerId === duel.host.playerId
+      ? { ...duel, hostSocket: reconnected, activeSocket: reconnected }
+      : { ...duel, guestSocket: reconnected, activeSocket: reconnected };
+    await assertMatchStillUsable(refreshed);
+  });
+
+  it('clears the heartbeat timer on shutdown, not just the sockets it was tracking', async () => {
+    // instance.close() also closes every open socket, so merely observing
+    // "no more pings after close" would pass even if the interval kept
+    // running (the loop's own readyState guard would just skip a closed
+    // socket) — that doesn't prove the timer itself was cleared. Capture
+    // the actual Timeout the heartbeat interval creates (identified by its
+    // distinctive delay) and assert clearInterval is called with that exact
+    // handle on shutdown.
+    const heartbeatMs = 15;
+    const originalSetInterval = global.setInterval;
+    const capturedIntervals: Array<{ delayMs: number; handle: NodeJS.Timeout }> = [];
+    const setIntervalSpy = vi.spyOn(global, 'setInterval')
+      .mockImplementation(((handler: (...args: unknown[]) => void, delayMs?: number, ...args: unknown[]) => {
+        const handle = originalSetInterval(handler, delayMs, ...args);
+        capturedIntervals.push({ delayMs: delayMs ?? 0, handle });
+        return handle;
+      }) as typeof setInterval);
+    const clearIntervalSpy = vi.spyOn(global, 'clearInterval');
+
+    try {
+      const instance = await createDuelAppWithHeartbeat(heartbeatMs);
+      const heartbeatEntry = capturedIntervals.find(entry => entry.delayMs === heartbeatMs);
+      expect(heartbeatEntry).toBeDefined();
+
+      await instance.close();
+      app = null;
+
+      expect(clearIntervalSpy).toHaveBeenCalledWith(heartbeatEntry!.handle);
+    } finally {
+      setIntervalSpy.mockRestore();
+      clearIntervalSpy.mockRestore();
+    }
   });
 });

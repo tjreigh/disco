@@ -26,6 +26,7 @@ export interface BuildAppOptions {
   readonly roomService?: ScoreRaceRoomService;
   readonly sharedBoardRoomService?: SharedBoardRoomService;
   readonly roomTickMs?: number;
+  readonly roomHeartbeatMs?: number;
 }
 
 export async function buildApp(
@@ -85,6 +86,7 @@ export async function buildApp(
     [SHARED_DUEL_ROOM_MODE.id]: sharedBoardRoomService,
   }, {
     ...(options.roomTickMs !== undefined ? { tickMs: options.roomTickMs } : {}),
+    ...(options.roomHeartbeatMs !== undefined ? { heartbeatIntervalMs: options.roomHeartbeatMs } : {}),
   });
   return app;
 }

@@ -36,6 +36,7 @@ export interface MultiplayerRoomService {
 }
 
 const ROOM_TICK_MS = 250;
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 20_000;
 const SOCKET_MAX_PAYLOAD_BYTES = 4_096;
 const CREATE_ROOM_RATE_LIMIT = { max: 10, timeWindow: '1 minute' } as const;
 const JOIN_ROOM_RATE_LIMIT = { max: 30, timeWindow: '1 minute' } as const;
@@ -73,6 +74,7 @@ const socketAuthenticationSchema = z.object({
 
 export interface MultiplayerGatewayOptions {
   readonly tickMs?: number;
+  readonly heartbeatIntervalMs?: number;
 }
 
 interface ActiveSocket {
@@ -140,11 +142,42 @@ export async function registerMultiplayerGateway(
   };
 
   const dispatch = (deliveries: readonly RoomDelivery[]): void => {
+    // Every room-service output (message handling, the tick, connect,
+    // disconnect) funnels through here, so this is the one place that can
+    // see match-level state transitions without the room services
+    // themselves depending on a logger. A broadcast delivers the same
+    // logical event once per player — dedupe within this call so a pause or
+    // finish is logged once, not twice.
+    const loggedEvents = new Set<string>();
     for (const delivery of deliveries) {
+      logNotableEvent(delivery.message, loggedEvents);
       const active = sockets.get(delivery.playerId);
       if (active && active.socket.readyState === active.socket.OPEN) {
         active.socket.send(JSON.stringify(delivery.message));
       }
+    }
+  };
+
+  const logNotableEvent = (message: RoomDelivery['message'], loggedEvents: Set<string>): void => {
+    if (message.type !== 'match-paused' && message.type !== 'match-finished') return;
+    const key = `${message.type}:${message.roomId}:${message.matchId}`;
+    if (loggedEvents.has(key)) return;
+    loggedEvents.add(key);
+    if (message.type === 'match-paused') {
+      app.log.info(
+        { roomId: message.roomId, matchId: message.matchId, paused: message.paused, pausedBy: message.pausedBy },
+        'multiplayer match pause state changed',
+      );
+    } else {
+      app.log.info(
+        {
+          roomId: message.roomId,
+          matchId: message.matchId,
+          winnerId: message.result.winnerId,
+          forfeitedBy: message.result.forfeitedBy,
+        },
+        'multiplayer match finished',
+      );
     }
   };
 
@@ -161,6 +194,44 @@ export async function registerMultiplayerGateway(
   timer.unref();
   app.addHook('onClose', async () => {
     clearInterval(timer);
+  });
+
+  // Detects a connection that has gone silently dead (network partition, a
+  // device sleeping mid-connection, a dropped NAT mapping) without ever
+  // firing a 'close' event on its own — the room/turn-freeze logic below
+  // only engages once 'close' fires, so a silent death would otherwise
+  // never be noticed. `true` means a pong (or the initial connection) has
+  // been seen since the last ping; a socket still `false` when the next
+  // interval fires missed its previous ping entirely. This timer is
+  // intentionally separate from the room-state tick above.
+  const heartbeatIntervalMs = options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
+  const heartbeatAlive = new Map<WebSocket, boolean>();
+  // Marks a socket as terminated-by-heartbeat so the 'close' handler's log
+  // line can distinguish a silent death from a normal close/replace — the
+  // whole reason this diagnostic exists.
+  const heartbeatTerminated = new WeakSet<WebSocket>();
+  const heartbeatTimer = setInterval(() => {
+    for (const [socket, alive] of heartbeatAlive) {
+      if (socket.readyState !== socket.OPEN) {
+        heartbeatAlive.delete(socket);
+        continue;
+      }
+      if (!alive) {
+        heartbeatAlive.delete(socket);
+        heartbeatTerminated.add(socket);
+        // terminate() fires this socket's own 'close' handler, which is
+        // what actually calls service.disconnect() and starts the
+        // abandonment timer — this timer only detects and forces the close.
+        socket.terminate();
+        continue;
+      }
+      heartbeatAlive.set(socket, false);
+      socket.ping();
+    }
+  }, heartbeatIntervalMs);
+  heartbeatTimer.unref();
+  app.addHook('onClose', async () => {
+    clearInterval(heartbeatTimer);
   });
 
   app.post('/multiplayer/rooms', {
@@ -199,6 +270,11 @@ export async function registerMultiplayerGateway(
     let connection: RoomConnection | null = null;
     let ownerService: MultiplayerRoomService | null = null;
 
+    heartbeatAlive.set(socket, true);
+    socket.on('pong', () => {
+      heartbeatAlive.set(socket, true);
+    });
+
     socket.on('message', (raw) => {
       if (!connection || !ownerService) {
         const authentication = parseSocketAuthentication(raw);
@@ -228,6 +304,10 @@ export async function registerMultiplayerGateway(
         if (previous && previous.socket !== socket) {
           previous.socket.close(4001, 'Connection replaced');
         }
+        app.log.info(
+          { roomId: connection.roomId, playerId: connection.playerId, reconnect: previous !== undefined },
+          'multiplayer socket authenticated',
+        );
         dispatch(result.deliveries);
         return;
       }
@@ -254,10 +334,15 @@ export async function registerMultiplayerGateway(
     });
 
     socket.on('close', () => {
+      heartbeatAlive.delete(socket);
       if (!connection || !ownerService) return;
       const active = sockets.get(connection.playerId);
       if (active?.connection !== connection) return;
       sockets.delete(connection.playerId);
+      const reason = heartbeatTerminated.has(socket) ? 'heartbeat-timeout' : 'closed';
+      heartbeatTerminated.delete(socket);
+      const logLevel = reason === 'heartbeat-timeout' ? 'warn' : 'info';
+      app.log[logLevel]({ roomId: connection.roomId, playerId: connection.playerId, reason }, 'multiplayer socket disconnected');
       dispatch(ownerService.disconnect(connection));
     });
   });
