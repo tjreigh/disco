@@ -105,6 +105,15 @@
   min-height: 0;
   overflow: hidden;
 }
+/* The Paradox rewind dialog (styles/overlays.css .rewind-panel) previews a
+   live change to the board underneath it, so instead of overlaying the board
+   (obscuring exactly the thing being previewed) it reserves its own footprint
+   here: the board shrinks and re-centers to stay fully clear of the panel.
+   RewindDialog measures the panel and sets both the class and the variable —
+   see syncBoardClearance() in src/ui/rewind-dialog.ts. */
+html.rewind-dialog-open .game-stage {
+  padding-bottom: var(--rewind-dialog-clearance, 0px);
+}
 .zoom-layer {
   /* Establishes the containing block for the HUD's absolutely-positioned
      bands (styles/game-hud.css) — they must position relative to *this*

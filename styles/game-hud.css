@@ -13,6 +13,12 @@
   width: min(100%, var(--game-canvas-width, 680px));
   transform: translateX(-50%);
 }
+/* Both bands make way for the board while previewing a rewind — the dialog
+   itself already repeats the turn/instability info these bands would show,
+   and the board needs the reclaimed space to move fully clear of the
+   dialog panel (src/app/game-controller.ts pairs this with setHudBands(0, 0)
+   so the canvas's own layout doesn't keep reserving the blank space too). */
+.game-hud[data-rewind-preview="true"] .game-hud__top,
 .game-hud[data-rewind-preview="true"] .game-hud__bottom { display: none; }
 .game-hud__top {
   top: calc(50% - var(--game-canvas-height, 0px) / 2);

@@ -16,7 +16,8 @@ import { GameOverScreen } from '../ui/game-over-screen.js';
 import type { GameStats } from '../game/stats.js';
 import { recordCompletedGame, updateRecords } from '../game/stats.js';
 import { AccountStatsStore } from '../platform/account-stats-store.js';
-import { setGridSize } from '../ui/rendering/layout.js';
+import { setGridSize, setHudBands } from '../ui/rendering/layout.js';
+import { HUD_BOTTOM_HEIGHT, HUD_TOP_HEIGHT } from '../ui/rendering/theme.js';
 import { TUTORIALS } from './tutorial.js';
 import type { TutorialDefinition, TutorialStep } from './tutorial.js';
 import { isTutorialStepSuccessful } from './tutorial.js';
@@ -119,7 +120,7 @@ export class SoloSessionController {
     this.gameControls = new GameControls(intent => this.handleIntent(intent), controlsMount);
     this.gameHud = new GameHud(stageMount);
     this.savedGameDialog = new SavedGameDialog(overlayMount, modalBackground);
-    this.rewindDialog = new RewindDialog(overlayMount, modalBackground);
+    this.rewindDialog = new RewindDialog(overlayMount, modalBackground, stageMount.parentElement);
     this.advancedStatsDialog = new AdvancedStatsDialog(overlayMount, modalBackground);
     this.statsStore = new AccountStatsStore(SOLO_MODES);
     this.saveStore = new SyncedSaveStore(SOLO_MODES);
@@ -168,6 +169,16 @@ export class SoloSessionController {
     this.rewindDialog.onConfirm = () => this.confirmRewind();
     this.rewindDialog.onCancel = () => this.cancelRewind();
     this.rewindDialog.onSelectTurns = turns => this.selectRewindDepth(turns);
+    this.rewindDialog.onLayoutChange = () => {
+      // The dialog preview also hides both HUD bands (game-hud.css
+      // [data-rewind-preview] .game-hud__top/__bottom — the dialog itself
+      // repeats their info) — reclaim the canvas space reserved for them so
+      // the board can grow into it instead of that space sitting blank on
+      // top of the dialog's own clearance.
+      const isOpen = this.rewindDialog.isOpen();
+      setHudBands(isOpen ? 0 : HUD_TOP_HEIGHT, isOpen ? 0 : HUD_BOTTOM_HEIGHT);
+      this.renderer.resize();
+    };
     this.tutorialOverlay.onRetry = () => this.retryTutorialStep();
     this.tutorialOverlay.onExit = () => this.returnToMenu();
     this.tutorialOverlay.onContinue = () => this.tutorialOverlay.hide();
@@ -202,6 +213,7 @@ export class SoloSessionController {
 
   handleResize(): void {
     this.renderer.resize();
+    this.rewindDialog.refreshLayout();
   }
 
   // Lets E2E tests get a deterministic disc sequence (?seed=123 in the URL)

@@ -6,6 +6,7 @@ import { ModalController } from './modal-controller.js';
 /** Confirmation step that makes a Paradox rewind's exact cost visible first. */
 export class RewindDialog {
   private readonly root: HTMLElement;
+  private readonly panel: HTMLElement;
   private readonly title: HTMLElement;
   private readonly depthSelector: HTMLElement;
   private readonly instability: HTMLElement;
@@ -13,17 +14,24 @@ export class RewindDialog {
   private readonly rescue: HTMLElement;
   private readonly confirmButton: HTMLButtonElement;
   private readonly modal: ModalController;
+  private readonly gameStage: HTMLElement | null;
 
   onConfirm?: () => void;
   onCancel?: () => void;
   onSelectTurns?: (turns: number) => void;
+  /** Fired whenever the board needs to be re-measured against the dialog's
+   * footprint — see syncBoardClearance(). */
+  onLayoutChange?: () => void;
 
   constructor(
     mount: HTMLElement = document.body,
     modalBackground: readonly HTMLElement[] = [],
+    gameStage: HTMLElement | null = document.querySelector('.game-stage'),
   ) {
+    this.gameStage = gameStage;
     const fragment = cloneTemplate('tpl-rewind-dialog');
     this.root = mustQuery(fragment, '.rewind-dialog');
+    this.panel = mustQuery(fragment, '.rewind-panel');
     this.title = mustQuery(fragment, '.rewind-panel__copy > h2');
     this.depthSelector = mustQuery(fragment, '.rewind-panel__depths');
     this.instability = mustQuery(fragment, '.rewind-panel__instability');
@@ -50,6 +58,7 @@ export class RewindDialog {
   show(preview: RewindPreview): void {
     this.update(preview);
     this.modal.open();
+    this.syncBoardClearance();
   }
 
   update(preview: RewindPreview): void {
@@ -104,14 +113,48 @@ export class RewindDialog {
       ? 'This rewind rescues the run from game over.'
       : `Erase ${preview.turnsRewound} ${preview.turnsRewound === 1 ? 'turn' : 'turns'} and return to turn ${preview.dropCount + 1}.`;
     this.rescue.hidden = false;
+    // Depth reselection can change the panel's height (consequence copy
+    // varies in length), so re-measure whenever already open.
+    if (this.modal.isOpen()) this.syncBoardClearance();
   }
 
   hide(): void {
     this.modal.close();
+    this.syncBoardClearance();
   }
 
   isOpen(): boolean {
     return this.modal.isOpen();
+  }
+
+  /** Re-measures the dialog against the viewport — call after a window resize
+   * while the dialog may be open, since the panel's position depends on it. */
+  refreshLayout(): void {
+    if (this.modal.isOpen()) this.syncBoardClearance();
+  }
+
+  // The dialog previews a live change to the board underneath it, so instead
+  // of overlaying it (obscuring exactly the thing being previewed), the board
+  // reserves this much space at its own bottom edge — shrinking and shifting
+  // itself up to stay fully clear of the panel. See the .game-stage rule in
+  // game-controls.css that reads --rewind-dialog-clearance.
+  //
+  // Measured against .game-stage's own bottom edge, not window.innerHeight:
+  // .game-stage sits above the footer/safe-area strip, so using the viewport
+  // edge would over-reserve by however tall that strip is, leaving a dead
+  // gap between the board and the dialog even once the overlap is cleared.
+  private syncBoardClearance(): void {
+    const root = document.documentElement;
+    if (this.modal.isOpen()) {
+      const stageBottom = this.gameStage?.getBoundingClientRect().bottom ?? window.innerHeight;
+      const panelTop = this.panel.getBoundingClientRect().top;
+      const clearance = Math.max(0, stageBottom - panelTop + 8);
+      root.style.setProperty('--rewind-dialog-clearance', `${clearance}px`);
+      root.classList.add('rewind-dialog-open');
+    } else {
+      root.classList.remove('rewind-dialog-open');
+    }
+    this.onLayoutChange?.();
   }
 
   private makeButton(label: string, primary: boolean, onClick: () => void): HTMLButtonElement {
