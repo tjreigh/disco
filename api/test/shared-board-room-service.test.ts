@@ -6,6 +6,7 @@ import {
   SHARED_DUEL_ROOM_MODE,
   SharedBoardRoomService,
 } from '../src/multiplayer/shared-board-room-service.js';
+import { createRoomIdAllocator } from '../src/multiplayer/room-values.js';
 import type {
   MultiplayerClientMessage,
   MultiplayerModeIdentity,
@@ -17,7 +18,7 @@ import type {
   RoomDelivery,
   RoomServiceResult,
   RoomValueFactory,
-} from '../src/multiplayer/room-service.js';
+} from '../src/multiplayer/room-types.js';
 
 const COUNTDOWN_MS = 100;
 const LOBBY_TTL_MS = 1_000;
@@ -57,6 +58,30 @@ class DeterministicRoomValues implements RoomValueFactory {
 
   createSeed(): number {
     return ++this.seed;
+  }
+}
+
+class FixedRoomIdValues extends DeterministicRoomValues {
+  private rejectNextPlayerId: boolean;
+
+  constructor(
+    private readonly roomId: string,
+    rejectNextPlayerId = false,
+  ) {
+    super();
+    this.rejectNextPlayerId = rejectNextPlayerId;
+  }
+
+  override createRoomId(): string {
+    return this.roomId;
+  }
+
+  override createPlayerId(): string {
+    if (this.rejectNextPlayerId) {
+      this.rejectNextPlayerId = false;
+      return '';
+    }
+    return super.createPlayerId();
   }
 }
 
@@ -1144,5 +1169,70 @@ describe('SharedBoardRoomService pause and forfeit', () => {
     // The pause no longer blocks anything post-forfeit — the match is over.
     harness.clock.time += TURN_TIMEOUT_MS * 10;
     expect(harness.service.tick().deliveries).toEqual([]);
+  });
+});
+
+// countdownMs/lobbyTtlMs/resultTtlMs previously went unvalidated here even
+// though ScoreRaceRoomService already rejected non-positive values for the
+// same three options — see room-values.ts's positiveDuration, now shared by
+// both services.
+describe('SharedBoardRoomService construction validation', () => {
+  test.each([
+    ['countdownMs', 0] as const,
+    ['countdownMs', -1] as const,
+    ['lobbyTtlMs', 0] as const,
+    ['resultTtlMs', -100] as const,
+    ['statusPulseMs', 0] as const,
+  ])('rejects a non-positive %s', (key, value) => {
+    expect(() => new SharedBoardRoomService({
+      clock: new ManualClock(),
+      values: new DeterministicRoomValues(),
+      [key]: value,
+    })).toThrow();
+  });
+
+  test('abandonTimeoutMs and turnTimeoutMs are not validated (independent of the shared TTL check)', () => {
+    // Documents the current, deliberately-unchanged behavior rather than
+    // asserting a requirement — Slice 6 only extended positiveDuration to
+    // countdown/lobby/result/status-pulse, not these two.
+    expect(() => new SharedBoardRoomService({
+      clock: new ManualClock(),
+      values: new DeterministicRoomValues(),
+      abandonTimeoutMs: -1,
+      turnTimeoutMs: -1,
+    })).not.toThrow();
+  });
+});
+
+describe('SharedBoardRoomService room id allocation', () => {
+  test('releases an expired room id so a later room can reuse it', () => {
+    const clock = new ManualClock();
+    const service = new SharedBoardRoomService({
+      clock,
+      values: new FixedRoomIdValues('REUSABLE-ROOM'),
+      roomIdAllocator: createRoomIdAllocator(),
+      countdownMs: COUNTDOWN_MS,
+      lobbyTtlMs: LOBBY_TTL_MS,
+      resultTtlMs: RESULT_TTL_MS,
+      turnTimeoutMs: TURN_TIMEOUT_MS,
+    });
+
+    const first = valueOf(service.createRoom(admissionRequest()));
+    clock.time += LOBBY_TTL_MS;
+    expect(service.tick().expiredRoomIds).toEqual([first.roomId]);
+
+    const second = valueOf(service.createRoom(admissionRequest()));
+    expect(second.roomId).toBe(first.roomId);
+  });
+
+  test('releases a claimed room id when room construction fails', () => {
+    const service = new SharedBoardRoomService({
+      clock: new ManualClock(),
+      values: new FixedRoomIdValues('RETRY-ROOM', true),
+      roomIdAllocator: createRoomIdAllocator(),
+    });
+
+    expect(() => service.createRoom(admissionRequest())).toThrow();
+    expect(valueOf(service.createRoom(admissionRequest())).roomId).toBe('RETRY-ROOM');
   });
 });

@@ -17,6 +17,7 @@ import {
   SCORE_RACE_ROOM_MODE,
   ScoreRaceRoomService,
 } from './multiplayer/room-service.js';
+import { createRoomIdAllocator } from './multiplayer/room-values.js';
 import {
   SHARED_DUEL_ROOM_MODE,
   SharedBoardRoomService,
@@ -42,11 +43,18 @@ export async function buildApp(
     trustProxy: ['127.0.0.1', '::1'],
   });
   const repos = new Repositories(db);
+  // Shared by both default-constructed services (not by a caller-supplied
+  // override — that caller already owns its own service's allocator) so
+  // room ids are claimed globally: Score Race and Disco Duel can never end
+  // up owning the same room id, which the gateway's roomOwners map assumes.
+  const roomIdAllocator = createRoomIdAllocator();
   const roomService = options.roomService ?? new ScoreRaceRoomService({
     clock: { now: () => Date.now() },
+    roomIdAllocator,
   });
   const sharedBoardRoomService = options.sharedBoardRoomService ?? new SharedBoardRoomService({
     clock: { now: () => Date.now() },
+    roomIdAllocator,
   });
 
   // WebSocket support must be installed before any route declarations.

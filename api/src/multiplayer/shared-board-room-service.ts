@@ -1,11 +1,4 @@
 import {
-  createHash,
-  randomBytes,
-  randomInt,
-  randomUUID,
-  timingSafeEqual,
-} from 'node:crypto';
-import {
   determineScoreRaceResult,
   multiplayerModeIdentity,
   MULTIPLAYER_PROTOCOL_VERSION,
@@ -19,25 +12,33 @@ import {
 import type {
   MultiplayerClientMessage,
   MultiplayerMatchResult,
-  MultiplayerModeIdentity,
   MultiplayerServerMessage,
 } from './contracts.js';
 import { SharedBoardMatch } from './shared-board-match.js';
 import type {
+  RoomAdmission,
   RoomAdmissionRequest,
   RoomClock,
   RoomConnectRequest,
   RoomConnection,
   RoomDelivery,
+  RoomIdAllocator,
   RoomJoinRequest,
   RoomServiceError,
   RoomServiceResult,
   RoomTickResult,
   RoomValueFactory,
-} from './room-service.js';
+} from './room-types.js';
+import {
+  createDefaultRoomValueFactory,
+  createRoomIdAllocator,
+  credentialMatches,
+  digestCredential,
+  positiveDuration,
+  requiredValue,
+  uint32Value,
+} from './room-values.js';
 
-const ROOM_ID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const ROOM_ID_LENGTH = 8;
 const DEFAULT_COUNTDOWN_MS = 3_000;
 const DEFAULT_LOBBY_TTL_MS = 30 * 60 * 1_000;
 const DEFAULT_RESULT_TTL_MS = 5 * 60 * 1_000;
@@ -56,6 +57,7 @@ export const SHARED_DUEL_ROOM_MODE = multiplayerModeIdentity({
 export interface SharedBoardRoomServiceOptions {
   readonly clock: RoomClock;
   readonly values?: RoomValueFactory;
+  readonly roomIdAllocator?: RoomIdAllocator;
   readonly countdownMs?: number;
   readonly lobbyTtlMs?: number;
   readonly resultTtlMs?: number;
@@ -98,24 +100,11 @@ interface DuelRoom {
   lastStatusBroadcastAt: number | null;
 }
 
-const defaultValues: RoomValueFactory = {
-  createRoomId: () => {
-    let id = '';
-    for (let index = 0; index < ROOM_ID_LENGTH; index++) {
-      id += ROOM_ID_ALPHABET[randomInt(ROOM_ID_ALPHABET.length)];
-    }
-    return id;
-  },
-  createPlayerId: () => randomUUID(),
-  createReconnectCredential: () => randomBytes(32).toString('base64url'),
-  createMatchId: () => randomUUID(),
-  createSeed: () => randomBytes(4).readUInt32BE(0),
-};
-
 export class SharedBoardRoomService {
   private readonly rooms = new Map<string, DuelRoom>();
   private readonly clock: RoomClock;
   private readonly values: RoomValueFactory;
+  private readonly roomIdAllocator: RoomIdAllocator;
   private readonly countdownMs: number;
   private readonly lobbyTtlMs: number;
   private readonly resultTtlMs: number;
@@ -126,14 +115,15 @@ export class SharedBoardRoomService {
 
   constructor(options: SharedBoardRoomServiceOptions) {
     this.clock = options.clock;
-    this.values = options.values ?? defaultValues;
-    this.countdownMs = options.countdownMs ?? DEFAULT_COUNTDOWN_MS;
-    this.lobbyTtlMs = options.lobbyTtlMs ?? DEFAULT_LOBBY_TTL_MS;
-    this.resultTtlMs = options.resultTtlMs ?? DEFAULT_RESULT_TTL_MS;
+    this.values = options.values ?? createDefaultRoomValueFactory();
+    this.roomIdAllocator = options.roomIdAllocator ?? createRoomIdAllocator();
+    this.countdownMs = positiveDuration(options.countdownMs ?? DEFAULT_COUNTDOWN_MS);
+    this.lobbyTtlMs = positiveDuration(options.lobbyTtlMs ?? DEFAULT_LOBBY_TTL_MS);
+    this.resultTtlMs = positiveDuration(options.resultTtlMs ?? DEFAULT_RESULT_TTL_MS);
     this.turnTimeoutMs = options.turnTimeoutMs ?? SHARED_DUEL_TURN_TIMEOUT_MS;
     this.disruptionThreshold = options.disruptionThreshold ?? SHARED_DUEL_DISRUPTION_THRESHOLD;
     this.statusPulseMs = options.statusPulseMs !== undefined
-      ? requirePositiveDuration(options.statusPulseMs)
+      ? positiveDuration(options.statusPulseMs)
       : DEFAULT_STATUS_PULSE_MS;
     this.abandonTimeoutMs = options.abandonTimeoutMs ?? DEFAULT_ABANDON_TIMEOUT_MS;
   }
@@ -143,25 +133,31 @@ export class SharedBoardRoomService {
     if (compatibilityError) return fatal(compatibilityError, []);
 
     const roomId = this.createUniqueRoomId();
-    const playerId = this.values.createPlayerId();
-    const credential = this.values.createReconnectCredential();
-    const digest = sha256Digest(credential);
+    try {
+      const playerId = requiredValue(this.values.createPlayerId(), 'player id');
+      const credential = requiredValue(this.values.createReconnectCredential(), 'reconnect credential');
+      const digest = digestCredential(credential);
 
-    const room: DuelRoom = {
-      id: roomId,
-      players: [{ id: playerId, credentialDigest: digest, ready: false, connection: null, disconnectedAt: null }],
-      lifecycle: { kind: 'lobby', expiresAt: this.clock.now() + this.lobbyTtlMs },
-      paused: null,
-      clockFrozenAt: null,
-      lastStatusBroadcastAt: null,
-    };
-    this.rooms.set(roomId, room);
+      const room: DuelRoom = {
+        id: roomId,
+        players: [{ id: playerId, credentialDigest: digest, ready: false, connection: null, disconnectedAt: null }],
+        lifecycle: { kind: 'lobby', expiresAt: this.clock.now() + this.lobbyTtlMs },
+        paused: null,
+        clockFrozenAt: null,
+        lastStatusBroadcastAt: null,
+      };
+      this.rooms.set(roomId, room);
 
-    return {
-      ok: true,
-      value: { roomId, playerId, reconnectCredential: credential, mode: SHARED_DUEL_ROOM_MODE },
-      deliveries: [],
-    };
+      return {
+        ok: true,
+        value: { roomId, playerId, reconnectCredential: credential, mode: SHARED_DUEL_ROOM_MODE },
+        deliveries: [],
+      };
+    } catch (error) {
+      this.rooms.delete(roomId);
+      this.roomIdAllocator.release(roomId);
+      throw error;
+    }
   }
 
   joinRoom(request: RoomJoinRequest): RoomServiceResult<RoomAdmission> {
@@ -174,9 +170,9 @@ export class SharedBoardRoomService {
       return fatal('room-full', []);
     }
 
-    const playerId = this.values.createPlayerId();
-    const credential = this.values.createReconnectCredential();
-    const digest = sha256Digest(credential);
+    const playerId = requiredValue(this.values.createPlayerId(), 'player id');
+    const credential = requiredValue(this.values.createReconnectCredential(), 'reconnect credential');
+    const digest = digestCredential(credential);
 
     room.players.push({ id: playerId, credentialDigest: digest, ready: false, connection: null, disconnectedAt: null });
     this.touchReadyRoom(room);
@@ -299,6 +295,7 @@ export class SharedBoardRoomService {
     for (const room of this.rooms.values()) {
       if (isExpired(room, now)) {
         this.rooms.delete(room.id);
+        this.roomIdAllocator.release(room.id);
         expiredRoomIds.push(room.id);
         continue;
       }
@@ -321,8 +318,8 @@ export class SharedBoardRoomService {
     if (room.players.length === 2 && room.players.every(p => p.ready)) {
       const now = this.clock.now();
       const startsAt = now + this.countdownMs;
-      const matchId = this.values.createMatchId();
-      const seed = this.values.createSeed();
+      const matchId = requiredValue(this.values.createMatchId(), 'match id');
+      const seed = uint32Value(this.values.createSeed());
       const playerIds = room.players.map(p => p.id) as [string, string];
 
       const boardMatch = new SharedBoardMatch({
@@ -809,11 +806,7 @@ export class SharedBoardRoomService {
   }
 
   private createUniqueRoomId(): string {
-    for (let attempt = 0; attempt < 10; attempt++) {
-      const id = this.values.createRoomId();
-      if (!this.rooms.has(id)) return id;
-    }
-    return this.values.createRoomId();
+    return this.roomIdAllocator.claim(() => this.values.createRoomId());
   }
 
   private compatibilityError(request: RoomAdmissionRequest): RoomServiceError | null {
@@ -826,26 +819,12 @@ export class SharedBoardRoomService {
   }
 }
 
-interface RoomAdmission {
-  readonly roomId: string;
-  readonly playerId: string;
-  readonly reconnectCredential: string;
-  readonly mode: MultiplayerModeIdentity;
-}
-
 function isExpired(room: DuelRoom, now: number): boolean {
   const lifecycle = room.lifecycle;
   if (lifecycle.kind === 'lobby' || lifecycle.kind === 'complete') {
     return now >= lifecycle.expiresAt;
   }
   return false;
-}
-
-function requirePositiveDuration(value: number): number {
-  if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new Error('statusPulseMs must be a positive safe integer');
-  }
-  return value;
 }
 
 function fatal<T>(error: RoomServiceError, deliveries: readonly RoomDelivery[]): RoomServiceResult<T> {
@@ -865,12 +844,4 @@ function recoverable(error: RoomServiceError, deliveries: readonly RoomDelivery[
     error,
     deliveries: deliveries as readonly [RoomDelivery, ...RoomDelivery[]],
   };
-}
-
-function sha256Digest(value: string): Buffer {
-  return createHash('sha256').update(value).digest();
-}
-
-function credentialMatches(credential: string, digest: Buffer): boolean {
-  return timingSafeEqual(sha256Digest(credential), digest);
 }

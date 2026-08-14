@@ -14,6 +14,7 @@ import {
   SHARED_DUEL_ROOM_MODE,
   SharedBoardRoomService,
 } from '../src/multiplayer/shared-board-room-service.js';
+import { createDefaultRoomValueFactory, createRoomIdAllocator } from '../src/multiplayer/room-values.js';
 import { createTestConfig, createTestDb } from './helpers.js';
 
 let db: Database.Database | null = null;
@@ -717,5 +718,68 @@ describe('multiplayer room gateway — connection heartbeat', () => {
       setIntervalSpy.mockRestore();
       clearIntervalSpy.mockRestore();
     }
+  });
+});
+
+// --- Cross-mode room-id collisions ----------------------------------------
+//
+// Both services previously checked room-id uniqueness only against their own
+// internal room map, so an (astronomically unlikely but not impossible)
+// candidate collision between Score Race and Disco Duel would silently
+// overwrite the gateway's roomOwners entry for that id, misrouting all
+// later socket traffic for the original room to the wrong service. A single
+// RoomIdAllocator shared by both default-constructed services (see
+// api/src/app.ts) now closes that gap by claiming ids from one namespace.
+// This test proves the retry-on-collision behavior deterministically rather
+// than relying on the real odds ever producing one.
+
+describe('multiplayer room gateway — cross-mode room-id collisions', () => {
+  it('retries a room id already claimed by the other mode instead of overwriting its owner', async () => {
+    db = createTestDb();
+    const allocator = createRoomIdAllocator();
+    const roomService = new ScoreRaceRoomService({
+      clock: { now: () => Date.now() },
+      roomIdAllocator: allocator,
+      values: { ...createDefaultRoomValueFactory(), createRoomId: () => 'COLLIDE1' },
+    });
+    // The duel service's candidate generator deliberately proposes the id
+    // Score Race already claimed, twice, before a fresh one — proving the
+    // allocator (not the duel service's own room map, which has never seen
+    // 'COLLIDE1') is what forces the retry.
+    const duelCandidates = ['COLLIDE1', 'COLLIDE1', 'UNIQUE02'];
+    let duelAttempt = 0;
+    const sharedBoardRoomService = new SharedBoardRoomService({
+      clock: { now: () => Date.now() },
+      roomIdAllocator: allocator,
+      values: {
+        ...createDefaultRoomValueFactory(),
+        createRoomId: () => duelCandidates[duelAttempt++] ?? 'FALLBACK',
+      },
+    });
+    app = await buildApp(createTestConfig(), db, { roomService, sharedBoardRoomService });
+    await app.ready();
+
+    const scoreRaceAdmission = await admit(app, '/multiplayer/rooms');
+    expect(scoreRaceAdmission.roomId).toBe('COLLIDE1');
+
+    const duelCreate = await app.inject({
+      method: 'POST',
+      url: '/multiplayer/rooms',
+      payload: duelAdmissionRequest,
+    });
+    expect(duelCreate.statusCode).toBe(201);
+    const duelAdmission = duelCreate.json() as Admission;
+    // The duel room must not have been handed the id Score Race already
+    // owns — proving the collision was retried rather than silently
+    // accepted (which would then overwrite roomOwners['COLLIDE1']).
+    expect(duelAdmission.roomId).toBe('UNIQUE02');
+    expect(duelAdmission.roomId).not.toBe(scoreRaceAdmission.roomId);
+    expect(duelAttempt).toBe(3);
+
+    // roomOwners['COLLIDE1'] must still route to the Score Race service:
+    // connecting authenticates against it and gets Score Race's room-state
+    // snapshot (connect() below waits specifically for 'room-state').
+    const scoreRaceSocket = await connect(app, scoreRaceAdmission);
+    expect(scoreRaceSocket.readyState).toBe(scoreRaceSocket.OPEN);
   });
 });

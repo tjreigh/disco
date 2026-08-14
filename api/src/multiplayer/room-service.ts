@@ -1,11 +1,4 @@
 import {
-  createHash,
-  randomBytes,
-  randomInt,
-  randomUUID,
-  timingSafeEqual,
-} from 'node:crypto';
-import {
   determineScoreRaceResult,
   multiplayerModeIdentity,
   MULTIPLAYER_PROTOCOL_VERSION,
@@ -18,18 +11,52 @@ import {
 import type {
   MultiplayerClientMessage,
   MultiplayerMatchResult,
-  MultiplayerModeIdentity,
   MultiplayerPlayerProgress,
   MultiplayerProgress,
   MultiplayerServerMessage,
-  RoomServiceErrorCode,
 } from './contracts.js';
+import type {
+  RoomAdmission,
+  RoomAdmissionRequest,
+  RoomClock,
+  RoomConnectRequest,
+  RoomConnection,
+  RoomDelivery,
+  RoomIdAllocator,
+  RoomJoinRequest,
+  RoomServiceError,
+  RoomServiceResult,
+  RoomTickResult,
+  RoomValueFactory,
+} from './room-types.js';
+export type {
+  RoomAdmission,
+  RoomAdmissionRequest,
+  RoomClock,
+  RoomConnectRequest,
+  RoomConnection,
+  RoomDelivery,
+  RoomIdAllocator,
+  RoomJoinRequest,
+  RoomServiceError,
+  RoomServiceFailure,
+  RoomServiceResult,
+  RoomTickResult,
+  RoomValueFactory,
+} from './room-types.js';
+import {
+  createDefaultRoomValueFactory,
+  createRoomIdAllocator,
+  credentialMatches,
+  digestCredential,
+  positiveDuration,
+  requiredValue,
+  uint32Value,
+} from './room-values.js';
 
 const DEFAULT_COUNTDOWN_MS = 3_000;
 const DEFAULT_LOBBY_TTL_MS = 30 * 60 * 1_000;
 const DEFAULT_RESULT_TTL_MS = 5 * 60 * 1_000;
-const ROOM_ID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const ROOM_ID_LENGTH = 8;
 
 export const SCORE_RACE_ROOM_MODE = multiplayerModeIdentity({
   id: SCORE_RACE_MODE_ID,
@@ -40,96 +67,13 @@ export const SCORE_RACE_ROOM_MODE = multiplayerModeIdentity({
   },
 });
 
-export interface RoomClock {
-  now(): number;
-}
-
-export interface RoomValueFactory {
-  createRoomId(): string;
-  createPlayerId(): string;
-  createReconnectCredential(): string;
-  createMatchId(): string;
-  createSeed(): number;
-}
-
 export interface ScoreRaceRoomServiceOptions {
   readonly clock: RoomClock;
   readonly values?: RoomValueFactory;
+  readonly roomIdAllocator?: RoomIdAllocator;
   readonly countdownMs?: number;
   readonly lobbyTtlMs?: number;
   readonly resultTtlMs?: number;
-}
-
-export interface RoomAdmissionRequest {
-  readonly protocolVersion: number;
-  readonly mode: MultiplayerModeIdentity;
-}
-
-export interface RoomJoinRequest extends RoomAdmissionRequest {
-  readonly roomId: string;
-}
-
-export interface RoomAdmission {
-  readonly roomId: string;
-  readonly playerId: string;
-  readonly reconnectCredential: string;
-  readonly mode: MultiplayerModeIdentity;
-}
-
-/**
- * Opaque handle owned by a transport adapter. A reconnect replaces the active
- * handle, so a late close or message from the old socket cannot affect the player.
- */
-export interface RoomConnection {
-  readonly roomId: string;
-  readonly playerId: string;
-}
-
-export interface RoomConnectRequest {
-  readonly roomId: string;
-  readonly playerId: string;
-  readonly reconnectCredential: string;
-}
-
-export interface RoomDelivery {
-  readonly playerId: string;
-  readonly message: MultiplayerServerMessage;
-}
-
-/** This service's name for the canonical RoomServiceErrorCode (see src/shared/multiplayer-contracts.ts). */
-export type RoomServiceError = RoomServiceErrorCode;
-
-/**
- * A recoverable failure always carries at least one delivery: the corrective
- * snapshot sent back to the requesting player so a benign race (late cursor
- * move, duplicate drop, stale match ID, ...) can resync instead of losing the
- * connection. See room-gateway.ts, which closes the socket only for `fatal`.
- */
-export type RoomServiceFailure =
-  | {
-    readonly ok: false;
-    readonly disposition: 'fatal';
-    readonly error: RoomServiceError;
-    readonly deliveries: readonly RoomDelivery[];
-  }
-  | {
-    readonly ok: false;
-    readonly disposition: 'recoverable';
-    readonly error: RoomServiceError;
-    readonly deliveries: readonly [RoomDelivery, ...RoomDelivery[]];
-  };
-
-export type RoomServiceResult<T> =
-  | {
-    readonly ok: true;
-    readonly value: T;
-    readonly deliveries: readonly RoomDelivery[];
-  }
-  | RoomServiceFailure;
-
-export interface RoomTickResult {
-  readonly deliveries: readonly RoomDelivery[];
-  readonly expiredRoomIds: readonly string[];
 }
 
 interface RoomPlayer {
@@ -171,20 +115,6 @@ interface Room {
   paused: { readonly by: string; readonly since: number } | null;
 }
 
-const defaultValues: RoomValueFactory = {
-  createRoomId: () => {
-    let id = '';
-    for (let index = 0; index < ROOM_ID_LENGTH; index++) {
-      id += ROOM_ID_ALPHABET[randomInt(ROOM_ID_ALPHABET.length)];
-    }
-    return id;
-  },
-  createPlayerId: () => randomUUID(),
-  createReconnectCredential: () => randomBytes(32).toString('base64url'),
-  createMatchId: () => randomUUID(),
-  createSeed: () => randomBytes(4).readUInt32BE(0),
-};
-
 /**
  * Authoritative, transport-independent lifecycle for private two-player Score Race rooms.
  *
@@ -195,13 +125,15 @@ export class ScoreRaceRoomService {
   private readonly rooms = new Map<string, Room>();
   private readonly clock: RoomClock;
   private readonly values: RoomValueFactory;
+  private readonly roomIdAllocator: RoomIdAllocator;
   private readonly countdownMs: number;
   private readonly lobbyTtlMs: number;
   private readonly resultTtlMs: number;
 
   constructor(options: ScoreRaceRoomServiceOptions) {
     this.clock = options.clock;
-    this.values = options.values ?? defaultValues;
+    this.values = options.values ?? createDefaultRoomValueFactory();
+    this.roomIdAllocator = options.roomIdAllocator ?? createRoomIdAllocator();
     this.countdownMs = positiveDuration(options.countdownMs ?? DEFAULT_COUNTDOWN_MS);
     this.lobbyTtlMs = positiveDuration(options.lobbyTtlMs ?? DEFAULT_LOBBY_TTL_MS);
     this.resultTtlMs = positiveDuration(options.resultTtlMs ?? DEFAULT_RESULT_TTL_MS);
@@ -213,18 +145,24 @@ export class ScoreRaceRoomService {
 
     const now = this.clock.now();
     const roomId = this.createUniqueRoomId();
-    const admission = this.createAdmission(roomId);
-    const room: Room = {
-      id: roomId,
-      players: [this.createPlayer(admission)],
-      lifecycle: {
-        kind: 'lobby',
-        expiresAt: now + this.lobbyTtlMs,
-      },
-      paused: null,
-    };
-    this.rooms.set(roomId, room);
-    return success(admission);
+    try {
+      const admission = this.createAdmission(roomId);
+      const room: Room = {
+        id: roomId,
+        players: [this.createPlayer(admission)],
+        lifecycle: {
+          kind: 'lobby',
+          expiresAt: now + this.lobbyTtlMs,
+        },
+        paused: null,
+      };
+      this.rooms.set(roomId, room);
+      return success(admission);
+    } catch (error) {
+      this.rooms.delete(roomId);
+      this.roomIdAllocator.release(roomId);
+      throw error;
+    }
   }
 
   joinRoom(request: RoomJoinRequest): RoomServiceResult<RoomAdmission> {
@@ -344,6 +282,7 @@ export class ScoreRaceRoomService {
     for (const room of this.rooms.values()) {
       if (isExpired(room, now)) {
         this.rooms.delete(room.id);
+        this.roomIdAllocator.release(room.id);
         expiredRoomIds.push(room.id);
         continue;
       }
@@ -770,6 +709,7 @@ export class ScoreRaceRoomService {
     if (!room) return null;
     if (isExpired(room, this.clock.now())) {
       this.rooms.delete(room.id);
+      this.roomIdAllocator.release(room.id);
       return null;
     }
     return room;
@@ -793,11 +733,7 @@ export class ScoreRaceRoomService {
   }
 
   private createUniqueRoomId(): string {
-    for (let attempt = 0; attempt < 32; attempt++) {
-      const roomId = requiredValue(this.values.createRoomId(), 'room id');
-      if (!this.rooms.has(roomId)) return roomId;
-    }
-    throw new Error('Room value factory did not produce a unique room id');
+    return this.roomIdAllocator.claim(() => this.values.createRoomId());
   }
 }
 
@@ -856,35 +792,6 @@ function playerProgress(player: RoomPlayer): MultiplayerPlayerProgress {
     ...copyProgress(player.progress),
     finished: player.finished,
   };
-}
-
-function digestCredential(credential: string): Buffer {
-  return createHash('sha256').update(credential).digest();
-}
-
-function credentialMatches(credential: string, expectedDigest: Buffer): boolean {
-  const actualDigest = digestCredential(credential);
-  return actualDigest.length === expectedDigest.length
-    && timingSafeEqual(actualDigest, expectedDigest);
-}
-
-function positiveDuration(value: number): number {
-  if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new Error('Room durations must be positive safe integers');
-  }
-  return value;
-}
-
-function requiredValue(value: string, label: string): string {
-  if (!value.trim()) throw new Error(`Room value factory produced an empty ${label}`);
-  return value;
-}
-
-function uint32Value(value: number): number {
-  if (!Number.isSafeInteger(value) || value < 0 || value > 0xffff_ffff) {
-    throw new Error('Room value factory produced an invalid seed');
-  }
-  return value;
 }
 
 function isExpired(room: Room, now: number): boolean {

@@ -20,7 +20,7 @@ import type {
   RoomServiceError,
   RoomServiceResult,
   RoomTickResult,
-} from './room-service.js';
+} from './room-types.js';
 
 /**
  * Structural contract shared by every per-mode room service

@@ -7,6 +7,7 @@ import {
   SCORE_RACE_ROOM_MODE,
   ScoreRaceRoomService,
 } from '../src/multiplayer/room-service.js';
+import { createRoomIdAllocator } from '../src/multiplayer/room-values.js';
 import type {
   MultiplayerClientMessage,
   MultiplayerModeIdentity,
@@ -18,7 +19,7 @@ import type {
   RoomDelivery,
   RoomServiceResult,
   RoomValueFactory,
-} from '../src/multiplayer/room-service.js';
+} from '../src/multiplayer/room-types.js';
 
 const COUNTDOWN_MS = 100;
 const LOBBY_TTL_MS = 1_000;
@@ -57,6 +58,30 @@ class DeterministicRoomValues implements RoomValueFactory {
 
   createSeed(): number {
     return ++this.seed;
+  }
+}
+
+class FixedRoomIdValues extends DeterministicRoomValues {
+  private rejectNextPlayerId: boolean;
+
+  constructor(
+    private readonly roomId: string,
+    rejectNextPlayerId = false,
+  ) {
+    super();
+    this.rejectNextPlayerId = rejectNextPlayerId;
+  }
+
+  override createRoomId(): string {
+    return this.roomId;
+  }
+
+  override createPlayerId(): string {
+    if (this.rejectNextPlayerId) {
+      this.rejectNextPlayerId = false;
+      return '';
+    }
+    return super.createPlayerId();
   }
 }
 
@@ -921,6 +946,36 @@ describe('ScoreRaceRoomService', () => {
       playerId: harness.host.playerId,
       reconnectCredential: harness.host.reconnectCredential,
     }))).toBe('room-not-found');
+  });
+
+  test('releases an expired room id so a later room can reuse it', () => {
+    const clock = new ManualClock();
+    const service = new ScoreRaceRoomService({
+      clock,
+      values: new FixedRoomIdValues('REUSABLE-ROOM'),
+      roomIdAllocator: createRoomIdAllocator(),
+      countdownMs: COUNTDOWN_MS,
+      lobbyTtlMs: LOBBY_TTL_MS,
+      resultTtlMs: RESULT_TTL_MS,
+    });
+
+    const first = valueOf(service.createRoom(admissionRequest()));
+    clock.time += LOBBY_TTL_MS;
+    expect(service.tick().expiredRoomIds).toEqual([first.roomId]);
+
+    const second = valueOf(service.createRoom(admissionRequest()));
+    expect(second.roomId).toBe(first.roomId);
+  });
+
+  test('releases a claimed room id when room construction fails', () => {
+    const service = new ScoreRaceRoomService({
+      clock: new ManualClock(),
+      values: new FixedRoomIdValues('RETRY-ROOM', true),
+      roomIdAllocator: createRoomIdAllocator(),
+    });
+
+    expect(() => service.createRoom(admissionRequest())).toThrow();
+    expect(valueOf(service.createRoom(admissionRequest())).roomId).toBe('RETRY-ROOM');
   });
 });
 
