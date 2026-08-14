@@ -1,11 +1,6 @@
 /**
- * Safe access to window.localStorage. Returns null instead of throwing in
- * non-browser contexts (tests, SSR) and whenever access itself throws —
- * private-browsing storage lockouts, hardened browser contexts, or a
- * disabled storage policy all raise on the *property lookup*, not just on
- * getItem/setItem. Every localStorage-backed store in this app treats
- * storage as best-effort and falls back to an in-memory/no-op path when
- * this returns null.
+ * Returns localStorage when its property lookup is available; callers treat
+ * null as an in-memory or no-op fallback.
  */
 export function browserStorage(): Storage | null {
   try {

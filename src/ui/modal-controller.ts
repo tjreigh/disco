@@ -1,5 +1,4 @@
 import { applyInert } from './inert-siblings.js';
-import type { InertGuard } from './inert-siblings.js';
 
 export interface ModalControllerOptions {
   openClass: string;
@@ -22,7 +21,7 @@ const FOCUSABLE_SELECTOR = [
 export class ModalController {
   private previousFocus: HTMLElement | null = null;
   private priorRootInert: boolean | null = null;
-  private inertGuard: InertGuard | null = null;
+  private releaseInert: (() => void) | null = null;
 
   constructor(
     private readonly root: HTMLElement,
@@ -39,7 +38,7 @@ export class ModalController {
     this.previousFocus = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
-    this.inertGuard = applyInert(this.root, this.options.inertTargets ?? []);
+    this.releaseInert = applyInert(this.root, this.options.inertTargets ?? []);
     this.root.classList.add(this.options.openClass);
     this.root.setAttribute('aria-hidden', 'false');
     this.options.initialFocus()?.focus();
@@ -49,8 +48,8 @@ export class ModalController {
     if (!this.isOpen()) return;
     this.root.classList.remove(this.options.openClass);
     this.root.setAttribute('aria-hidden', 'true');
-    this.inertGuard?.release();
-    this.inertGuard = null;
+    this.releaseInert?.();
+    this.releaseInert = null;
 
     const shouldRestore = this.root.contains(document.activeElement);
     if (shouldRestore && this.options.restoreFocus !== false && this.previousFocus?.isConnected) {

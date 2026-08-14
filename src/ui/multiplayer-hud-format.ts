@@ -2,12 +2,7 @@ import type { MultiplayerLocalResult } from '../shared/multiplayer-contracts.js'
 import type { MultiplayerCompatibilityError, MultiplayerPhase } from '../app/multiplayer-view-types.js';
 import { assertNever } from './dom-utils.js';
 
-/**
- * Status/timer/result formatting genuinely shared by MultiplayerHud (Score
- * Race) and SharedBoardHud (Disco Duel). Mode-specific presentation —
- * Score Race's opponent-progress text, Disco Duel's turn-ownership
- * announcement — stays local to each HUD.
- */
+/** Status, timer, and result formatting shared by both multiplayer HUDs. */
 
 export function statusText(
   phase: MultiplayerPhase,

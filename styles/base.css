@@ -2,19 +2,7 @@
   --game-controls-height: 72px;
   --app-footer-height: 44px;
 
-  /*
-   * UI design tokens, named for the role a color plays in the DOM/CSS
-   * layer, not copied mechanically from rendering/theme.ts's canvas
-   * palette (that file's constants describe board/disc colors drawn on
-   * <canvas>; these describe panels, borders, and text in the surrounding
-   * HTML chrome — the two are related by eye but are separate concerns and
-   * may diverge). Values match the literal colors already in use across
-   * this app's stylesheets; adopting a token anywhere does not change how
-   * anything renders, only how the color is named and reused. Not every
-   * stylesheet has adopted these tokens yet — see the deduplication
-   * remediation plan's Slice 8 record for the currently-adopted set and
-   * what full propagation would still involve.
-   */
+  /* UI-role colors are independent from the canvas rendering palette. */
   --color-app-background: #1a1a2e;
   --color-surface: #102a43;
   --color-surface-alt: #16324f;

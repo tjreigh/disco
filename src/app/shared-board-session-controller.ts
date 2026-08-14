@@ -27,12 +27,8 @@ export interface SharedBoardTransport {
   subscribeConnection(listener: (state: MultiplayerConnectionState) => void): () => void;
 }
 
-/** Disco Duel's names for the canonical MultiplayerPhase/MultiplayerCompatibilityError (see multiplayer-view-types.ts). */
-export type SharedBoardPhase = MultiplayerPhase;
-export type SharedBoardCompatibilityError = MultiplayerCompatibilityError;
-
 export interface SharedBoardSessionView {
-  readonly phase: SharedBoardPhase;
+  readonly phase: MultiplayerPhase;
   readonly connection: MultiplayerConnectionState;
   readonly roomId: string;
   readonly playerId: string;
@@ -58,7 +54,7 @@ export interface SharedBoardSessionView {
   readonly turnsPerLevel: number;
   readonly turnsRemaining: number;
   readonly result: MultiplayerLocalResult | null;
-  readonly compatibilityError: SharedBoardCompatibilityError | null;
+  readonly compatibilityError: MultiplayerCompatibilityError | null;
   readonly paused: boolean;
   readonly pausedBy: string | null;
 }
@@ -127,7 +123,7 @@ type MatchLifecycle =
       localReady: boolean;
       opponentReady: boolean;
     }
-  | { readonly kind: 'incompatible'; readonly error: SharedBoardCompatibilityError };
+  | { readonly kind: 'incompatible'; readonly error: MultiplayerCompatibilityError };
 
 export class SharedBoardSessionController {
   readonly #roomId: string;
@@ -644,13 +640,8 @@ export class SharedBoardSessionController {
     }
   }
 
-  // `detail` is deliberately permanent, not a debugging leftover: this is
-  // the single choke point every incompatibility path funnels through, and
-  // the UI only ever shows a generic category (see compatibilityErrorText
-  // in multiplayer-room-overlay.ts) — the console is where the actual
-  // offending payload has to be visible, or a real bug here (e.g. a wire
-  // parser rejecting a well-formed message) is nearly unfindable.
-  #failCompatibility(error: SharedBoardCompatibilityError, detail?: unknown): void {
+  // UI shows only the category; preserve the offending payload in diagnostics.
+  #failCompatibility(error: MultiplayerCompatibilityError, detail?: unknown): void {
     console.error(`[shared-duel] session became incompatible: ${error}`, detail);
     this.#lifecycle = { kind: 'incompatible', error };
   }
@@ -699,7 +690,7 @@ export class SharedBoardSessionController {
     };
   }
 
-  #derivePhase(): SharedBoardPhase {
+  #derivePhase(): MultiplayerPhase {
     const lifecycle = this.#lifecycle;
     if (lifecycle.kind === 'incompatible' || lifecycle.kind === 'complete') return 'finished';
     if (this.#connection === 'disconnected') return 'disconnected';

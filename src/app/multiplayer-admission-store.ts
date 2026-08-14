@@ -4,11 +4,7 @@ import type { MultiplayerAdmission } from '../platform/multiplayer-api-client.js
 
 const ADMISSION_STORAGE_PREFIX = 'disco_multiplayer_admission:';
 
-// The expected mode id is part of the key (not just a post-read content
-// check) so a Score Race admission and a Disco Duel admission can never
-// collide under the same sessionStorage key even if their room ids ever
-// did — belt-and-suspenders alongside the mode-identity check in
-// readAdmission below.
+// Mode-scoped keys prevent rooms from different games colliding.
 function storageKey(modeId: string, roomId: string): string {
   return `${ADMISSION_STORAGE_PREFIX}${modeId}:${roomId}`;
 }
@@ -30,34 +26,27 @@ export function retainAdmission(
   return true;
 }
 
-/**
- * Returns a retained admission only if it matches both the requested room
- * and the caller's expected mode identity. Any other stored value —
- * malformed, wrong room, or a different mode entirely — is treated as
- * absent and removed rather than silently ignored.
- */
+/** Returns a matching retained admission and removes malformed or stale data. */
 export function readAdmission(
   expectedMode: MultiplayerModeIdentity,
   roomId: string,
 ): MultiplayerAdmission | null {
+  let raw: string | null;
   try {
-    const raw = sessionStorage.getItem(storageKey(expectedMode.id, roomId));
-    if (!raw) return null;
-    let value: unknown;
-    try {
-      value = JSON.parse(raw);
-    } catch {
-      forgetAdmission(expectedMode, roomId);
-      return null;
-    }
-    if (!isAdmissionFor(value, expectedMode) || value.roomId !== roomId) {
-      forgetAdmission(expectedMode, roomId);
-      return null;
-    }
-    return value;
+    raw = sessionStorage.getItem(storageKey(expectedMode.id, roomId));
   } catch {
     return null;
   }
+  if (!raw) return null;
+
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (isAdmissionFor(value, expectedMode) && value.roomId === roomId) return value;
+  } catch {
+    // Invalid retained JSON is handled like any other stale value below.
+  }
+  forgetAdmission(expectedMode, roomId);
+  return null;
 }
 
 export function forgetAdmission(expectedMode: MultiplayerModeIdentity, roomId: string): void {
@@ -90,11 +79,7 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
 }
 
-/**
- * Builds the shareable invite link for a private room. The mode is required
- * so every link is self-describing and routing never depends on an implicit
- * default multiplayer mode.
- */
+/** Builds a self-describing private-room invite link. */
 export function privateRoomUrl(
   roomId: string,
   modeId: MultiplayerModeIdentity['id'],

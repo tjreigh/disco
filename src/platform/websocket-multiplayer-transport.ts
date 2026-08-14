@@ -16,7 +16,6 @@ import type { MultiplayerAdmission } from './multiplayer-api-client.js';
 
 const RECONNECT_DELAYS_MS = [250, 500, 1_000, 2_000, 5_000] as const;
 
-/** This transport's name for the canonical MultiplayerTransportErrorCode (see shared/multiplayer-contracts.ts). */
 export type MultiplayerTransportError = MultiplayerTransportErrorCode;
 
 interface TransportErrorMessage {
@@ -34,8 +33,7 @@ interface TransportErrorMessage {
 export class WebSocketMultiplayerTransport implements MultiplayerSessionTransport {
   private readonly url: string;
   private readonly admission: MultiplayerAdmission;
-  // This transport is generic (shared by Score Race and Disco Duel) — tag
-  // diagnostics with the admitted mode id rather than a name from one mode.
+  // This transport serves both modes, so diagnostics use the admitted mode id.
   private readonly logTag: string;
   private readonly messageListeners = new Set<(message: unknown) => void>();
   private readonly connectionListeners = new Set<

@@ -1,7 +1,7 @@
 import { MIN_ZOOM, MAX_ZOOM } from '../platform/user-settings-store.js';
 import { blurOnClick } from './dom-utils.js';
 
-export interface MenuControlsElements {
+interface MenuControlsElements {
   readonly soundButton: HTMLButtonElement;
   readonly advancedHudButton: HTMLButtonElement;
   readonly zoomOutButton: HTMLButtonElement;
@@ -9,7 +9,7 @@ export interface MenuControlsElements {
   readonly zoomInButton: HTMLButtonElement;
 }
 
-export interface MenuControlsCallbacks {
+interface MenuControlsCallbacks {
   readonly onRequestToggleSound: () => void;
   readonly onRequestToggleAdvancedHud: () => void;
   readonly onRequestZoomOut: () => void;
@@ -17,17 +17,12 @@ export interface MenuControlsCallbacks {
   readonly onRequestZoomIn: () => void;
 }
 
-/**
- * The sound/advanced-HUD/zoom controls shared byte-for-byte between
- * HomeScreen's game menu and MultiplayerPauseMenu — everything else in
- * those menus (restart, save & exit, debug, forfeit) is solo- or
- * multiplayer-specific and deliberately stays out of this helper.
- */
+/** Sound, advanced-HUD, and zoom controls shared by both game menus. */
 export class MenuControls {
-  private readonly elements: MenuControlsElements;
-
-  constructor(elements: MenuControlsElements, callbacks: MenuControlsCallbacks) {
-    this.elements = elements;
+  constructor(
+    private readonly elements: MenuControlsElements,
+    callbacks: MenuControlsCallbacks,
+  ) {
     elements.soundButton.addEventListener('click', () => callbacks.onRequestToggleSound());
     blurOnClick(elements.soundButton);
     elements.advancedHudButton.addEventListener('click', () => callbacks.onRequestToggleAdvancedHud());

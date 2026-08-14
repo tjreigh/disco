@@ -13,17 +13,7 @@ export const SHARED_DUEL_MODE_VERSION = 1 as const;
 export const SHARED_DUEL_RULES_VERSION = 1 as const;
 export const SHARED_DUEL_TURN_TIMEOUT_MS = 15_000 as const;
 export const SHARED_DUEL_DISRUPTION_THRESHOLD = 3 as const;
-/**
- * Named runtime values, used directly by multiplayer-messages.ts's wire
- * parser to validate exact board shape. Mirrors SEVEN_BY_SEVEN, the board
- * rules src/game/modes/shared-duel.ts actually builds
- * SHARED_DUEL_RULES.board from — declared independently, not imported,
- * because api/tsconfig.contracts.json compiles src/shared in isolation and
- * rejects a raw relative import into src/game. See
- * src/test/game/modes.test.ts's "multiplayer mode identity stays in sync
- * with the wire protocol constants" describe block for the test that keeps
- * the two copies in sync.
- */
+/** Runtime board dimensions, test-enforced against the isolated game build. */
 export const SHARED_DUEL_BOARD_ROWS = 7 as const;
 export const SHARED_DUEL_BOARD_COLS = 7 as const;
 
@@ -231,12 +221,7 @@ export type MultiplayerServerMessage =
 
 export type MultiplayerConnectionState = 'connected' | 'disconnected' | 'reconnecting';
 
-/**
- * Room-service failure codes shared by the API's room services and the
- * browser transport that surfaces them. Declared as a runtime tuple, not
- * just a type, so both sides validate untrusted input against the same
- * membership check rather than trusting a cast.
- */
+/** Runtime-validatable room-service failure codes shared with the browser. */
 export const ROOM_SERVICE_ERRORS = [
   'protocol-mismatch',
   'mode-mismatch',
@@ -252,12 +237,7 @@ export const ROOM_SERVICE_ERRORS = [
 ] as const;
 export type RoomServiceErrorCode = (typeof ROOM_SERVICE_ERRORS)[number];
 
-/**
- * Every room-service error, plus 'invalid-message' — a wire-parse failure
- * the room-service layer never raises itself (the browser transport catches
- * malformed messages before any room-service call happens) but still needs
- * to represent in its own error channel.
- */
+/** Room-service failures plus the browser transport's wire-parse failure. */
 export const MULTIPLAYER_TRANSPORT_ERRORS = [...ROOM_SERVICE_ERRORS, 'invalid-message'] as const;
 export type MultiplayerTransportErrorCode = (typeof MULTIPLAYER_TRANSPORT_ERRORS)[number];
 const MULTIPLAYER_TRANSPORT_ERROR_SET: ReadonlySet<string> = new Set(MULTIPLAYER_TRANSPORT_ERRORS);

@@ -29,21 +29,6 @@ import type {
   RoomTickResult,
   RoomValueFactory,
 } from './room-types.js';
-export type {
-  RoomAdmission,
-  RoomAdmissionRequest,
-  RoomClock,
-  RoomConnectRequest,
-  RoomConnection,
-  RoomDelivery,
-  RoomIdAllocator,
-  RoomJoinRequest,
-  RoomServiceError,
-  RoomServiceFailure,
-  RoomServiceResult,
-  RoomTickResult,
-  RoomValueFactory,
-} from './room-types.js';
 import {
   createDefaultRoomValueFactory,
   createRoomIdAllocator,

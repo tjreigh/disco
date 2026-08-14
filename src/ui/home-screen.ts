@@ -5,7 +5,6 @@ import type { AccountStatsState } from '../platform/account-stats-store.js';
 import { ConfirmDialog } from './confirm-dialog.js';
 import { blurOnClick, cloneTemplate, mustQuery } from './dom-utils.js';
 import { applyInert } from './inert-siblings.js';
-import type { InertGuard } from './inert-siblings.js';
 import { MenuControls } from './menu-controls.js';
 import { ModalController } from './modal-controller.js';
 
@@ -27,7 +26,7 @@ export class HomeScreen {
   private readonly menuControls: MenuControls;
   private readonly multiplayerModesContainer: HTMLElement;
   private readonly multiplayerTagline: HTMLElement;
-  private inertGuard: InertGuard | null = null;
+  private releaseInert: (() => void) | null = null;
   private saveLoading = false;
   private selectedModeId: string;
   private selectedMultiplayerModeId: string;
@@ -275,15 +274,15 @@ export class HomeScreen {
 
   private setBackgroundInert(inert: boolean): void {
     if (inert) {
-      this.inertGuard = applyInert(
+      this.releaseInert = applyInert(
         this.overlay,
         this.modalBackground,
         element => element.dataset.uiAboveHome === 'true',
       );
       return;
     }
-    this.inertGuard?.release();
-    this.inertGuard = null;
+    this.releaseInert?.();
+    this.releaseInert = null;
   }
 
   private renderCards(): void {

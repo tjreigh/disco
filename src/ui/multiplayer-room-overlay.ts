@@ -8,45 +8,22 @@ import type {
 import type { MultiplayerCompatibilityError, MultiplayerPhase } from '../app/multiplayer-view-types.js';
 import { assertNever, blurOnClick, cloneTemplate, mustQuery } from './dom-utils.js';
 
-// Score Race and Disco Duel sessions both project this exact phase/error
-// shape (see MultiplayerLocalPhase / MultiplayerCompatibilityError in
-// multiplayer-session-controller.ts and SharedBoardPhase /
-// SharedBoardCompatibilityError in shared-board-session-controller.ts).
-// This overlay imports the same canonical types from
-// app/multiplayer-view-types.ts (under overlay-specific names, since this
-// stays a shared, mode-agnostic UI component) rather than importing from
-// either mode-specific controller.
-export type RoomOverlayPhase = MultiplayerPhase;
-export type RoomOverlayCompatibilityError = MultiplayerCompatibilityError;
-
 export interface RoomOverlayView {
-  readonly phase: RoomOverlayPhase;
+  readonly phase: MultiplayerPhase;
   readonly connection: MultiplayerConnectionState;
   readonly roomId: string;
   readonly localReady: boolean;
   readonly opponentReady: boolean;
   readonly result: MultiplayerLocalResult | null;
-  readonly compatibilityError: RoomOverlayCompatibilityError | null;
+  readonly compatibilityError: MultiplayerCompatibilityError | null;
   readonly paused: boolean;
   readonly pausedByLocal: boolean;
 }
 
 /**
  * Lobby, invite, terminal-result, and transport-error presentation.
- *
- * Not routed through ModalController today (no focus trap, no background
- * inertness, no Escape handling) despite containing interactive buttons
- * (ready/copy/home). This was evaluated for Slice 7 of the deduplication
- * plan and deliberately deferred rather than done partially: `render()` is a
- * state machine with distinct lobby/result/error/paused/finishing branches
- * that each show a different subset of actions (the paused branch, for
- * instance, hides the home link on purpose — there's no way back into a
- * live match). Making this modal correctly means coordinating dialog
- * semantics, initial focus, Escape, inertness, and focus restoration with
- * every one of those branches at once, not swapping the visibility
- * mechanism alone. That coordination is real, correctness-sensitive work
- * deserving its own reviewable change — tracked as follow-up, not bundled
- * here.
+ * This remains non-modal until every render branch can coordinate focus,
+ * Escape handling, background inertness, and focus restoration together.
  */
 export class MultiplayerRoomOverlay {
   private readonly root: HTMLElement;
@@ -232,15 +209,8 @@ export class MultiplayerRoomOverlay {
   }
 }
 
-// Each case here is a genuinely different failure with a different likely
-// fix — collapsing them into one "incompatible version" string in the past
-// hid a real wire-protocol parser bug behind text that pointed at version
-// skew that didn't exist. The full detail (raw offending payload, expected
-// vs. received identity, etc.) is logged to the console at the single
-// choke point both session controllers funnel through — see
-// failCompatibility in multiplayer-session-controller.ts and
-// #failCompatibility in shared-board-session-controller.ts.
-function compatibilityErrorText(error: RoomOverlayCompatibilityError): string {
+// Keep distinct remediation guidance; controllers log the underlying detail.
+function compatibilityErrorText(error: MultiplayerCompatibilityError): string {
   switch (error) {
     case 'protocol-mismatch':
       return 'Your Disco client is out of date. Refresh the page to get the latest version.';

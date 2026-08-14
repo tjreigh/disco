@@ -1,7 +1,7 @@
 import type {
   MultiplayerCompatibilityError,
-  MultiplayerLocalPhase,
-} from '../app/multiplayer-session-controller.js';
+  MultiplayerPhase,
+} from '../app/multiplayer-view-types.js';
 import type {
   MultiplayerPlayerProgress,
   MultiplayerLocalResult,
@@ -10,7 +10,7 @@ import { resultText, statusText, timerLabelText, timerText } from './multiplayer
 import { cloneTemplate, mustQuery } from './dom-utils.js';
 
 export interface MultiplayerHudView {
-  readonly phase: MultiplayerLocalPhase;
+  readonly phase: MultiplayerPhase;
   readonly remainingMs: number | null;
   readonly localScore: number;
   readonly opponent: MultiplayerPlayerProgress | null;

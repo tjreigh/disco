@@ -19,7 +19,6 @@ import type {
 import { LocalBoardSession } from './local-board-session.js';
 import type { LocalBoardSessionView } from './local-board-session.js';
 import type { MultiplayerCompatibilityError, MultiplayerPhase } from './multiplayer-view-types.js';
-export type { MultiplayerCompatibilityError } from './multiplayer-view-types.js';
 
 export interface SessionClock {
   now(): number;
@@ -31,11 +30,8 @@ export interface MultiplayerSessionTransport {
   subscribeConnection(listener: (state: MultiplayerConnectionState) => void): () => void;
 }
 
-/** Score Race's name for the canonical MultiplayerPhase (see multiplayer-view-types.ts). */
-export type MultiplayerLocalPhase = MultiplayerPhase;
-
 export interface MultiplayerSessionView {
-  readonly phase: MultiplayerLocalPhase;
+  readonly phase: MultiplayerPhase;
   readonly connection: MultiplayerConnectionState;
   readonly roomId: string;
   readonly playerId: string;
@@ -444,7 +440,7 @@ export class MultiplayerSessionController {
     return Math.max(0, Math.min(this.session.view.laneCount - 1, lane));
   }
 
-  private localPhase(): MultiplayerLocalPhase {
+  private localPhase(): MultiplayerPhase {
     if (this.lifecycle.kind === 'incompatible' || this.lifecycle.kind === 'complete') {
       return 'finished';
     }
@@ -484,12 +480,7 @@ export class MultiplayerSessionController {
     }
   }
 
-  // `detail` is deliberately permanent, not a debugging leftover: this is
-  // the single choke point every incompatibility path funnels through, and
-  // the UI only ever shows a generic category (see compatibilityErrorText
-  // in multiplayer-room-overlay.ts) — the console is where the actual
-  // offending payload has to be visible, or a real bug here (e.g. a wire
-  // parser rejecting a well-formed message) is nearly unfindable.
+  // UI shows only the category; preserve the offending payload in diagnostics.
   private failCompatibility(error: MultiplayerCompatibilityError, detail?: unknown): void {
     console.error(`[multiplayer] session became incompatible: ${error}`, detail);
     this.lifecycle = { kind: 'incompatible', error };

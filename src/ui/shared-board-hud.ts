@@ -3,18 +3,14 @@ import type { MultiplayerCompatibilityError, MultiplayerPhase } from '../app/mul
 import { resultText, statusText, timerLabelText, timerText } from './multiplayer-hud-format.js';
 import { cloneTemplate, mustQuery } from './dom-utils.js';
 
-/** Disco Duel's names for the canonical MultiplayerPhase/MultiplayerCompatibilityError (see app/multiplayer-view-types.ts). */
-export type SharedBoardHudPhase = MultiplayerPhase;
-export type SharedBoardHudCompatibilityError = MultiplayerCompatibilityError;
-
 export interface SharedBoardHudView {
-  readonly phase: SharedBoardHudPhase;
+  readonly phase: MultiplayerPhase;
   readonly remainingMs: number | null;
   readonly localScore: number;
   readonly opponentScore: number;
   readonly isMyTurn: boolean;
   readonly result: MultiplayerLocalResult | null;
-  readonly compatibilityError: SharedBoardHudCompatibilityError | null;
+  readonly compatibilityError: MultiplayerCompatibilityError | null;
 }
 
 /** Score/turn/status-only Disco Duel chrome; the shared board remains the primary view. */
@@ -67,7 +63,7 @@ export class SharedBoardHud {
 }
 
 /** Disco Duel-only: Score Race has no per-turn ownership to announce. */
-function turnText(phase: SharedBoardHudPhase, isMyTurn: boolean): string {
+function turnText(phase: MultiplayerPhase, isMyTurn: boolean): string {
   if (phase !== 'playing') return '';
   return isMyTurn ? 'YOUR TURN' : "OPPONENT'S TURN";
 }

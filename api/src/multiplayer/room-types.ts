@@ -4,14 +4,7 @@ import type {
   RoomServiceErrorCode,
 } from './contracts.js';
 
-/**
- * Structural types shared by every per-mode room service
- * (ScoreRaceRoomService, SharedBoardRoomService, ...) and the gateway that
- * routes to them. Room-service *behavior* (lifecycle state, message
- * builders, broadcast) stays mode-specific — see room-service.ts and
- * shared-board-room-service.ts — only the request/result/delivery shapes
- * live here.
- */
+/** Transport-neutral shapes shared by room services and their gateway. */
 
 export interface RoomClock {
   now(): number;
@@ -25,14 +18,7 @@ export interface RoomValueFactory {
   createSeed(): number;
 }
 
-/**
- * Claims room ids out of one namespace shared by every room service, so two
- * modes can never end up owning the same id at once. `claim` retries the
- * given candidate generator (typically a RoomValueFactory's createRoomId)
- * until it produces an id no other claim currently holds. `release` frees a
- * claim once its owning service reports the room expired — see
- * createRoomIdAllocator in room-values.ts.
- */
+/** Coordinates one room-id namespace across all multiplayer modes. */
 export interface RoomIdAllocator {
   claim(generateCandidate: () => string): string;
   release(roomId: string): void;
@@ -74,14 +60,11 @@ export interface RoomDelivery {
   readonly message: MultiplayerServerMessage;
 }
 
-/** Canonical name for the runtime-validated error-code union (see src/shared/multiplayer-contracts.ts). */
 export type RoomServiceError = RoomServiceErrorCode;
 
 /**
- * A recoverable failure always carries at least one delivery: the corrective
- * snapshot sent back to the requesting player so a benign race (late cursor
- * move, duplicate drop, stale match ID, ...) can resync instead of losing the
- * connection. See room-gateway.ts, which closes the socket only for `fatal`.
+ * Recoverable failures carry a corrective delivery so the requester can
+ * resynchronize without losing its connection.
  */
 export type RoomServiceFailure =
   | {

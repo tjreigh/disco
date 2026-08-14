@@ -40,10 +40,7 @@ function decodeSignedJson<T>(cookieValue: string | undefined, secret: string): T
   return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as T;
 }
 
-// Every cookie this module sets shares httpOnly/secure/sameSite; `path`
-// stays an explicit parameter here rather than folded into the shared
-// defaults, since the session cookie ('/') and the OIDC state cookie
-// ('/auth') deliberately scope to different paths.
+// Paths remain explicit because session and OIDC cookies use different scopes.
 function baseCookieOptions(config: AppConfig, path: string) {
   return {
     httpOnly: true,

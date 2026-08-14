@@ -2,12 +2,8 @@ import type { TutorialDefinition, TutorialStep } from '../app/tutorial.js';
 import { blurOnClick, cloneTemplate, mustQuery } from './dom-utils.js';
 
 /**
- * Deliberately non-modal: this is concurrent instructional chrome shown
- * alongside a still-playable board, not a dialog blocking it. It does not
- * use ModalController — no focus trap, no background inertness, no Escape
- * handling — because the game underneath must stay interactive while a step
- * is shown. Its two buttons (retry/continue, exit) are reachable by tab
- * order like any other on-page control.
+ * Non-modal instructional chrome: the board must remain playable while a
+ * tutorial step is visible.
  */
 export class TutorialOverlay {
   private readonly root: HTMLElement;

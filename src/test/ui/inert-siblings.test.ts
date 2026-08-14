@@ -55,7 +55,7 @@ describe('applyInert', () => {
     expect(alreadyInert.inert).toBe(true);
     expect(notInert.inert).toBe(true);
 
-    guard.release();
+    guard();
     expect(alreadyInert.inert).toBe(true);
     expect(notInert.inert).toBe(false);
   });
@@ -67,7 +67,7 @@ describe('applyInert', () => {
 
     const guard = applyInert(root, [shared]);
     expect(shared.inert).toBe(true);
-    guard.release();
+    guard();
     expect(shared.inert).toBe(false);
   });
 });

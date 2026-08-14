@@ -12,20 +12,13 @@ export function prefersReducedMotion(): boolean {
   return reducedMotionQuery.matches;
 }
 
-// Focus is an input-routing decision in this app: the canvas game reads
-// document-level keydown, and InputHandler deliberately ignores keys while
-// focus sits on any tabbable element (so the debug panel's controls work).
-// A clicked overlay button must therefore hand focus back, or game keys stay
-// dead and Enter/Space keep re-activating the (possibly invisible) button.
+// Canvas input ignores keys while a tabbable control owns focus.
 export function blurOnClick<E extends HTMLElement>(element: E): E {
   element.addEventListener('click', () => element.blur());
   return element;
 }
 
-// The inverse direction of the same input-routing decision: after a
-// gameplay action (a drop, a ready-toggle, a menu action) hands focus back
-// to whatever tabbable element happened to receive it, blur it immediately
-// so document-level keydown reaches the game again on the very next key.
+// Return keyboard input to gameplay after an action focuses a control.
 export function releaseGameplayFocus(): void {
   if (document.activeElement instanceof HTMLElement && document.activeElement.tabIndex >= 0) {
     document.activeElement.blur();
@@ -53,10 +46,7 @@ export function mustQuery<T extends Element>(root: ParentNode, selector: string)
   return element;
 }
 
-// Compile-time exhaustiveness check for switches over a closed union: adding
-// a member to the union without adding a matching case becomes a type error
-// here (assigning it to `never`) instead of a silently unhandled case at
-// runtime — see e.g. multiplayer-hud-format.ts's statusText.
+// Makes closed-union switches exhaustive at compile time.
 export function assertNever(value: never, context: string): never {
   throw new Error(`${context}: unhandled case ${JSON.stringify(value)}`);
 }

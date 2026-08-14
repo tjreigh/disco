@@ -38,7 +38,8 @@ import {
 } from './multiplayer-admission-store.js';
 import { applyStepToVisualBoard } from './visual-board.js';
 import { SharedBoardSessionController } from './shared-board-session-controller.js';
-import type { SharedBoardSessionView, SharedBoardPhase } from './shared-board-session-controller.js';
+import type { SharedBoardSessionView } from './shared-board-session-controller.js';
+import type { MultiplayerPhase } from './multiplayer-view-types.js';
 
 // Generous relative to any real animation (drop+clear+fall tops out around
 // 1-1.5s) — this only fires for a genuine throttled/backgrounded-tab gap.
@@ -527,7 +528,7 @@ function wireStepToPhysicsStep(wire: WireStep): PhysicsStep {
   }
 }
 
-const GAME_PHASE_MAP: Record<SharedBoardPhase, GamePhase> = {
+const GAME_PHASE_MAP: Record<MultiplayerPhase, GamePhase> = {
   playing: GamePhase.WaitingForDrop,
   countdown: GamePhase.Menu,
   finished: GamePhase.GameOver,
@@ -537,6 +538,6 @@ const GAME_PHASE_MAP: Record<SharedBoardPhase, GamePhase> = {
   ready: GamePhase.Menu,
 };
 
-function viewPhaseToGamePhase(phase: SharedBoardPhase): GamePhase {
+function viewPhaseToGamePhase(phase: MultiplayerPhase): GamePhase {
   return GAME_PHASE_MAP[phase] ?? GamePhase.Menu;
 }

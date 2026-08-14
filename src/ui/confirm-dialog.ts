@@ -1,29 +1,20 @@
 import { blurOnClick, cloneTemplate, mustQuery } from './dom-utils.js';
 import { ModalController } from './modal-controller.js';
 
-export interface ConfirmDialogOptions {
+interface ConfirmDialogOptions {
   readonly title: string;
   readonly description: string;
   readonly confirmLabel: string;
   readonly onConfirm: () => void;
 }
 
-// Each instance needs its own title/description ids — this template is
-// cloned more than once per page (Home's restart confirmation, the
-// multiplayer pause menu's forfeit confirmation), and duplicate DOM ids
-// would make aria-labelledby/aria-describedby ambiguous.
+// Each clone needs unique ids for its ARIA relationships.
 let instanceCount = 0;
 
-/**
- * The alertdialog "are you sure?" confirmation shared by HomeScreen's
- * restart prompt and MultiplayerPauseMenu's forfeit prompt — same markup,
- * same open/cancel/confirm/focus/Escape behavior, different copy.
- */
+/** Shared alert-dialog behavior for destructive confirmations. */
 export class ConfirmDialog {
   private readonly root: HTMLElement;
   private readonly modal: ModalController;
-  private readonly cancelButton: HTMLButtonElement;
-  private readonly confirmButton: HTMLButtonElement;
 
   constructor(
     mount: HTMLElement,
@@ -35,8 +26,8 @@ export class ConfirmDialog {
     this.root = mustQuery(fragment, '.restart-confirmation');
     const titleEl = mustQuery<HTMLElement>(fragment, '.restart-confirmation__title');
     const descriptionEl = mustQuery<HTMLElement>(fragment, '.restart-confirmation__description');
-    this.cancelButton = mustQuery(fragment, '[data-confirm-dialog-action="cancel"]');
-    this.confirmButton = mustQuery(fragment, '.restart-confirmation__button--danger');
+    const cancelButton = mustQuery<HTMLButtonElement>(fragment, '[data-confirm-dialog-action="cancel"]');
+    const confirmButton = mustQuery<HTMLButtonElement>(fragment, '.restart-confirmation__button--danger');
 
     titleEl.id = `${id}-title`;
     descriptionEl.id = `${id}-description`;
@@ -44,21 +35,21 @@ export class ConfirmDialog {
     this.root.setAttribute('aria-describedby', descriptionEl.id);
     titleEl.textContent = options.title;
     descriptionEl.textContent = options.description;
-    this.confirmButton.textContent = options.confirmLabel;
+    confirmButton.textContent = options.confirmLabel;
 
-    this.cancelButton.addEventListener('click', () => this.close());
-    this.confirmButton.addEventListener('click', () => {
+    cancelButton.addEventListener('click', () => this.close());
+    confirmButton.addEventListener('click', () => {
       this.close();
       options.onConfirm();
     });
-    blurOnClick(this.cancelButton);
-    blurOnClick(this.confirmButton);
+    blurOnClick(cancelButton);
+    blurOnClick(confirmButton);
 
     mount.append(fragment);
 
     this.modal = new ModalController(this.root, {
       openClass: 'restart-confirmation--open',
-      initialFocus: () => this.cancelButton,
+      initialFocus: () => cancelButton,
       inertTargets: modalBackground,
       onEscape: () => this.close(),
     });
@@ -70,10 +61,6 @@ export class ConfirmDialog {
 
   close(): void {
     this.modal.close();
-  }
-
-  isOpen(): boolean {
-    return this.modal.isOpen();
   }
 
   destroy(): void {
