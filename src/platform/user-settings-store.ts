@@ -1,3 +1,5 @@
+import { browserStorage } from './browser-storage.js';
+
 export const USER_SETTINGS_STORAGE_KEY = 'disco.user-settings';
 
 // Shared with ZoomControls' gesture clamp, which already imports this module
@@ -85,13 +87,5 @@ export class UserSettingsStore {
     } catch {
       // The preference still applies for this page when storage is unavailable.
     }
-  }
-}
-
-function browserStorage(): SettingsStorage | null {
-  try {
-    return typeof window === 'undefined' ? null : window.localStorage;
-  } catch {
-    return null;
   }
 }

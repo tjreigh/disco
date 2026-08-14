@@ -10,6 +10,7 @@ import {
 import type { ApiSaveSlot, AuthState, PublicAccount, PutSaveRequest } from './api-client.js';
 import { LOCAL_SAVE_KEY } from './local-save-store.js';
 import type { SaveStorage } from './local-save-store.js';
+import { browserStorage } from './browser-storage.js';
 
 export const SAVE_SYNC_STORAGE_VERSION = 1 as const;
 export const SAVE_SYNC_KEY_PREFIX = 'disco.save-sync.v1';
@@ -726,12 +727,7 @@ export class SyncedSaveStore {
   }
 
   private get storage(): SaveStorage | null {
-    if (this.options.storage) return this.options.storage;
-    try {
-      return typeof window === 'undefined' ? null : window.localStorage;
-    } catch {
-      return null;
-    }
+    return this.options.storage ?? browserStorage();
   }
 
   private emit(): void {

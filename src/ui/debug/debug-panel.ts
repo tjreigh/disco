@@ -6,6 +6,7 @@ import type { GameState } from '../../game/state.js';
 import { StepKind } from '../../game/events.js';
 import { buildDebugReport } from './debug-report.js';
 import { blurOnClick, cloneTemplate, mustQuery } from '../dom-utils.js';
+import { browserStorage } from '../../platform/browser-storage.js';
 
 export const MAX_TURN_HISTORY = 50;
 export type DebugPanelAccess = 'report' | 'full';
@@ -41,14 +42,6 @@ function removeStoredDebugAccess(storage: Storage | null): void {
     storage?.removeItem(DEBUG_ACCESS_STORAGE_KEY);
   } catch {
     // Storage can be unavailable in hardened/private browser contexts.
-  }
-}
-
-function browserStorage(): Storage | null {
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
   }
 }
 

@@ -1,11 +1,13 @@
 import { UiRoot } from './ui/ui-root.js';
 import { ZoomControls } from './ui/zoom-controls.js';
-import { SHARED_DUEL_MODE_ID } from './shared/multiplayer-contracts.js';
+import { SCORE_RACE_MODE_ID, SHARED_DUEL_MODE_ID } from './shared/multiplayer-contracts.js';
 
 const params = new URLSearchParams(window.location.search);
 const demoMode = params.has('demo');
-const multiplayerMode = params.has('room') || params.get('multiplayer') === 'create';
-const sharedDuelMode = multiplayerMode && params.get('mode') === SHARED_DUEL_MODE_ID;
+const multiplayerRequested = params.has('room') || params.get('multiplayer') === 'create';
+const multiplayerModeId = params.get('mode');
+const scoreRaceMode = multiplayerRequested && multiplayerModeId === SCORE_RACE_MODE_ID;
+const sharedDuelMode = multiplayerRequested && multiplayerModeId === SHARED_DUEL_MODE_ID;
 if (demoMode) document.documentElement.classList.add('demo-mode');
 const ui = new UiRoot();
 const zoomControls = new ZoomControls(ui.root, ui.mounts.stage);
@@ -37,7 +39,7 @@ if (demoMode) {
     game.handleResize();
     zoomControls.reclampPan();
   });
-} else if (multiplayerMode) {
+} else if (scoreRaceMode) {
   const { MultiplayerGame } = await import('./app/multiplayer-game-controller.js');
   const game = await MultiplayerGame.create(ui.canvas, ui.mounts, zoomControls);
 

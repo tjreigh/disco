@@ -7,6 +7,7 @@ import { StepKind } from '../game/events.js';
 import type { GameOverReason, TurnResult } from '../game/engine.js';
 import { CLASSIC_MODE, SOLO_MODES } from '../game/modes/index.js';
 import { DebugPanel } from '../ui/debug/debug-panel.js';
+import { releaseGameplayFocus } from '../ui/dom-utils.js';
 import { Renderer } from '../ui/rendering/renderer.js';
 import { InputHandler } from '../platform/input-handler.js';
 import type { InputIntent } from '../platform/input-handler.js';
@@ -303,7 +304,7 @@ export class SoloSessionController {
     this.startRunTracking();
     this.debug.reset();
     this.homeScreen.close();
-    this.releaseGameplayFocus();
+    releaseGameplayFocus();
   }
 
   private startTutorial(mode: SoloModeDefinition): void {
@@ -324,7 +325,7 @@ export class SoloSessionController {
     this.debug.reset();
     this.loadTutorialStep();
     this.homeScreen.close();
-    this.releaseGameplayFocus();
+    releaseGameplayFocus();
   }
 
   private returnToMenu(): void {
@@ -690,7 +691,7 @@ export class SoloSessionController {
     this.displayedDropsThisGame = this.state.dropCount;
     this.writeCurrentSave();
     this.debug.refresh();
-    this.releaseGameplayFocus();
+    releaseGameplayFocus();
   }
 
   private async logout(): Promise<void> {
@@ -804,7 +805,7 @@ export class SoloSessionController {
       this.saveDialogMode = null;
       this.homeScreen.closeGameMenu();
       this.homeScreen.close();
-      this.releaseGameplayFocus();
+      releaseGameplayFocus();
       if (this.state.phase === GamePhase.GameOver) this.setGameOver(undefined, false);
     } catch {
       this.saveStore.remove(mode.id);
@@ -844,12 +845,6 @@ export class SoloSessionController {
       || this.state.phase === GamePhase.Menu
       || this.state.phase === GamePhase.GameOver) return;
     this.setGameOver();
-  }
-
-  private releaseGameplayFocus(): void {
-    if (document.activeElement instanceof HTMLElement && document.activeElement.tabIndex >= 0) {
-      document.activeElement.blur();
-    }
   }
 
   private pausePlayback(): void {

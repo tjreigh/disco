@@ -1,6 +1,12 @@
 import { expect, test } from '@playwright/test';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 
+test('multiplayer routing requires an explicit mode', async ({ page }) => {
+  await page.goto('/?multiplayer=create');
+  await expect(page.getByRole('heading', { name: 'DISCO' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'ROOM CODE' })).toBeHidden();
+});
+
 test.describe('private Score Race', () => {
   test('two players play, reconnect, and render the same winner', async ({ browser }) => {
     const hostContext = await multiplayerContext(browser);
@@ -9,8 +15,8 @@ test.describe('private Score Race', () => {
     const guest = await guestContext.newPage();
 
     try {
-      await host.goto('/?multiplayer=create');
-      await expect(host).toHaveURL(/\?room=[A-Z2-9]{8}$/);
+      await host.goto('/?multiplayer=create&mode=score-race');
+      await expect(host).toHaveURL(/\?room=[A-Z2-9]{8}&mode=score-race$/);
       await expect(host.getByRole('heading', { name: 'ROOM CODE' })).toBeVisible();
       const inviteUrl = host.url();
 
@@ -106,8 +112,8 @@ test.describe('private Score Race pause menu', () => {
     const guest = await guestContext.newPage();
 
     try {
-      await host.goto('/?multiplayer=create');
-      await expect(host).toHaveURL(/\?room=[A-Z2-9]{8}$/);
+      await host.goto('/?multiplayer=create&mode=score-race');
+      await expect(host).toHaveURL(/\?room=[A-Z2-9]{8}&mode=score-race$/);
       const inviteUrl = host.url();
       await guest.goto(inviteUrl);
 

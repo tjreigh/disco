@@ -4,6 +4,7 @@ import type { GameStats } from '../game/stats.js';
 import { loadStats as loadCookieStats, saveStats as saveCookieStats } from './cookie-stats-store.js';
 import { ApiRequestError, ApiUnauthorizedError, DiscoApiClient } from './api-client.js';
 import type { AuthState } from './api-client.js';
+import { browserStorage } from './browser-storage.js';
 
 export interface AccountStatsState extends AuthState {
   loading: boolean;
@@ -204,6 +205,7 @@ export class AccountStatsStore {
 
   private hasImportedLocalStats(key: string): boolean {
     try {
+      if (!this.storage) return this.importedAccounts.has(key);
       return this.storage.getItem(key) === '1';
     } catch {
       return this.importedAccounts.has(key);
@@ -212,6 +214,10 @@ export class AccountStatsStore {
 
   private markImportedLocalStats(key: string): void {
     try {
+      if (!this.storage) {
+        this.importedAccounts.add(key);
+        return;
+      }
       this.storage.setItem(key, '1');
     } catch {
       this.importedAccounts.add(key);
@@ -240,8 +246,8 @@ export class AccountStatsStore {
     return this.apiClient;
   }
 
-  private get storage(): StorageLike {
-    return this.options.storage ?? window.localStorage;
+  private get storage(): StorageLike | null {
+    return this.options.storage ?? browserStorage();
   }
 
   private loadCookieStats(modeId: string): GameStats {

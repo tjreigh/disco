@@ -16,6 +16,7 @@ import { UserSettingsStore } from '../platform/user-settings-store.js';
 import { WebSocketMultiplayerTransport } from '../platform/websocket-multiplayer-transport.js';
 import type { MultiplayerTransportError } from '../platform/websocket-multiplayer-transport.js';
 import type { WireBoard, WireDisc, WireDiscKind, WireGridPos, WireStep } from '../shared/multiplayer-contracts.js';
+import { releaseGameplayFocus } from '../ui/dom-utils.js';
 import { GameControls } from '../ui/game-controls.js';
 import { GameHud } from '../ui/game-hud.js';
 import { MultiplayerPauseMenu } from '../ui/multiplayer-pause-menu.js';
@@ -27,11 +28,17 @@ import type { ScoreIndicator, ScorePopup } from '../ui/rendering/animation-types
 import { Renderer } from '../ui/rendering/renderer.js';
 import type { UiMounts } from '../ui/ui-root.js';
 import type { ZoomControls } from '../ui/zoom-controls.js';
+import {
+  admissionErrorText,
+  forgetAdmission,
+  privateRoomUrl,
+  readAdmission,
+  retainAdmission,
+} from './multiplayer-admission-store.js';
 import { applyStepToVisualBoard } from './visual-board.js';
 import { SharedBoardSessionController } from './shared-board-session-controller.js';
 import type { SharedBoardSessionView, SharedBoardPhase } from './shared-board-session-controller.js';
 
-const ADMISSION_STORAGE_PREFIX = 'disco_multiplayer_admission:';
 // Generous relative to any real animation (drop+clear+fall tops out around
 // 1-1.5s) — this only fires for a genuine throttled/backgrounded-tab gap.
 const STALE_FRAME_GAP_MS = 2_000;
@@ -115,8 +122,8 @@ export class SharedBoardGame {
       // against (retaining admission, history, constructing transport/
       // session, mounting UI, scheduling the loop).
       if (this.#destroyed) return;
-      this.#retainAdmission(admission);
-      const inviteUrl = privateRoomUrl(admission.roomId);
+      if (!retainAdmission(SHARED_DUEL_MODE, admission)) throw new Error('invalid-admission');
+      const inviteUrl = privateRoomUrl(admission.roomId, SHARED_DUEL_MODE.id);
       history.replaceState(null, '', inviteUrl);
 
       const mode = SHARED_DUEL_MODE;
@@ -126,7 +133,7 @@ export class SharedBoardGame {
       this.#transport = new WebSocketMultiplayerTransport(api.baseUrl, admission);
       this.#unsubTransportError = this.#transport.subscribeError((error: MultiplayerTransportError) => {
         this.#transportError = error;
-        if (error === 'invalid-credential') this.#forgetAdmission(roomId);
+        if (error === 'invalid-credential') forgetAdmission(SHARED_DUEL_MODE, roomId);
       });
 
       this.#session = new SharedBoardSessionController({
@@ -434,73 +441,9 @@ export class SharedBoardGame {
     }
     const roomId = params.get('room')?.trim().toUpperCase();
     if (!roomId) throw new Error('missing-room');
-    const retained = this.#readAdmission(roomId);
+    const retained = readAdmission(SHARED_DUEL_MODE, roomId);
     if (retained) return retained;
     return api.joinRoom(roomId, SHARED_DUEL_MODE);
-  }
-
-  #retainAdmission(admission: MultiplayerAdmission): void {
-    try {
-      sessionStorage.setItem(
-        `${ADMISSION_STORAGE_PREFIX}${admission.roomId}`,
-        JSON.stringify(admission),
-      );
-    } catch { /* quota exceeded */ }
-  }
-
-  #readAdmission(roomId: string): MultiplayerAdmission | null {
-    try {
-      const raw = sessionStorage.getItem(`${ADMISSION_STORAGE_PREFIX}${roomId}`);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as unknown;
-      if (!isAdmissionRecord(parsed) || parsed.roomId !== roomId) return null;
-      return parsed;
-    } catch {
-      return null;
-    }
-  }
-
-  #forgetAdmission(roomId: string): void {
-    try {
-      sessionStorage.removeItem(`${ADMISSION_STORAGE_PREFIX}${roomId}`);
-    } catch { /* */ }
-  }
-}
-
-function isAdmissionRecord(value: unknown): value is MultiplayerAdmission {
-  if (typeof value !== 'object' || value === null) return false;
-  const v = value as Record<string, unknown>;
-  return typeof v.roomId === 'string'
-    && typeof v.playerId === 'string'
-    && typeof v.reconnectCredential === 'string'
-    && v.mode !== undefined;
-}
-
-function privateRoomUrl(roomId: string): string {
-  const url = new URL(location.href);
-  url.search = '';
-  url.searchParams.set('room', roomId);
-  url.searchParams.set('mode', SHARED_DUEL_MODE.id);
-  url.hash = '';
-  return url.toString();
-}
-
-function admissionErrorText(error: unknown): string {
-  if (error instanceof Error && error.message === 'missing-room') {
-    return 'The private room link is missing a room code.';
-  }
-  if (typeof error === 'object' && error !== null && 'status' in error) {
-    const status = (error as { status?: unknown }).status;
-    if (status === 404) return 'This private room no longer exists.';
-    if (status === 409) return 'This private room is full or uses a different game version.';
-    if (status === 429) return 'Too many room attempts. Wait a moment and try again.';
-  }
-  return 'Could not reach the multiplayer service. Return home and try again.';
-}
-
-function releaseGameplayFocus(): void {
-  if (document.activeElement instanceof HTMLElement && document.activeElement.tabIndex >= 0) {
-    document.activeElement.blur();
   }
 }
 

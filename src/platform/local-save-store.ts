@@ -1,6 +1,7 @@
 import type { SoloModeDefinition } from '../game/modes/mode.js';
 import { parseSaveGame, stringifySaveGame } from '../game/save.js';
 import type { SaveGameV1 } from '../game/save.js';
+import { browserStorage } from './browser-storage.js';
 
 export const LOCAL_SAVE_KEY = 'disco.save.v1.current';
 
@@ -94,12 +95,7 @@ export class LocalSaveStore {
   }
 
   private storage(): SaveStorage | null {
-    if (this.options.storage) return this.options.storage;
-    try {
-      return typeof window === 'undefined' ? null : window.localStorage;
-    } catch {
-      return null;
-    }
+    return this.options.storage ?? browserStorage();
   }
 
   private get key(): string {

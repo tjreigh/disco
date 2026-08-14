@@ -17,9 +17,7 @@ import {
 import type {
   MultiplayerTransportError,
 } from '../platform/websocket-multiplayer-transport.js';
-import {
-  sameMultiplayerModeIdentity,
-} from '../shared/multiplayer-contracts.js';
+import { releaseGameplayFocus } from '../ui/dom-utils.js';
 import { GameControls } from '../ui/game-controls.js';
 import { GameHud } from '../ui/game-hud.js';
 import { MultiplayerHud } from '../ui/multiplayer-hud.js';
@@ -30,10 +28,15 @@ import { Renderer } from '../ui/rendering/renderer.js';
 import type { UiMounts } from '../ui/ui-root.js';
 import type { ZoomControls } from '../ui/zoom-controls.js';
 import {
+  admissionErrorText,
+  forgetAdmission,
+  privateRoomUrl,
+  readAdmission,
+  retainAdmission,
+} from './multiplayer-admission-store.js';
+import {
   MultiplayerSessionController,
 } from './multiplayer-session-controller.js';
-
-const ADMISSION_STORAGE_PREFIX = 'disco_multiplayer_admission:';
 
 /**
  * Browser composition for the first playable private Score Race.
@@ -120,14 +123,14 @@ export class MultiplayerGame {
     const api = new MultiplayerApiClient();
     try {
       const admission = await this.resolveAdmission(api);
-      retainAdmission(admission);
-      const inviteUrl = privateRoomUrl(admission.roomId);
+      if (!retainAdmission(SCORE_RACE_MODE, admission)) throw new Error('invalid-admission');
+      const inviteUrl = privateRoomUrl(admission.roomId, SCORE_RACE_MODE.id);
       history.replaceState(null, '', inviteUrl);
 
       this.transport = new WebSocketMultiplayerTransport(api.baseUrl, admission);
       this.unsubscribeTransportError = this.transport.subscribeError(error => {
         this.transportError = error;
-        if (error === 'invalid-credential') forgetAdmission(admission.roomId);
+        if (error === 'invalid-credential') forgetAdmission(SCORE_RACE_MODE, admission.roomId);
       });
       this.session = new MultiplayerSessionController({
         roomId: admission.roomId,
@@ -174,7 +177,7 @@ export class MultiplayerGame {
 
     const roomId = params.get('room')?.trim().toUpperCase();
     if (!roomId) throw new Error('missing-room');
-    const retained = readAdmission(roomId);
+    const retained = readAdmission(SCORE_RACE_MODE, roomId);
     if (retained) return retained;
     return await api.joinRoom(roomId, SCORE_RACE_MODE);
   }
@@ -262,82 +265,4 @@ export class MultiplayerGame {
       board.scoreIndicators,
     );
   };
-}
-
-function privateRoomUrl(roomId: string): string {
-  const url = new URL(location.href);
-  url.search = '';
-  url.searchParams.set('room', roomId);
-  url.hash = '';
-  return url.toString();
-}
-
-function storageKey(roomId: string): string {
-  return `${ADMISSION_STORAGE_PREFIX}${roomId}`;
-}
-
-function retainAdmission(admission: MultiplayerAdmission): void {
-  try {
-    sessionStorage.setItem(storageKey(admission.roomId), JSON.stringify(admission));
-  } catch {
-    // Reconnect persistence is best-effort; the live socket remains usable.
-  }
-}
-
-function readAdmission(roomId: string): MultiplayerAdmission | null {
-  try {
-    const raw = sessionStorage.getItem(storageKey(roomId));
-    if (!raw) return null;
-    const value = JSON.parse(raw) as unknown;
-    if (!isAdmission(value)
-      || value.roomId !== roomId
-      || !sameMultiplayerModeIdentity(value.mode, SCORE_RACE_MODE)) {
-      forgetAdmission(roomId);
-      return null;
-    }
-    return value;
-  } catch {
-    return null;
-  }
-}
-
-function forgetAdmission(roomId: string): void {
-  try {
-    sessionStorage.removeItem(storageKey(roomId));
-  } catch {
-    // Ignore storage restrictions.
-  }
-}
-
-function isAdmission(value: unknown): value is MultiplayerAdmission {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const admission = value as Record<string, unknown>;
-  const mode = admission.mode as Record<string, unknown> | null;
-  const rules = mode?.rules as Record<string, unknown> | null;
-  return typeof admission.roomId === 'string'
-    && typeof admission.playerId === 'string'
-    && typeof admission.reconnectCredential === 'string'
-    && typeof mode?.id === 'string'
-    && typeof mode.version === 'number'
-    && typeof rules?.id === 'string'
-    && typeof rules.version === 'number';
-}
-
-function admissionErrorText(error: unknown): string {
-  if (error instanceof Error && error.message === 'missing-room') {
-    return 'The private room link is missing a room code.';
-  }
-  if (typeof error === 'object' && error !== null && 'status' in error) {
-    const status = (error as { status?: unknown }).status;
-    if (status === 404) return 'This private room no longer exists.';
-    if (status === 409) return 'This private room is full or uses a different game version.';
-    if (status === 429) return 'Too many room attempts. Wait a moment and try again.';
-  }
-  return 'Could not reach the multiplayer service. Return home and try again.';
-}
-
-function releaseGameplayFocus(): void {
-  if (document.activeElement instanceof HTMLElement && document.activeElement.tabIndex >= 0) {
-    document.activeElement.blur();
-  }
 }

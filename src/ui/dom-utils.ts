@@ -22,6 +22,16 @@ export function blurOnClick<E extends HTMLElement>(element: E): E {
   return element;
 }
 
+// The inverse direction of the same input-routing decision: after a
+// gameplay action (a drop, a ready-toggle, a menu action) hands focus back
+// to whatever tabbable element happened to receive it, blur it immediately
+// so document-level keydown reaches the game again on the very next key.
+export function releaseGameplayFocus(): void {
+  if (document.activeElement instanceof HTMLElement && document.activeElement.tabIndex >= 0) {
+    document.activeElement.blur();
+  }
+}
+
 // UI classes clone their static markup out of a <template id="tpl-..."> that
 // the build stitches into index.html from src/ui/**/*.template.html (see
 // scripts/build-templates.mjs). A missing id means the template file and the
