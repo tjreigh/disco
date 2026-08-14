@@ -6,6 +6,7 @@ import type {
   MultiplayerPlayerProgress,
   MultiplayerLocalResult,
 } from '../shared/multiplayer-contracts.js';
+import { resultText, statusText, timerLabelText, timerText } from './multiplayer-hud-format.js';
 import { cloneTemplate, mustQuery } from './dom-utils.js';
 
 export interface MultiplayerHudView {
@@ -56,46 +57,8 @@ export class MultiplayerHud {
   }
 }
 
-function statusText(
-  phase: MultiplayerLocalPhase,
-  error: MultiplayerCompatibilityError | null,
-): string {
-  if (error === 'protocol-mismatch') return 'CLIENT UPDATE REQUIRED';
-  if (error === 'rules-mismatch') return 'RULES VERSION MISMATCH';
-  if (error === 'session-mismatch') return 'MATCH RULES MISMATCH';
-  if (error === 'invalid-message') return 'INVALID SERVER MESSAGE';
-  switch (phase) {
-    case 'lobby': return 'LOBBY';
-    case 'ready': return 'READY';
-    case 'countdown': return 'STARTING';
-    case 'playing': return 'LIVE';
-    case 'finished': return 'COMPLETE';
-    case 'disconnected': return 'OFFLINE';
-    case 'reconnecting': return 'REJOINING';
-  }
-}
-
-function timerLabelText(phase: MultiplayerLocalPhase): string {
-  return phase === 'countdown' ? 'STARTS IN' : phase === 'playing' ? 'TIME LEFT' : 'TIME';
-}
-
-function timerText(phase: MultiplayerLocalPhase, remainingMs: number | null): string {
-  if (remainingMs === null) return '—';
-  if (phase === 'countdown') return String(Math.max(1, Math.ceil(remainingMs / 1_000)));
-  if (phase !== 'playing') return '0:00';
-  const totalSeconds = Math.max(0, Math.ceil(remainingMs / 1_000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = String(totalSeconds % 60).padStart(2, '0');
-  return `${minutes}:${seconds}`;
-}
-
+/** Score Race-only: Disco Duel has no independent opponent-progress record. */
 function opponentText(progress: MultiplayerPlayerProgress | null): string {
   if (!progress) return 'WAITING';
   return `${progress.score.toLocaleString('en-US')}${progress.finished ? ' · DONE' : ''}`;
-}
-
-function resultText(result: MultiplayerLocalResult | null): string {
-  if (!result) return '';
-  const label = result.outcome === 'win' ? 'YOU WIN' : result.outcome === 'loss' ? 'YOU LOSE' : 'TIE';
-  return `${label} · ${result.localScore.toLocaleString('en-US')}–${result.opponentScore.toLocaleString('en-US')}`;
 }

@@ -13,6 +13,13 @@ import {
   SEVEN_BY_SEVEN,
 } from './modules.js';
 
+// Intentionally not imported from src/shared/multiplayer-contracts.ts,
+// which independently declares the same four values: api/tsconfig.game.json
+// compiles src/game in isolation (rootDir "../src/game") and rejects a raw
+// relative import that crosses into src/shared. See
+// src/test/game/modes.test.ts's "multiplayer mode identity stays in sync
+// with the wire protocol constants" describe block for the test that keeps
+// the two copies in sync.
 const SCORE_RACE_MODE_ID = 'score-race' as const;
 const SCORE_RACE_MODE_VERSION = 1 as const;
 const SCORE_RACE_RULES_VERSION = 1 as const;

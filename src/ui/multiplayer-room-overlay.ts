@@ -5,28 +5,19 @@ import type {
 import type {
   MultiplayerTransportError,
 } from '../platform/websocket-multiplayer-transport.js';
-import { blurOnClick, cloneTemplate, mustQuery } from './dom-utils.js';
+import type { MultiplayerCompatibilityError, MultiplayerPhase } from '../app/multiplayer-view-types.js';
+import { assertNever, blurOnClick, cloneTemplate, mustQuery } from './dom-utils.js';
 
 // Score Race and Disco Duel sessions both project this exact phase/error
 // shape (see MultiplayerLocalPhase / MultiplayerCompatibilityError in
 // multiplayer-session-controller.ts and SharedBoardPhase /
 // SharedBoardCompatibilityError in shared-board-session-controller.ts).
-// Defined independently here, rather than imported from either controller,
-// so this overlay stays a shared, mode-agnostic UI component.
-export type RoomOverlayPhase =
-  | 'lobby'
-  | 'ready'
-  | 'countdown'
-  | 'playing'
-  | 'finished'
-  | 'disconnected'
-  | 'reconnecting';
-
-export type RoomOverlayCompatibilityError =
-  | 'invalid-message'
-  | 'protocol-mismatch'
-  | 'rules-mismatch'
-  | 'session-mismatch';
+// This overlay imports the same canonical types from
+// app/multiplayer-view-types.ts (under overlay-specific names, since this
+// stays a shared, mode-agnostic UI component) rather than importing from
+// either mode-specific controller.
+export type RoomOverlayPhase = MultiplayerPhase;
+export type RoomOverlayCompatibilityError = MultiplayerCompatibilityError;
 
 export interface RoomOverlayView {
   readonly phase: RoomOverlayPhase;
@@ -243,6 +234,8 @@ function compatibilityErrorText(error: RoomOverlayCompatibilityError): string {
       return 'This match’s session settings don’t match what this client expects. Refresh and try again.';
     case 'invalid-message':
       return 'The server sent a message this client couldn’t understand. This is likely a bug — check the browser console for details.';
+    default:
+      return assertNever(error, 'multiplayer-room-overlay: compatibilityErrorText');
   }
 }
 

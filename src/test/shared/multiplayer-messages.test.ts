@@ -525,6 +525,136 @@ describe('turn-played server message', () => {
     expect(result).toEqual({ ok: false, error: 'invalid-message' });
   });
 
+  test('rejects a disc with an unrecognized kind', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'turn-played',
+      matchId: 'match-1',
+      board: emptyBoard(),
+      turnResult: {
+        ...turnResult,
+        steps: [{
+          kind: 'drop',
+          disc: { id: 1, value: 5, kind: 'radioactive' },
+          entryPos: { row: -1, col: 3 },
+          landPos: { row: 6, col: 3 },
+        }],
+      },
+      nextPlayerId: 'p2',
+      revision: 1,
+      ...discFields,
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects a disc with a present but empty ownerId rather than silently dropping it', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'turn-played',
+      matchId: 'match-1',
+      board: emptyBoard(),
+      turnResult: {
+        ...turnResult,
+        steps: [{
+          kind: 'drop',
+          disc: { id: 1, value: 5, kind: 'numbered', ownerId: '' },
+          entryPos: { row: -1, col: 3 },
+          landPos: { row: 6, col: 3 },
+        }],
+      },
+      nextPlayerId: 'p2',
+      revision: 1,
+      ...discFields,
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  // Nested wire values are rebuilt field-by-field, never spread verbatim, so
+  // an unrecognized extra field on one can't leak through — this is a
+  // considered permissive policy, not an oversight (see parseWireDisc).
+  test('tolerates an unknown extra field on a nested disc', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'turn-played',
+      matchId: 'match-1',
+      board: emptyBoard(),
+      turnResult: {
+        ...turnResult,
+        steps: [{
+          kind: 'drop',
+          disc: { id: 1, value: 5, kind: 'numbered', futureField: 'ignored' },
+          entryPos: { row: -1, col: 3 },
+          landPos: { row: 6, col: 3 },
+        }],
+      },
+      nextPlayerId: 'p2',
+      revision: 1,
+      ...discFields,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test('rejects a push step with an unrecognized edge', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'turn-played',
+      matchId: 'match-1',
+      board: emptyBoard(),
+      turnResult: {
+        ...turnResult,
+        steps: [{ kind: 'push', edge: 'diagonal', newDiscs: [] }],
+      },
+      nextPlayerId: 'p2',
+      revision: 1,
+      ...discFields,
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects a bonus step with an unrecognized bonusKind', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'turn-played',
+      matchId: 'match-1',
+      board: emptyBoard(),
+      turnResult: {
+        ...turnResult,
+        steps: [{ kind: 'bonus', bonusKind: 'combo', pointsAwarded: 10 }],
+      },
+      nextPlayerId: 'p2',
+      revision: 1,
+      ...discFields,
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects an unrecognized gameOverReason instead of silently dropping it', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'turn-expired',
+      matchId: 'match-1',
+      board: emptyBoard(),
+      turnResult: {
+        ...turnResult,
+        column: null,
+        steps: [],
+        gameOver: true,
+        gameOverReason: 'time-limit-exceeded',
+      },
+      nextPlayerId: 'p2',
+      revision: 1,
+      ...discFields,
+      turnsRemaining: 0,
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
   test('accepts a null column when the timer expired with no available move', () => {
     const result = parseMultiplayerServerMessage({
       ...base,

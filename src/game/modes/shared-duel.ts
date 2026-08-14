@@ -13,6 +13,14 @@ import {
   SEVEN_BY_SEVEN,
 } from './modules.js';
 
+// Intentionally not imported from src/shared/multiplayer-contracts.ts,
+// which independently declares the same five values (plus its own
+// SHARED_DUEL_BOARD_ROWS/COLS mirroring SEVEN_BY_SEVEN's 7x7):
+// api/tsconfig.game.json compiles src/game in isolation (rootDir
+// "../src/game") and rejects a raw relative import that crosses into
+// src/shared. See src/test/game/modes.test.ts's "multiplayer mode identity
+// stays in sync with the wire protocol constants" describe block for the
+// test that keeps the copies in sync.
 const SHARED_DUEL_MODE_ID = 'shared-duel' as const;
 const SHARED_DUEL_MODE_VERSION = 1 as const;
 const SHARED_DUEL_RULES_VERSION = 1 as const;

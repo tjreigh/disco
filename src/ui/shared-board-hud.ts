@@ -1,26 +1,11 @@
 import type { MultiplayerLocalResult } from '../shared/multiplayer-contracts.js';
+import type { MultiplayerCompatibilityError, MultiplayerPhase } from '../app/multiplayer-view-types.js';
+import { resultText, statusText, timerLabelText, timerText } from './multiplayer-hud-format.js';
 import { cloneTemplate, mustQuery } from './dom-utils.js';
 
-// Score Race and Disco Duel sessions both project a phase/compatibility-error
-// shape close to this one, but Disco Duel's actual content differs (a turn
-// indicator, no independent opponent-progress record) — so this stays its
-// own local union rather than importing SharedBoardPhase /
-// SharedBoardCompatibilityError from shared-board-session-controller.ts,
-// mirroring the mode-agnostic precedent set by RoomOverlayView.
-export type SharedBoardHudPhase =
-  | 'lobby'
-  | 'ready'
-  | 'countdown'
-  | 'playing'
-  | 'finished'
-  | 'disconnected'
-  | 'reconnecting';
-
-export type SharedBoardHudCompatibilityError =
-  | 'invalid-message'
-  | 'protocol-mismatch'
-  | 'rules-mismatch'
-  | 'session-mismatch';
+/** Disco Duel's names for the canonical MultiplayerPhase/MultiplayerCompatibilityError (see app/multiplayer-view-types.ts). */
+export type SharedBoardHudPhase = MultiplayerPhase;
+export type SharedBoardHudCompatibilityError = MultiplayerCompatibilityError;
 
 export interface SharedBoardHudView {
   readonly phase: SharedBoardHudPhase;
@@ -81,46 +66,8 @@ export class SharedBoardHud {
   }
 }
 
-function statusText(
-  phase: SharedBoardHudPhase,
-  error: SharedBoardHudCompatibilityError | null,
-): string {
-  if (error === 'protocol-mismatch') return 'CLIENT UPDATE REQUIRED';
-  if (error === 'rules-mismatch') return 'RULES VERSION MISMATCH';
-  if (error === 'session-mismatch') return 'MATCH RULES MISMATCH';
-  if (error === 'invalid-message') return 'INVALID SERVER MESSAGE';
-  switch (phase) {
-    case 'lobby': return 'LOBBY';
-    case 'ready': return 'READY';
-    case 'countdown': return 'STARTING';
-    case 'playing': return 'LIVE';
-    case 'finished': return 'COMPLETE';
-    case 'disconnected': return 'OFFLINE';
-    case 'reconnecting': return 'REJOINING';
-  }
-}
-
+/** Disco Duel-only: Score Race has no per-turn ownership to announce. */
 function turnText(phase: SharedBoardHudPhase, isMyTurn: boolean): string {
   if (phase !== 'playing') return '';
   return isMyTurn ? 'YOUR TURN' : "OPPONENT'S TURN";
-}
-
-function timerLabelText(phase: SharedBoardHudPhase): string {
-  return phase === 'countdown' ? 'STARTS IN' : phase === 'playing' ? 'TIME LEFT' : 'TIME';
-}
-
-function timerText(phase: SharedBoardHudPhase, remainingMs: number | null): string {
-  if (remainingMs === null) return '—';
-  if (phase === 'countdown') return String(Math.max(1, Math.ceil(remainingMs / 1_000)));
-  if (phase !== 'playing') return '0:00';
-  const totalSeconds = Math.max(0, Math.ceil(remainingMs / 1_000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = String(totalSeconds % 60).padStart(2, '0');
-  return `${minutes}:${seconds}`;
-}
-
-function resultText(result: MultiplayerLocalResult | null): string {
-  if (!result) return '';
-  const label = result.outcome === 'win' ? 'YOU WIN' : result.outcome === 'loss' ? 'YOU LOSE' : 'TIE';
-  return `${label} · ${result.localScore.toLocaleString('en-US')}–${result.opponentScore.toLocaleString('en-US')}`;
 }

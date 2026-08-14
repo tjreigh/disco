@@ -1,8 +1,10 @@
 import type {
   MultiplayerClientMessage,
   MultiplayerConnectionState,
+  MultiplayerTransportErrorCode,
 } from '../shared/multiplayer-contracts.js';
 import {
+  isMultiplayerTransportErrorCode,
   MULTIPLAYER_PROTOCOL_VERSION,
   sameMultiplayerModeIdentity,
 } from '../shared/multiplayer-contracts.js';
@@ -14,19 +16,8 @@ import type { MultiplayerAdmission } from './multiplayer-api-client.js';
 
 const RECONNECT_DELAYS_MS = [250, 500, 1_000, 2_000, 5_000] as const;
 
-export type MultiplayerTransportError =
-  | 'invalid-message'
-  | 'protocol-mismatch'
-  | 'mode-mismatch'
-  | 'room-not-found'
-  | 'room-full'
-  | 'invalid-credential'
-  | 'stale-connection'
-  | 'invalid-state'
-  | 'match-mismatch'
-  | 'stale-progress'
-  | 'conflicting-progress'
-  | 'non-monotonic-progress';
+/** This transport's name for the canonical MultiplayerTransportErrorCode (see shared/multiplayer-contracts.ts). */
+export type MultiplayerTransportError = MultiplayerTransportErrorCode;
 
 interface TransportErrorMessage {
   readonly type: 'room-transport-error';
@@ -247,25 +238,5 @@ function isTransportError(value: unknown): value is TransportErrorMessage {
   const record = value as Record<string, unknown>;
   return Object.keys(record).length === 2
     && record.type === 'room-transport-error'
-    && isMultiplayerTransportError(record.error);
-}
-
-function isMultiplayerTransportError(value: unknown): value is MultiplayerTransportError {
-  switch (value) {
-    case 'invalid-message':
-    case 'protocol-mismatch':
-    case 'mode-mismatch':
-    case 'room-not-found':
-    case 'room-full':
-    case 'invalid-credential':
-    case 'stale-connection':
-    case 'invalid-state':
-    case 'match-mismatch':
-    case 'stale-progress':
-    case 'conflicting-progress':
-    case 'non-monotonic-progress':
-      return true;
-    default:
-      return false;
-  }
+    && isMultiplayerTransportErrorCode(record.error);
 }

@@ -3,6 +3,7 @@ import type { RawData, WebSocket } from 'ws';
 import { z } from 'zod';
 import {
   MULTIPLAYER_PROTOCOL_VERSION,
+  multiplayerModeIdentity,
   parseMultiplayerClientMessage,
 } from './contracts.js';
 import type {
@@ -243,7 +244,7 @@ export async function registerMultiplayerGateway(
     if (!service) return sendAdmissionResult(reply, modeMismatch(), 201);
     const result = service.createRoom({
       protocolVersion: body.protocolVersion,
-      mode: copyMode(body.mode),
+      mode: multiplayerModeIdentity(body.mode),
     });
     if (result.ok) roomOwners.set(result.value.roomId, service);
     return sendAdmissionResult(reply, result, 201);
@@ -260,7 +261,7 @@ export async function registerMultiplayerGateway(
     const result = service.joinRoom({
       roomId,
       protocolVersion: body.protocolVersion,
-      mode: copyMode(body.mode),
+      mode: multiplayerModeIdentity(body.mode),
     });
     if (result.ok) roomOwners.set(roomId, service);
     return sendAdmissionResult(reply, result, 201);
@@ -395,14 +396,6 @@ function statusForRoomError(error: RoomServiceError): number {
     default:
       return 400;
   }
-}
-
-function copyMode(mode: MultiplayerModeIdentity): MultiplayerModeIdentity {
-  return {
-    id: mode.id,
-    version: mode.version,
-    rules: { id: mode.rules.id, version: mode.rules.version },
-  };
 }
 
 function modeMismatch(): RoomServiceResult<never> {

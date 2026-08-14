@@ -22,6 +22,7 @@ import type {
   MultiplayerPlayerProgress,
   MultiplayerProgress,
   MultiplayerServerMessage,
+  RoomServiceErrorCode,
 } from './contracts.js';
 
 const DEFAULT_COUNTDOWN_MS = 3_000;
@@ -95,18 +96,8 @@ export interface RoomDelivery {
   readonly message: MultiplayerServerMessage;
 }
 
-export type RoomServiceError =
-  | 'protocol-mismatch'
-  | 'mode-mismatch'
-  | 'room-not-found'
-  | 'room-full'
-  | 'invalid-credential'
-  | 'stale-connection'
-  | 'invalid-state'
-  | 'match-mismatch'
-  | 'stale-progress'
-  | 'conflicting-progress'
-  | 'non-monotonic-progress';
+/** This service's name for the canonical RoomServiceErrorCode (see src/shared/multiplayer-contracts.ts). */
+export type RoomServiceError = RoomServiceErrorCode;
 
 /**
  * A recoverable failure always carries at least one delivery: the corrective
@@ -738,7 +729,7 @@ export class ScoreRaceRoomService {
     return {
       protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
       roomId: room.id,
-      mode: copyMode(SCORE_RACE_ROOM_MODE),
+      mode: multiplayerModeIdentity(SCORE_RACE_ROOM_MODE),
     } as const;
   }
 
@@ -750,7 +741,7 @@ export class ScoreRaceRoomService {
         this.values.createReconnectCredential(),
         'reconnect credential',
       ),
-      mode: copyMode(SCORE_RACE_ROOM_MODE),
+      mode: multiplayerModeIdentity(SCORE_RACE_ROOM_MODE),
     };
   }
 
@@ -865,10 +856,6 @@ function playerProgress(player: RoomPlayer): MultiplayerPlayerProgress {
     ...copyProgress(player.progress),
     finished: player.finished,
   };
-}
-
-function copyMode(mode: MultiplayerModeIdentity): MultiplayerModeIdentity {
-  return multiplayerModeIdentity(mode);
 }
 
 function digestCredential(credential: string): Buffer {

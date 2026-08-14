@@ -1,9 +1,9 @@
 import { StepKind } from '../game/events.js';
-import type { BonusKind, PhysicsStep } from '../game/events.js';
+import type { PhysicsStep } from '../game/events.js';
 import { SHARED_DUEL_MODE } from '../game/modes/index.js';
 import { DiscKind } from '../game/model.js';
 import { computeOwnerScoreDelta } from '../game/scoring/owner-attribution.js';
-import type { Board, Disc, EntryEdge, GridPos } from '../game/model.js';
+import type { Board, Disc, GridPos } from '../game/model.js';
 import type { GameState } from '../game/state.js';
 import { GamePhase } from '../game/state.js';
 import { emptyStats } from '../game/stats.js';
@@ -15,7 +15,7 @@ import type { MultiplayerAdmission } from '../platform/multiplayer-api-client.js
 import { UserSettingsStore } from '../platform/user-settings-store.js';
 import { WebSocketMultiplayerTransport } from '../platform/websocket-multiplayer-transport.js';
 import type { MultiplayerTransportError } from '../platform/websocket-multiplayer-transport.js';
-import type { WireBoard, WireDisc, WireGridPos, WireStep } from '../shared/multiplayer-contracts.js';
+import type { WireBoard, WireDisc, WireDiscKind, WireGridPos, WireStep } from '../shared/multiplayer-contracts.js';
 import { GameControls } from '../ui/game-controls.js';
 import { GameHud } from '../ui/game-hud.js';
 import { MultiplayerPauseMenu } from '../ui/multiplayer-pause-menu.js';
@@ -510,7 +510,11 @@ function wireBoardToBoard(wire: WireBoard): Board {
   ) as Board;
 }
 
-const KIND_MAP: Record<string, DiscKind> = {
+// wire.kind is validated against WIRE_DISC_KINDS by parseWireDisc before this
+// ever runs — a Record (not a fallback default) so a disc kind added to one
+// side without the other becomes a type error here, not a silent mapping to
+// Numbered.
+const WIRE_DISC_KIND_TO_DISC_KIND: Record<WireDiscKind, DiscKind> = {
   numbered: DiscKind.Numbered,
   'single-cracked': DiscKind.SingleCracked,
   'double-cracked': DiscKind.DoubleCracked,
@@ -520,7 +524,7 @@ function wireDiscToDisc(wire: WireDisc): Disc {
   const base: Pick<Disc, 'id' | 'value' | 'kind'> = {
     id: wire.id,
     value: wire.value,
-    kind: KIND_MAP[wire.kind] ?? DiscKind.Numbered,
+    kind: WIRE_DISC_KIND_TO_DISC_KIND[wire.kind],
   };
   if (wire.ownerId !== undefined) {
     return { ...base, ownerId: wire.ownerId };
@@ -571,13 +575,13 @@ function wireStepToPhysicsStep(wire: WireStep): PhysicsStep {
     case 'push':
       return {
         kind: StepKind.Push,
-        edge: wire.edge as EntryEdge,
+        edge: wire.edge,
         newDiscs: wire.newDiscs.map(wireDiscToDisc),
       };
     case 'bonus':
       return {
         kind: StepKind.Bonus,
-        bonusKind: wire.bonusKind as BonusKind,
+        bonusKind: wire.bonusKind,
         pointsAwarded: wire.pointsAwarded,
       };
   }

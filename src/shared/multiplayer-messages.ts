@@ -1,4 +1,11 @@
-import { MULTIPLAYER_PROTOCOL_VERSION } from './multiplayer-contracts.js';
+import {
+  isWireBonusKind,
+  isWireDiscKind,
+  isWireEntryEdge,
+  MULTIPLAYER_PROTOCOL_VERSION,
+  SHARED_DUEL_BOARD_COLS,
+  SHARED_DUEL_BOARD_ROWS,
+} from './multiplayer-contracts.js';
 import type {
   MultiplayerClientMessage,
   MultiplayerMatchResult,
@@ -20,12 +27,7 @@ import type {
   WireRevealStep,
   WireStep,
 } from './multiplayer-contracts.js';
-
-// Shared-duel's board is fixed at 7x7 (see SHARED_DUEL_RULES.board in
-// src/game/modes) — hardcoded here rather than imported so this parser stays
-// framework-free, same rationale as isLaneIndex's hardcoded 0-6 below.
-const SHARED_DUEL_BOARD_ROWS = 7;
-const SHARED_DUEL_BOARD_COLS = 7;
+import { isGameOverReason } from './game-values.js';
 
 export type MultiplayerMessageError = 'invalid-message' | 'protocol-mismatch';
 
@@ -551,14 +553,24 @@ function isGridCoordinate(value: unknown): value is number {
   return Number.isSafeInteger(value) && Number(value) >= -1;
 }
 
+// Nested wire values (this disc, WireGridPos, and the per-kind step payloads
+// below) deliberately do not enforce hasExactKeys the way top-level message
+// envelopes do: an unrecognized extra field on a disc or position is
+// ignored rather than rejecting the whole message, since these values are
+// rebuilt field-by-field into fresh objects (never spread verbatim), so a
+// stray key can't leak through. This is a considered choice, not an
+// oversight — see the "tolerates an unknown extra field on a nested disc"
+// case in multiplayer-messages.test.ts.
 function parseWireDisc(value: unknown): WireDisc | null {
   if (!isRecord(value)) return null;
   if (!('id' in value) || !isNonNegativeInteger(value.id)) return null;
   if (!('value' in value) || !isDiscValue(value.value)) return null;
-  if (!('kind' in value) || typeof value.kind !== 'string' || value.kind.trim().length === 0) return null;
-  const ownerId = 'ownerId' in value && typeof value.ownerId === 'string' && value.ownerId.trim().length > 0
-    ? value.ownerId
-    : undefined;
+  if (!('kind' in value) || !isWireDiscKind(value.kind)) return null;
+  let ownerId: string | undefined;
+  if ('ownerId' in value) {
+    if (typeof value.ownerId !== 'string' || value.ownerId.trim().length === 0) return null;
+    ownerId = value.ownerId;
+  }
   return {
     id: value.id,
     value: value.value,
@@ -582,10 +594,11 @@ function parseTurnResultWire(value: unknown): TurnResultWire | null {
     || !isNonNegativeInteger(value.stackSize)
     || !Array.isArray(value.steps)
     || typeof value.gameOver !== 'boolean') return null;
-  const gameOverReason = value.gameOverReason !== undefined
-    && (value.gameOverReason === 'push-overflow' || value.gameOverReason === 'board-full')
-    ? value.gameOverReason
-    : undefined;
+  let gameOverReason: TurnResultWire['gameOverReason'];
+  if ('gameOverReason' in value && value.gameOverReason !== undefined) {
+    if (!isGameOverReason(value.gameOverReason)) return null;
+    gameOverReason = value.gameOverReason;
+  }
   const steps: WireStep[] = [];
   for (const step of value.steps) {
     const parsed = parseWireStep(step);
@@ -658,7 +671,7 @@ function parseWireStep(value: unknown): WireStep | null {
     }
     case 'push': {
       if (!('edge' in value) || !('newDiscs' in value)
-        || typeof value.edge !== 'string' || !Array.isArray(value.newDiscs)) return null;
+        || !isWireEntryEdge(value.edge) || !Array.isArray(value.newDiscs)) return null;
       const newDiscs = value.newDiscs.map(parseWireDisc);
       if (newDiscs.some(d => d === null)) return null;
       return {
@@ -669,7 +682,7 @@ function parseWireStep(value: unknown): WireStep | null {
     }
     case 'bonus': {
       if (!('bonusKind' in value) || !('pointsAwarded' in value)
-        || typeof value.bonusKind !== 'string') return null;
+        || !isWireBonusKind(value.bonusKind)) return null;
       if (!isNonNegativeInteger(value.pointsAwarded)) return null;
       return { kind: 'bonus', bonusKind: value.bonusKind, pointsAwarded: value.pointsAwarded };
     }

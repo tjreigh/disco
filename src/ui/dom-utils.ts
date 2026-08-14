@@ -42,3 +42,11 @@ export function mustQuery<T extends Element>(root: ParentNode, selector: string)
   if (!element) throw new Error(`mustQuery: no element matching "${selector}"`);
   return element;
 }
+
+// Compile-time exhaustiveness check for switches over a closed union: adding
+// a member to the union without adding a matching case becomes a type error
+// here (assigning it to `never`) instead of a silently unhandled case at
+// runtime — see e.g. multiplayer-hud-format.ts's statusText.
+export function assertNever(value: never, context: string): never {
+  throw new Error(`${context}: unhandled case ${JSON.stringify(value)}`);
+}

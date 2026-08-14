@@ -34,9 +34,8 @@ import {
   deserializeBoard, parseSaveGame, SAVE_GAME_VERSION,
   serializeBoard, type SaveGameV1, type SavedGenerationState, type SavedRewindCheckpoint,
 } from './save.js';
-
-export type RejectedTurnReason = 'game-over' | 'wrong-phase' | 'invalid-column' | 'full-column' | 'tilt-required';
-export type GameOverReason = 'push-overflow' | 'board-full';
+import type { GameOverReason, RejectedTurnReason } from './turn-types.js';
+export type { GameOverReason, RejectedTurnReason } from './turn-types.js';
 
 export interface TurnResult {
   accepted: boolean;

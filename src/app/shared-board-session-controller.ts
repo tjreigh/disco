@@ -15,6 +15,7 @@ import type {
 } from '../shared/multiplayer-contracts.js';
 import { parseMultiplayerServerMessage } from '../shared/multiplayer-messages.js';
 import type { MultiplayerModeDefinition } from '../game/modes/mode.js';
+import type { MultiplayerCompatibilityError, MultiplayerPhase } from './multiplayer-view-types.js';
 
 export interface SessionClock {
   now(): number;
@@ -26,20 +27,9 @@ export interface SharedBoardTransport {
   subscribeConnection(listener: (state: MultiplayerConnectionState) => void): () => void;
 }
 
-export type SharedBoardPhase =
-  | 'lobby'
-  | 'ready'
-  | 'countdown'
-  | 'playing'
-  | 'finished'
-  | 'disconnected'
-  | 'reconnecting';
-
-export type SharedBoardCompatibilityError =
-  | 'invalid-message'
-  | 'protocol-mismatch'
-  | 'rules-mismatch'
-  | 'session-mismatch';
+/** Disco Duel's names for the canonical MultiplayerPhase/MultiplayerCompatibilityError (see multiplayer-view-types.ts). */
+export type SharedBoardPhase = MultiplayerPhase;
+export type SharedBoardCompatibilityError = MultiplayerCompatibilityError;
 
 export interface SharedBoardSessionView {
   readonly phase: SharedBoardPhase;

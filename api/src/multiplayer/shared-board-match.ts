@@ -5,14 +5,17 @@ import type { TurnResult } from '#game-engine';
 import type { PhysicsStep } from '#game-engine';
 import { computeOwnerScoreDelta } from '#game-scoring';
 import { isColumnFull } from '#game-board';
+import { DiscKind } from '#game-model';
 import type { Board, Disc } from '#game-model';
 import { MULTIPLAYER_PROTOCOL_VERSION } from '#multiplayer-contracts';
 import type {
+  GameOverReason,
   MultiplayerModeIdentity,
   MultiplayerPlayerScore,
   TurnResultWire,
   WireBoard,
   WireDisc,
+  WireDiscKind,
   WireDropStep,
   WireClearStep,
   WireFallStep,
@@ -352,14 +355,24 @@ export type MatchTurnResult =
       readonly steps: readonly WireStep[];
     } & (
       | { readonly gameOver: false }
-      | { readonly gameOver: true; readonly gameOverReason: 'push-overflow' | 'board-full' }
+      | { readonly gameOver: true; readonly gameOverReason: GameOverReason }
     ));
 
+// A Record (not a fallback default) so a DiscKind added to the game engine
+// without a matching wire literal becomes a type error here, not a value
+// silently coerced to the wrong wire string.
+const DISC_KIND_TO_WIRE: Record<DiscKind, WireDiscKind> = {
+  [DiscKind.Numbered]: 'numbered',
+  [DiscKind.SingleCracked]: 'single-cracked',
+  [DiscKind.DoubleCracked]: 'double-cracked',
+};
+
 function toWireDisc(disc: Disc): WireDisc {
+  const kind = DISC_KIND_TO_WIRE[disc.kind];
   if (disc.ownerId !== undefined) {
-    return { id: disc.id, value: disc.value, kind: disc.kind as string, ownerId: disc.ownerId };
+    return { id: disc.id, value: disc.value, kind, ownerId: disc.ownerId };
   }
-  return { id: disc.id, value: disc.value, kind: disc.kind as string };
+  return { id: disc.id, value: disc.value, kind };
 }
 
 function serializeBoardForWire(board: Board): WireBoard {

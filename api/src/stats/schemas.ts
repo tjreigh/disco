@@ -1,8 +1,14 @@
 import { z } from 'zod';
 
-// Must cover every id in the front end's GAME_MODES (src/game/modes/index.ts).
-// Adding a mode there without adding it here reproduces audit-2 finding #1:
+// Must cover exactly the ids of solo modes with stats/persistence enabled in
+// src/game/modes/index.ts's SOLO_MODES registry (currently every solo mode).
+// Score Race and Disco Duel are multiplayer-only and must not be added here;
+// solo stats/save sync is a different capability from multiplayer play. If a
+// multiplayer mode ever needs its own stats/save capability, give it a
+// dedicated schema rather than widening this one. Adding a stats-eligible
+// solo mode without adding it here reproduces audit-2 finding #1:
 // signed-in players in the new mode get 400s on every stats sync.
+// api/test/mode-ids.test.ts asserts this list against the live registry.
 export const modeIdSchema = z.enum(['classic', 'gravity', 'stack', 'paradox']);
 
 export const statsSchema = z.object({

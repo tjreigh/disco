@@ -18,6 +18,8 @@ import type {
 } from '../shared/multiplayer-contracts.js';
 import { LocalBoardSession } from './local-board-session.js';
 import type { LocalBoardSessionView } from './local-board-session.js';
+import type { MultiplayerCompatibilityError, MultiplayerPhase } from './multiplayer-view-types.js';
+export type { MultiplayerCompatibilityError } from './multiplayer-view-types.js';
 
 export interface SessionClock {
   now(): number;
@@ -29,20 +31,8 @@ export interface MultiplayerSessionTransport {
   subscribeConnection(listener: (state: MultiplayerConnectionState) => void): () => void;
 }
 
-export type MultiplayerLocalPhase =
-  | 'lobby'
-  | 'ready'
-  | 'countdown'
-  | 'playing'
-  | 'finished'
-  | 'disconnected'
-  | 'reconnecting';
-
-export type MultiplayerCompatibilityError =
-  | 'invalid-message'
-  | 'protocol-mismatch'
-  | 'rules-mismatch'
-  | 'session-mismatch';
+/** Score Race's name for the canonical MultiplayerPhase (see multiplayer-view-types.ts). */
+export type MultiplayerLocalPhase = MultiplayerPhase;
 
 export interface MultiplayerSessionView {
   readonly phase: MultiplayerLocalPhase;

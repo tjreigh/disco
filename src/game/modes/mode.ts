@@ -1,5 +1,6 @@
 import type { RevealStep } from '../events.js';
 import type { Board, Disc, GridPos } from '../model.js';
+import type { GameOverReason } from '../turn-types.js';
 
 export interface BoardRules {
   readonly kind: 'rectangular-grid@1';
@@ -103,7 +104,7 @@ export interface FailureRules {
   readonly gameOverReason: (
     pushOverflow: boolean,
     board: Board,
-  ) => 'push-overflow' | 'board-full' | undefined;
+  ) => GameOverReason | undefined;
 }
 
 /** Enables deterministic rewind through a bounded history of stable turns. */

@@ -1,3 +1,6 @@
+import type { GameOverReason } from './game-values.js';
+export type { GameOverReason } from './game-values.js';
+
 /** Stable identities and value contracts shared by multiplayer messages. */
 export const MULTIPLAYER_PROTOCOL_VERSION = 3 as const;
 export const SCORE_RACE_MODE_ID = 'score-race' as const;
@@ -10,6 +13,19 @@ export const SHARED_DUEL_MODE_VERSION = 1 as const;
 export const SHARED_DUEL_RULES_VERSION = 1 as const;
 export const SHARED_DUEL_TURN_TIMEOUT_MS = 15_000 as const;
 export const SHARED_DUEL_DISRUPTION_THRESHOLD = 3 as const;
+/**
+ * Named runtime values, used directly by multiplayer-messages.ts's wire
+ * parser to validate exact board shape. Mirrors SEVEN_BY_SEVEN, the board
+ * rules src/game/modes/shared-duel.ts actually builds
+ * SHARED_DUEL_RULES.board from — declared independently, not imported,
+ * because api/tsconfig.contracts.json compiles src/shared in isolation and
+ * rejects a raw relative import into src/game. See
+ * src/test/game/modes.test.ts's "multiplayer mode identity stays in sync
+ * with the wire protocol constants" describe block for the test that keeps
+ * the two copies in sync.
+ */
+export const SHARED_DUEL_BOARD_ROWS = 7 as const;
+export const SHARED_DUEL_BOARD_COLS = 7 as const;
 
 export type MultiplayerProtocolVersion = typeof MULTIPLAYER_PROTOCOL_VERSION;
 
@@ -215,6 +231,66 @@ export type MultiplayerServerMessage =
 
 export type MultiplayerConnectionState = 'connected' | 'disconnected' | 'reconnecting';
 
+/**
+ * Room-service failure codes shared by the API's room services and the
+ * browser transport that surfaces them. Declared as a runtime tuple, not
+ * just a type, so both sides validate untrusted input against the same
+ * membership check rather than trusting a cast.
+ */
+export const ROOM_SERVICE_ERRORS = [
+  'protocol-mismatch',
+  'mode-mismatch',
+  'room-not-found',
+  'room-full',
+  'invalid-credential',
+  'stale-connection',
+  'invalid-state',
+  'match-mismatch',
+  'stale-progress',
+  'conflicting-progress',
+  'non-monotonic-progress',
+] as const;
+export type RoomServiceErrorCode = (typeof ROOM_SERVICE_ERRORS)[number];
+
+/**
+ * Every room-service error, plus 'invalid-message' — a wire-parse failure
+ * the room-service layer never raises itself (the browser transport catches
+ * malformed messages before any room-service call happens) but still needs
+ * to represent in its own error channel.
+ */
+export const MULTIPLAYER_TRANSPORT_ERRORS = [...ROOM_SERVICE_ERRORS, 'invalid-message'] as const;
+export type MultiplayerTransportErrorCode = (typeof MULTIPLAYER_TRANSPORT_ERRORS)[number];
+const MULTIPLAYER_TRANSPORT_ERROR_SET: ReadonlySet<string> = new Set(MULTIPLAYER_TRANSPORT_ERRORS);
+export function isMultiplayerTransportErrorCode(
+  value: unknown,
+): value is MultiplayerTransportErrorCode {
+  return typeof value === 'string' && MULTIPLAYER_TRANSPORT_ERROR_SET.has(value);
+}
+
+/** Mirrors src/game/model.ts's DiscKind enum values, declared independently since src/shared must not import from src/game. */
+export const WIRE_DISC_KINDS = ['numbered', 'single-cracked', 'double-cracked'] as const;
+export type WireDiscKind = (typeof WIRE_DISC_KINDS)[number];
+const WIRE_DISC_KIND_SET: ReadonlySet<string> = new Set(WIRE_DISC_KINDS);
+export function isWireDiscKind(value: unknown): value is WireDiscKind {
+  return typeof value === 'string' && WIRE_DISC_KIND_SET.has(value);
+}
+
+/** Mirrors src/game/model.ts's EntryEdge. */
+export const WIRE_ENTRY_EDGES = ['top', 'right', 'bottom', 'left'] as const;
+export type WireEntryEdge = (typeof WIRE_ENTRY_EDGES)[number];
+const WIRE_ENTRY_EDGE_SET: ReadonlySet<string> = new Set(WIRE_ENTRY_EDGES);
+export function isWireEntryEdge(value: unknown): value is WireEntryEdge {
+  return typeof value === 'string' && WIRE_ENTRY_EDGE_SET.has(value);
+}
+
+/** Mirrors src/game/events.ts's BonusKind. */
+export const WIRE_BONUS_KINDS = ['level', 'board-clear', 'stack'] as const;
+export type WireBonusKind = (typeof WIRE_BONUS_KINDS)[number];
+const WIRE_BONUS_KIND_SET: ReadonlySet<string> = new Set(WIRE_BONUS_KINDS);
+export function isWireBonusKind(value: unknown): value is WireBonusKind {
+  return typeof value === 'string' && WIRE_BONUS_KIND_SET.has(value);
+}
+
 export interface WireGridPos {
   readonly row: number;
   readonly col: number;
@@ -223,7 +299,7 @@ export interface WireGridPos {
 export interface WireDisc {
   readonly id: number;
   readonly value: number;
-  readonly kind: string;
+  readonly kind: WireDiscKind;
   readonly ownerId?: string;
 }
 
@@ -264,13 +340,13 @@ export interface WireRevealStep {
 
 export interface WirePushStep {
   readonly kind: 'push';
-  readonly edge: string;
+  readonly edge: WireEntryEdge;
   readonly newDiscs: WireDisc[];
 }
 
 export interface WireBonusStep {
   readonly kind: 'bonus';
-  readonly bonusKind: string;
+  readonly bonusKind: WireBonusKind;
   readonly pointsAwarded: number;
 }
 
@@ -291,7 +367,7 @@ export interface TurnResultWire {
   readonly stackSize: number;
   readonly steps: readonly WireStep[];
   readonly gameOver: boolean;
-  readonly gameOverReason?: 'push-overflow' | 'board-full';
+  readonly gameOverReason?: GameOverReason;
 }
 
 export function rulesIdentity(value: RulesIdentity): RulesIdentity {

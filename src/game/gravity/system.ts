@@ -11,16 +11,10 @@ import {
   entryEdgeForAngle, entryPositionForLane, isLaneFull, settleContinuous,
   snapAngleToEightDirections,
 } from './settling.js';
-
-export type GravityRejectedTurnReason =
-  | 'game-over'
-  | 'wrong-phase'
-  | 'invalid-column'
-  | 'full-column'
-  | 'tilt-required';
+import type { RejectedTurnReason } from '../turn-types.js';
 
 export type GravityCommitResult =
-  | { accepted: false; reason: GravityRejectedTurnReason }
+  | { accepted: false; reason: RejectedTurnReason }
   | { accepted: true; steps: PhysicsStep[] };
 
 export interface GravityResolutionContext {
@@ -72,7 +66,7 @@ export class GravitySystem {
     return board[0]!.length;
   }
 
-  stageDrop(state: GameState, lane: number): GravityRejectedTurnReason | undefined {
+  stageDrop(state: GameState, lane: number): RejectedTurnReason | undefined {
     if (!this.enabled || !state.gravity) return 'wrong-phase';
     if (state.phase === GamePhase.GameOver) return 'game-over';
     if (state.phase !== GamePhase.WaitingForDrop) return 'wrong-phase';

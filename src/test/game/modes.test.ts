@@ -28,12 +28,16 @@ import {
   SCORE_RACE_MODE_ID,
   SCORE_RACE_MODE_VERSION,
   SCORE_RACE_RULES_VERSION,
+  SHARED_DUEL_BOARD_COLS,
+  SHARED_DUEL_BOARD_ROWS,
   SHARED_DUEL_DISRUPTION_THRESHOLD,
   SHARED_DUEL_MODE_ID,
   SHARED_DUEL_MODE_VERSION,
   SHARED_DUEL_RULES_VERSION,
   SHARED_DUEL_TURN_TIMEOUT_MS,
 } from '../../shared/multiplayer-contracts.js';
+import { GAME_OVER_REASONS } from '../../game/turn-types.js';
+import { GAME_OVER_REASONS as SHARED_GAME_OVER_REASONS } from '../../shared/game-values.js';
 import {
   capabilitiesForRules,
   defineGameRules,
@@ -361,4 +365,23 @@ describe('multiplayer mode identity stays in sync with the wire protocol constan
       disruptionThreshold: SHARED_DUEL_DISRUPTION_THRESHOLD,
     });
   });
+
+  // multiplayer-messages.ts's wire parser validates Disco Duel boards
+  // against these fixed dimensions rather than importing SHARED_DUEL_RULES.
+  test('Disco Duel board dimensions', () => {
+    expect(SHARED_DUEL_RULES.board).toMatchObject({
+      rows: SHARED_DUEL_BOARD_ROWS,
+      cols: SHARED_DUEL_BOARD_COLS,
+    });
+  });
+});
+
+// Same cross-tree-import constraint as above: src/game/turn-types.ts and
+// src/shared/game-values.ts each declare their own GAME_OVER_REASONS rather
+// than sharing one, because neither of the API's isolated src/game and
+// src/shared builds can import from the other. If they drift, a game-over
+// reason the engine can produce would be silently rejected (or a stale one
+// silently accepted) by the multiplayer wire parser.
+test('game-over reason vocabulary stays in sync between src/game and src/shared', () => {
+  expect([...GAME_OVER_REASONS].sort()).toEqual([...SHARED_GAME_OVER_REASONS].sort());
 });
