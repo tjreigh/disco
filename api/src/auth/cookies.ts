@@ -40,31 +40,33 @@ function decodeSignedJson<T>(cookieValue: string | undefined, secret: string): T
   return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as T;
 }
 
-export function setSessionCookie(reply: FastifyReply, config: AppConfig, token: string): void {
-  reply.setCookie(config.sessionCookieName, token, {
+// Every cookie this module sets shares httpOnly/secure/sameSite; `path`
+// stays an explicit parameter here rather than folded into the shared
+// defaults, since the session cookie ('/') and the OIDC state cookie
+// ('/auth') deliberately scope to different paths.
+function baseCookieOptions(config: AppConfig, path: string) {
+  return {
     httpOnly: true,
     secure: config.cookieSecure,
-    sameSite: 'lax',
-    path: '/',
+    sameSite: 'lax' as const,
+    path,
+  };
+}
+
+export function setSessionCookie(reply: FastifyReply, config: AppConfig, token: string): void {
+  reply.setCookie(config.sessionCookieName, token, {
+    ...baseCookieOptions(config, '/'),
     maxAge: config.sessionTtlSeconds,
   });
 }
 
 export function clearSessionCookie(reply: FastifyReply, config: AppConfig): void {
-  reply.clearCookie(config.sessionCookieName, {
-    httpOnly: true,
-    secure: config.cookieSecure,
-    sameSite: 'lax',
-    path: '/',
-  });
+  reply.clearCookie(config.sessionCookieName, baseCookieOptions(config, '/'));
 }
 
 export function setOidcStateCookie(reply: FastifyReply, config: AppConfig, state: OidcStateCookie): void {
   reply.setCookie(OIDC_STATE_COOKIE, encodeSignedJson(state, config.sessionSecret), {
-    httpOnly: true,
-    secure: config.cookieSecure,
-    sameSite: 'lax',
-    path: '/auth',
+    ...baseCookieOptions(config, '/auth'),
     maxAge: 10 * 60,
   });
 }
@@ -74,10 +76,5 @@ export function readOidcStateCookie(request: FastifyRequest, config: AppConfig):
 }
 
 export function clearOidcStateCookie(reply: FastifyReply, config: AppConfig): void {
-  reply.clearCookie(OIDC_STATE_COOKIE, {
-    httpOnly: true,
-    secure: config.cookieSecure,
-    sameSite: 'lax',
-    path: '/auth',
-  });
+  reply.clearCookie(OIDC_STATE_COOKIE, baseCookieOptions(config, '/auth'));
 }

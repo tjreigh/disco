@@ -1,5 +1,6 @@
-import { MIN_ZOOM, MAX_ZOOM } from '../platform/user-settings-store.js';
+import { ConfirmDialog } from './confirm-dialog.js';
 import { blurOnClick, cloneTemplate, mustQuery } from './dom-utils.js';
+import { MenuControls } from './menu-controls.js';
 import { ModalController } from './modal-controller.js';
 
 /**
@@ -12,14 +13,9 @@ import { ModalController } from './modal-controller.js';
 export class MultiplayerPauseMenu {
   private readonly menuButton: HTMLButtonElement;
   private readonly menu: HTMLElement;
-  private readonly forfeitDialog: HTMLElement;
-  private readonly soundButton: HTMLButtonElement;
-  private readonly advancedHudButton: HTMLButtonElement;
-  private readonly zoomOutButton: HTMLButtonElement;
-  private readonly zoomResetButton: HTMLButtonElement;
-  private readonly zoomInButton: HTMLButtonElement;
+  private readonly forfeitDialog: ConfirmDialog;
   private readonly menuModal: ModalController;
-  private readonly forfeitDialogModal: ModalController;
+  private readonly menuControls: MenuControls;
 
   // Set by the owning game controller after construction, avoiding a
   // constructor-time forward reference — same convention as HomeScreen's
@@ -40,7 +36,6 @@ export class MultiplayerPauseMenu {
     const fragment = cloneTemplate('tpl-multiplayer-pause-menu');
     this.menuButton = mustQuery(fragment, '.home-back-button');
     this.menu = mustQuery(fragment, '.game-menu');
-    this.forfeitDialog = mustQuery(fragment, '.restart-confirmation');
 
     this.menuButton.addEventListener('click', () => this.open());
     blurOnClick(this.menuButton);
@@ -53,32 +48,26 @@ export class MultiplayerPauseMenu {
     resumeButton.addEventListener('click', () => this.close());
     blurOnClick(resumeButton);
 
-    this.soundButton = mustQuery(fragment, '[data-pause-menu-action="sound"]');
-    this.soundButton.addEventListener('click', () => this.onRequestToggleSound?.());
-    blurOnClick(this.soundButton);
-
-    this.advancedHudButton = mustQuery(fragment, '[data-pause-menu-action="advanced-hud"]');
-    this.advancedHudButton.addEventListener('click', () => this.onRequestToggleAdvancedHud?.());
-    blurOnClick(this.advancedHudButton);
-
-    this.zoomOutButton = mustQuery(fragment, '[data-pause-menu-action="zoom-out"]');
-    this.zoomOutButton.addEventListener('click', () => this.onRequestZoomOut?.());
-    blurOnClick(this.zoomOutButton);
-
-    this.zoomResetButton = mustQuery(fragment, '[data-pause-menu-action="zoom-reset"]');
-    this.zoomResetButton.addEventListener('click', () => this.onRequestZoomReset?.());
-    blurOnClick(this.zoomResetButton);
-
-    this.zoomInButton = mustQuery(fragment, '[data-pause-menu-action="zoom-in"]');
-    this.zoomInButton.addEventListener('click', () => this.onRequestZoomIn?.());
-    blurOnClick(this.zoomInButton);
+    this.menuControls = new MenuControls(
+      {
+        soundButton: mustQuery(fragment, '[data-pause-menu-action="sound"]'),
+        advancedHudButton: mustQuery(fragment, '[data-pause-menu-action="advanced-hud"]'),
+        zoomOutButton: mustQuery(fragment, '[data-pause-menu-action="zoom-out"]'),
+        zoomResetButton: mustQuery(fragment, '[data-pause-menu-action="zoom-reset"]'),
+        zoomInButton: mustQuery(fragment, '[data-pause-menu-action="zoom-in"]'),
+      },
+      {
+        onRequestToggleSound: () => this.onRequestToggleSound?.(),
+        onRequestToggleAdvancedHud: () => this.onRequestToggleAdvancedHud?.(),
+        onRequestZoomOut: () => this.onRequestZoomOut?.(),
+        onRequestZoomReset: () => this.onRequestZoomReset?.(),
+        onRequestZoomIn: () => this.onRequestZoomIn?.(),
+      },
+    );
 
     const forfeitButton = mustQuery<HTMLButtonElement>(fragment, '[data-pause-menu-action="forfeit"]');
-    forfeitButton.addEventListener('click', () => this.forfeitDialogModal.open());
+    forfeitButton.addEventListener('click', () => this.forfeitDialog.open());
     blurOnClick(forfeitButton);
-
-    const cancelForfeitButton = mustQuery<HTMLButtonElement>(fragment, '[data-forfeit-action="cancel"]');
-    const confirmForfeitButton = mustQuery<HTMLButtonElement>(fragment, '.restart-confirmation__button--danger');
 
     mount.append(fragment);
 
@@ -89,21 +78,15 @@ export class MultiplayerPauseMenu {
       onEscape: () => this.close(),
       restoreFocus: false,
     });
-    this.forfeitDialogModal = new ModalController(this.forfeitDialog, {
-      openClass: 'restart-confirmation--open',
-      initialFocus: () => cancelForfeitButton,
-      inertTargets: modalBackground,
-      onEscape: () => this.forfeitDialogModal.close(),
+    this.forfeitDialog = new ConfirmDialog(mount, modalBackground, {
+      title: 'FORFEIT MATCH?',
+      description: "Your opponent will be declared the winner. This can't be undone.",
+      confirmLabel: 'FORFEIT',
+      onConfirm: () => {
+        this.menuModal.close();
+        this.onRequestForfeit?.();
+      },
     });
-
-    cancelForfeitButton.addEventListener('click', () => this.forfeitDialogModal.close());
-    confirmForfeitButton.addEventListener('click', () => {
-      this.forfeitDialogModal.close();
-      this.menuModal.close();
-      this.onRequestForfeit?.();
-    });
-    blurOnClick(cancelForfeitButton);
-    blurOnClick(confirmForfeitButton);
   }
 
   open(): void {
@@ -112,7 +95,7 @@ export class MultiplayerPauseMenu {
   }
 
   close(): void {
-    this.forfeitDialogModal.close();
+    this.forfeitDialog.close();
     this.menuModal.close();
     this.onRequestResume?.();
   }
@@ -123,7 +106,7 @@ export class MultiplayerPauseMenu {
 
   /** Closes without firing onRequestResume — the match already ended out from under this menu. */
   forceClose(): void {
-    this.forfeitDialogModal.close();
+    this.forfeitDialog.close();
     this.menuModal.close();
   }
 
@@ -133,23 +116,20 @@ export class MultiplayerPauseMenu {
   }
 
   setSoundEnabled(enabled: boolean): void {
-    this.soundButton.textContent = enabled ? 'SOUND ON' : 'SOUND OFF';
+    this.menuControls.setSoundEnabled(enabled);
   }
 
   setAdvancedHudEnabled(enabled: boolean): void {
-    this.advancedHudButton.textContent = enabled ? 'ADVANCED HUD ON' : 'ADVANCED HUD OFF';
-    this.advancedHudButton.setAttribute('aria-pressed', String(enabled));
+    this.menuControls.setAdvancedHudEnabled(enabled);
   }
 
   updateZoomState(scale: number): void {
-    this.zoomInButton.disabled = scale >= MAX_ZOOM;
-    this.zoomOutButton.disabled = scale <= MIN_ZOOM;
-    this.zoomResetButton.disabled = scale <= MIN_ZOOM;
+    this.menuControls.updateZoomState(scale);
   }
 
   destroy(): void {
     this.menuButton.remove();
     this.menu.remove();
-    this.forfeitDialog.remove();
+    this.forfeitDialog.destroy();
   }
 }

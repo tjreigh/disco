@@ -1,14 +1,7 @@
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { loadConfig } from './config.js';
 import { buildApp } from './app.js';
-import { openDatabase } from './db/connection.js';
-import { runMigrations } from './db/migrations.js';
+import { bootstrapDb } from './db/bootstrap.js';
 
-const config = loadConfig();
-const db = openDatabase(config.databasePath);
-const apiRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-runMigrations(db, join(apiRoot, 'migrations'));
+const { config, db } = bootstrapDb();
 
 const app = await buildApp(config, db);
 

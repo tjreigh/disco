@@ -1,11 +1,34 @@
 :root {
   --game-controls-height: 72px;
   --app-footer-height: 44px;
+
+  /*
+   * UI design tokens, named for the role a color plays in the DOM/CSS
+   * layer, not copied mechanically from rendering/theme.ts's canvas
+   * palette (that file's constants describe board/disc colors drawn on
+   * <canvas>; these describe panels, borders, and text in the surrounding
+   * HTML chrome — the two are related by eye but are separate concerns and
+   * may diverge). Values match the literal colors already in use across
+   * this app's stylesheets; adopting a token anywhere does not change how
+   * anything renders, only how the color is named and reused. Not every
+   * stylesheet has adopted these tokens yet — see the deduplication
+   * remediation plan's Slice 8 record for the currently-adopted set and
+   * what full propagation would still involve.
+   */
+  --color-app-background: #1a1a2e;
+  --color-surface: #102a43;
+  --color-surface-alt: #16324f;
+  --color-surface-deep: #0b2034;
+  --color-border: #486581;
+  --color-text: #f0f4f8;
+  --color-text-dim: #9fb3c8;
+  --color-accent: #62b0e8;
+  --color-accent-light: #9ed7ff;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { width: 100%; height: 100%; }
 body {
-  background: #1a1a2e;
+  background: var(--color-app-background);
   min-height: 100vh;
   min-height: 100dvh;
   overflow: hidden;
@@ -25,7 +48,7 @@ body {
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
-  background: #1a1a2e;
+  background: var(--color-app-background);
 }
 .shell-region {
   min-height: 0;

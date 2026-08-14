@@ -2,7 +2,7 @@
   position: absolute;
   inset: 0;
   z-index: 2;
-  color: #f0f4f8;
+  color: var(--color-text);
   pointer-events: none;
 }
 .game-hud[hidden] { display: none; }
@@ -49,7 +49,7 @@
   align-items: flex-start;
   padding-top: 6px;
 }
-.game-hud__records { margin-bottom: 3px; color: #62b0e8; font-size: 11px; white-space: nowrap; }
+.game-hud__records { margin-bottom: 3px; color: var(--color-accent); font-size: 11px; white-space: nowrap; }
 .game-hud__level { margin-top: 7px; color: #a0aec0; white-space: nowrap; }
 .game-hud__turns { display: grid; justify-items: center; gap: 7px; color: #a0aec0; white-space: nowrap; }
 .game-hud__pips {
@@ -66,7 +66,7 @@
   border: 1px solid #718096;
   border-radius: 50%;
 }
-.game-hud__pip--remaining { background: #f0f4f8; border-color: #f0f4f8; }
+.game-hud__pip--remaining { background: var(--color-text); border-color: var(--color-text); }
 .game-hud__pip--placeholder { visibility: hidden; }
 .game-hud__queue {
   display: grid;
@@ -201,7 +201,7 @@
   width: max-content;
   max-width: calc(100% - 32px);
   padding: 5px 12px;
-  border: 1px solid #486581;
+  border: 1px solid var(--color-border);
   border-radius: 7px;
   background: rgba(16, 42, 67, .94);
   color: #d9e2ec;
@@ -296,11 +296,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.multiplayer-hud__local-value { color: #f0f4f8; }
+.multiplayer-hud__local-value { color: var(--color-text); }
 .multiplayer-hud__opponent-value { color: #f6ad55; }
 .multiplayer-hud__timer {
   flex: 0 0 auto;
-  color: #f0f4f8;
+  color: var(--color-text);
   font-size: 19px;
   line-height: 1;
   letter-spacing: .03em;
@@ -386,7 +386,7 @@
   min-height: 20px;
   align-items: center;
   padding: 2px 5px;
-  border: 1px solid #486581;
+  border: 1px solid var(--color-border);
   border-bottom-color: #243b53;
   border-radius: 4px;
   background: rgba(11, 32, 52, .9);

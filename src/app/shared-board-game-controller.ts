@@ -28,6 +28,7 @@ import type { ScoreIndicator, ScorePopup } from '../ui/rendering/animation-types
 import { Renderer } from '../ui/rendering/renderer.js';
 import type { UiMounts } from '../ui/ui-root.js';
 import type { ZoomControls } from '../ui/zoom-controls.js';
+import { formatMultiplier } from './format.js';
 import {
   admissionErrorText,
   forgetAdmission,
@@ -477,10 +478,6 @@ function wireDiscToDisc(wire: WireDisc): Disc {
 
 function wireGridPosToGridPos(wire: WireGridPos): GridPos {
   return { row: wire.row, col: wire.col };
-}
-
-function formatMultiplier(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
 function wireStepToPhysicsStep(wire: WireStep): PhysicsStep {

@@ -19,16 +19,16 @@
 .game-control {
   min-width: 44px;
   min-height: 44px;
-  border: 1px solid #486581;
+  border: 1px solid var(--color-border);
   border-radius: 5px;
   padding: 7px 10px;
-  background: #102a43;
-  color: #f0f4f8;
+  background: var(--color-surface);
+  color: var(--color-text);
   font: 700 14px ui-monospace, SFMono-Regular, Menlo, monospace;
   cursor: pointer;
   touch-action: manipulation;
 }
-.game-control--drop, .game-control--confirm { min-width: 76px; background: #1769aa; border-color: #62b0e8; }
+.game-control--drop, .game-control--confirm { min-width: 76px; background: #1769aa; border-color: var(--color-accent); }
 .game-control--rewind {
   min-width: 76px;
   border-color: #c084fc;
@@ -36,11 +36,11 @@
   color: #f5e9ff;
 }
 .game-control--rewind:hover:not(:disabled) { border-color: #e879f9; background: #55267a; }
-.game-control:hover:not(:disabled) { border-color: #62b0e8; background: #16324f; }
+.game-control:hover:not(:disabled) { border-color: var(--color-accent); background: var(--color-surface-alt); }
 .game-control:disabled { opacity: .38; cursor: default; }
 .game-control[hidden] { display: none; }
 .game-control--attention:not(:disabled) {
-  border-color: #62b0e8;
+  border-color: var(--color-accent);
   animation: game-control-attention 1s ease-in-out infinite;
 }
 .game-control--ready:not(:disabled) {

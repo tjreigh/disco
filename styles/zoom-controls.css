@@ -12,16 +12,16 @@
 .game-menu-zoom__button {
   min-width: 44px;
   min-height: 44px;
-  border: 1px solid #486581;
+  border: 1px solid var(--color-border);
   border-radius: 5px;
-  background: #0b2034;
+  background: var(--color-surface-deep);
   color: #d9e2ec;
   font: 700 16px ui-monospace, SFMono-Regular, Menlo, monospace;
   cursor: pointer;
 }
-.game-menu-zoom__button:hover:not(:disabled) { border-color: #62b0e8; background: #16324f; }
+.game-menu-zoom__button:hover:not(:disabled) { border-color: var(--color-accent); background: var(--color-surface-alt); }
 .game-menu-zoom__button:disabled { opacity: .38; cursor: default; }
-.game-menu-zoom__button:focus-visible { outline: 2px solid #9ed7ff; outline-offset: 2px; }
+.game-menu-zoom__button:focus-visible { outline: 2px solid var(--color-accent-light); outline-offset: 2px; }
 
 /* Applied to .zoom-layer only for menu-driven scale changes, never during a
    live pinch gesture (the transition would otherwise fight real-time finger

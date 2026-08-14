@@ -34,6 +34,9 @@ interface TransportErrorMessage {
 export class WebSocketMultiplayerTransport implements MultiplayerSessionTransport {
   private readonly url: string;
   private readonly admission: MultiplayerAdmission;
+  // This transport is generic (shared by Score Race and Disco Duel) — tag
+  // diagnostics with the admitted mode id rather than a name from one mode.
+  private readonly logTag: string;
   private readonly messageListeners = new Set<(message: unknown) => void>();
   private readonly connectionListeners = new Set<
     (state: MultiplayerConnectionState) => void
@@ -57,6 +60,7 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
   constructor(apiBaseUrl: string, admission: MultiplayerAdmission) {
     this.url = websocketUrl(apiBaseUrl);
     this.admission = admission;
+    this.logTag = `[${admission.mode.id}]`;
     this.connect();
   }
 
@@ -104,13 +108,13 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
     if (this.terminal) return;
     this.authenticated = false;
     this.setState('reconnecting');
-    console.log('[shared-duel] transport connecting');
+    console.log(`${this.logTag} transport connecting`);
     const socket = new WebSocket(this.url);
     this.socket = socket;
 
     socket.addEventListener('open', () => {
       if (this.socket !== socket || this.terminal) return;
-      console.log('[shared-duel] transport socket open, sending credentials');
+      console.log(`${this.logTag} transport socket open, sending credentials`);
       socket.send(JSON.stringify({
         type: 'authenticate-room',
         protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
@@ -152,7 +156,7 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
         // no user input or queued send can interleave with it.
         this.authenticated = true;
         this.setState('connected');
-        console.log('[shared-duel] transport authenticated');
+        console.log(`${this.logTag} transport authenticated`);
         for (const listener of this.messageListeners) listener(raw);
         this.flushReadiness(socket);
         return;
@@ -169,7 +173,7 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
       // server-side heartbeat terminate() or a genuine network failure
       // both look like from here.
       console.warn(
-        `[shared-duel] transport socket closed (code=${event.code} reason="${event.reason}" wasClean=${event.wasClean})`,
+        `${this.logTag} transport socket closed (code=${event.code} reason="${event.reason}" wasClean=${event.wasClean})`,
       );
       this.socket = null;
       this.authenticated = false;
@@ -183,7 +187,7 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
   }
 
   private failAuthentication(socket: WebSocket, error: MultiplayerTransportError): void {
-    console.error(`[shared-duel] transport authentication failed: ${error}`);
+    console.error(`${this.logTag} transport authentication failed: ${error}`);
     this.terminal = true;
     for (const listener of this.errorListeners) listener(error);
     socket.close(1008, error);
@@ -202,7 +206,7 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
       Math.min(this.reconnectAttempt, RECONNECT_DELAYS_MS.length - 1)
     ] ?? RECONNECT_DELAYS_MS[RECONNECT_DELAYS_MS.length - 1];
     this.reconnectAttempt++;
-    console.log(`[shared-duel] transport reconnecting in ${delay}ms (attempt ${this.reconnectAttempt})`);
+    console.log(`${this.logTag} transport reconnecting in ${delay}ms (attempt ${this.reconnectAttempt})`);
     this.setState('reconnecting');
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
@@ -212,7 +216,7 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
 
   private setState(state: MultiplayerConnectionState): void {
     if (state === this.state) return;
-    console.log(`[shared-duel] transport connection state: ${this.state} -> ${state}`);
+    console.log(`${this.logTag} transport connection state: ${this.state} -> ${state}`);
     this.state = state;
     for (const listener of this.connectionListeners) listener(state);
   }

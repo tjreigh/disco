@@ -17,7 +17,7 @@ export interface DebugReport {
   lastTurn: TurnResult | null;
 }
 
-function snapshot<T>(value: T): T {
+export function snapshot<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 

@@ -1,6 +1,7 @@
 import type { SoloModeDefinition } from '../game/modes/mode.js';
-import { perMinuteRate, type GameStats } from '../game/stats.js';
+import type { GameStats } from '../game/stats.js';
 import { blurOnClick, cloneTemplate, mustQuery } from './dom-utils.js';
+import { formatDuration, formatRate } from './format.js';
 import { ModalController } from './modal-controller.js';
 
 export interface AdvancedStatsMode {
@@ -13,24 +14,8 @@ export interface AdvancedStatsDialogOptions {
   modeId?: string;
 }
 
-function formatDuration(milliseconds: number): string {
-  const totalMinutes = Math.floor(milliseconds / 60_000);
-  if (totalMinutes < 1) return '<1m';
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours === 0) return `${minutes}m`;
-  return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
-}
-
 function formatNumber(value: number): string {
   return value.toLocaleString('en-US');
-}
-
-function formatRate(total: number, timeMs: number): string {
-  const rate = perMinuteRate(total, timeMs);
-  return rate === null
-    ? '—'
-    : rate.toLocaleString('en-US', { maximumFractionDigits: 1 });
 }
 
 export class AdvancedStatsDialog {

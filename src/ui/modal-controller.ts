@@ -1,3 +1,6 @@
+import { applyInert } from './inert-siblings.js';
+import type { InertGuard } from './inert-siblings.js';
+
 export interface ModalControllerOptions {
   openClass: string;
   initialFocus: () => HTMLElement | null;
@@ -19,7 +22,7 @@ const FOCUSABLE_SELECTOR = [
 export class ModalController {
   private previousFocus: HTMLElement | null = null;
   private priorRootInert: boolean | null = null;
-  private readonly priorInert = new Map<HTMLElement, boolean>();
+  private inertGuard: InertGuard | null = null;
 
   constructor(
     private readonly root: HTMLElement,
@@ -36,15 +39,7 @@ export class ModalController {
     this.previousFocus = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
-    const siblings = this.root.parentElement
-      ? Array.from(this.root.parentElement.children)
-        .filter((element): element is HTMLElement => element instanceof HTMLElement && element !== this.root)
-      : [];
-    const inertTargets = new Set([...(this.options.inertTargets ?? []), ...siblings]);
-    for (const target of inertTargets) {
-      this.priorInert.set(target, target.inert);
-      target.inert = true;
-    }
+    this.inertGuard = applyInert(this.root, this.options.inertTargets ?? []);
     this.root.classList.add(this.options.openClass);
     this.root.setAttribute('aria-hidden', 'false');
     this.options.initialFocus()?.focus();
@@ -54,8 +49,8 @@ export class ModalController {
     if (!this.isOpen()) return;
     this.root.classList.remove(this.options.openClass);
     this.root.setAttribute('aria-hidden', 'true');
-    for (const [target, wasInert] of this.priorInert) target.inert = wasInert;
-    this.priorInert.clear();
+    this.inertGuard?.release();
+    this.inertGuard = null;
 
     const shouldRestore = this.root.contains(document.activeElement);
     if (shouldRestore && this.options.restoreFocus !== false && this.previousFocus?.isConnected) {

@@ -2,8 +2,11 @@ import { MULTIPLAYER_MODES } from '../game/modes/index.js';
 import type { MultiplayerModeDefinition, SoloModeDefinition } from '../game/modes/mode.js';
 import type { GameStats } from '../game/stats.js';
 import type { AccountStatsState } from '../platform/account-stats-store.js';
-import { MIN_ZOOM, MAX_ZOOM } from '../platform/user-settings-store.js';
+import { ConfirmDialog } from './confirm-dialog.js';
 import { blurOnClick, cloneTemplate, mustQuery } from './dom-utils.js';
+import { applyInert } from './inert-siblings.js';
+import type { InertGuard } from './inert-siblings.js';
+import { MenuControls } from './menu-controls.js';
 import { ModalController } from './modal-controller.js';
 
 const MODE_DOUBLE_CLICK_MS = 400;
@@ -18,18 +21,13 @@ export class HomeScreen {
   private readonly footer: HTMLElement;
   private readonly menuButton: HTMLButtonElement;
   private readonly gameMenu: HTMLElement;
-  private readonly restartDialog: HTMLElement;
-  private readonly soundButton: HTMLButtonElement;
-  private readonly advancedHudButton: HTMLButtonElement;
-  private readonly zoomOutButton: HTMLButtonElement;
-  private readonly zoomResetButton: HTMLButtonElement;
-  private readonly zoomInButton: HTMLButtonElement;
+  private readonly restartDialog: ConfirmDialog;
   private readonly saveExitButton: HTMLButtonElement;
   private readonly gameMenuModal: ModalController;
-  private readonly restartDialogModal: ModalController;
+  private readonly menuControls: MenuControls;
   private readonly multiplayerModesContainer: HTMLElement;
   private readonly multiplayerTagline: HTMLElement;
-  private readonly homePriorInert = new Map<HTMLElement, boolean>();
+  private inertGuard: InertGuard | null = null;
   private saveLoading = false;
   private selectedModeId: string;
   private selectedMultiplayerModeId: string;
@@ -108,7 +106,6 @@ export class HomeScreen {
     const menuFragment = cloneTemplate('tpl-home-screen-game-menu');
     this.menuButton = mustQuery(menuFragment, '.home-back-button');
     this.gameMenu = mustQuery(menuFragment, '.game-menu');
-    this.restartDialog = mustQuery(menuFragment, '.restart-confirmation');
 
     this.menuButton.addEventListener('click', () => this.onRequestGameMenu?.());
     blurOnClick(this.menuButton);
@@ -122,28 +119,25 @@ export class HomeScreen {
     blurOnClick(resumeButton);
 
     const restartButton = mustQuery<HTMLButtonElement>(menuFragment, '[data-game-menu-action="restart"]');
-    restartButton.addEventListener('click', () => this.restartDialogModal.open());
+    restartButton.addEventListener('click', () => this.restartDialog.open());
     blurOnClick(restartButton);
 
-    this.soundButton = mustQuery(menuFragment, '[data-game-menu-action="sound"]');
-    this.soundButton.addEventListener('click', () => this.onRequestToggleSound?.());
-    blurOnClick(this.soundButton);
-
-    this.advancedHudButton = mustQuery(menuFragment, '[data-game-menu-action="advanced-hud"]');
-    this.advancedHudButton.addEventListener('click', () => this.onRequestToggleAdvancedHud?.());
-    blurOnClick(this.advancedHudButton);
-
-    this.zoomOutButton = mustQuery(menuFragment, '[data-game-menu-action="zoom-out"]');
-    this.zoomOutButton.addEventListener('click', () => this.onRequestZoomOut?.());
-    blurOnClick(this.zoomOutButton);
-
-    this.zoomResetButton = mustQuery(menuFragment, '[data-game-menu-action="zoom-reset"]');
-    this.zoomResetButton.addEventListener('click', () => this.onRequestZoomReset?.());
-    blurOnClick(this.zoomResetButton);
-
-    this.zoomInButton = mustQuery(menuFragment, '[data-game-menu-action="zoom-in"]');
-    this.zoomInButton.addEventListener('click', () => this.onRequestZoomIn?.());
-    blurOnClick(this.zoomInButton);
+    this.menuControls = new MenuControls(
+      {
+        soundButton: mustQuery(menuFragment, '[data-game-menu-action="sound"]'),
+        advancedHudButton: mustQuery(menuFragment, '[data-game-menu-action="advanced-hud"]'),
+        zoomOutButton: mustQuery(menuFragment, '[data-game-menu-action="zoom-out"]'),
+        zoomResetButton: mustQuery(menuFragment, '[data-game-menu-action="zoom-reset"]'),
+        zoomInButton: mustQuery(menuFragment, '[data-game-menu-action="zoom-in"]'),
+      },
+      {
+        onRequestToggleSound: () => this.onRequestToggleSound?.(),
+        onRequestToggleAdvancedHud: () => this.onRequestToggleAdvancedHud?.(),
+        onRequestZoomOut: () => this.onRequestZoomOut?.(),
+        onRequestZoomReset: () => this.onRequestZoomReset?.(),
+        onRequestZoomIn: () => this.onRequestZoomIn?.(),
+      },
+    );
 
     this.saveExitButton = mustQuery(menuFragment, '[data-game-menu-action="save-exit"]');
     this.saveExitButton.addEventListener('click', () => this.onRequestHome?.());
@@ -153,9 +147,6 @@ export class HomeScreen {
     debugButton.addEventListener('click', () => this.onRequestDebug?.());
     blurOnClick(debugButton);
 
-    const cancelRestartButton = mustQuery<HTMLButtonElement>(menuFragment, '[data-restart-action="cancel"]');
-    const confirmRestartButton = mustQuery<HTMLButtonElement>(menuFragment, '.restart-confirmation__button--danger');
-
     this.mount.append(menuFragment);
     this.gameMenuModal = new ModalController(this.gameMenu, {
       openClass: 'game-menu--open',
@@ -164,19 +155,12 @@ export class HomeScreen {
       onEscape: () => this.onRequestResume?.(),
       restoreFocus: false,
     });
-    this.restartDialogModal = new ModalController(this.restartDialog, {
-      openClass: 'restart-confirmation--open',
-      initialFocus: () => cancelRestartButton,
-      inertTargets: this.modalBackground,
-      onEscape: () => this.restartDialogModal.close(),
+    this.restartDialog = new ConfirmDialog(this.mount, this.modalBackground, {
+      title: 'RESTART GAME?',
+      description: 'Your current run will be replaced.',
+      confirmLabel: 'RESTART GAME',
+      onConfirm: () => this.onRequestRestart?.(),
     });
-    cancelRestartButton.addEventListener('click', () => this.restartDialogModal.close());
-    confirmRestartButton.addEventListener('click', () => {
-      this.restartDialogModal.close();
-      this.onRequestRestart?.();
-    });
-    blurOnClick(cancelRestartButton);
-    blurOnClick(confirmRestartButton);
 
     this.renderCards();
     this.renderAuth();
@@ -209,7 +193,7 @@ export class HomeScreen {
   }
 
   closeGameMenu(): void {
-    this.restartDialogModal.close();
+    this.restartDialog.close();
     this.gameMenuModal.close();
     this.footer.classList.remove('home-footer--hidden');
     if (!this.overlay.classList.contains('home-screen--open')) {
@@ -223,18 +207,15 @@ export class HomeScreen {
   }
 
   setSoundEnabled(enabled: boolean): void {
-    this.soundButton.textContent = enabled ? 'SOUND ON' : 'SOUND OFF';
+    this.menuControls.setSoundEnabled(enabled);
   }
 
   setAdvancedHudEnabled(enabled: boolean): void {
-    this.advancedHudButton.textContent = enabled ? 'ADVANCED HUD ON' : 'ADVANCED HUD OFF';
-    this.advancedHudButton.setAttribute('aria-pressed', String(enabled));
+    this.menuControls.setAdvancedHudEnabled(enabled);
   }
 
   updateZoomState(scale: number): void {
-    this.zoomInButton.disabled = scale >= MAX_ZOOM;
-    this.zoomOutButton.disabled = scale <= MIN_ZOOM;
-    this.zoomResetButton.disabled = scale <= MIN_ZOOM;
+    this.menuControls.updateZoomState(scale);
   }
 
   setSaveExitPending(pending: boolean): void {
@@ -294,18 +275,15 @@ export class HomeScreen {
 
   private setBackgroundInert(inert: boolean): void {
     if (inert) {
-      const siblings = Array.from(this.mount.children)
-        .filter((element): element is HTMLElement => element instanceof HTMLElement
-          && element !== this.overlay
-          && element.dataset.uiAboveHome !== 'true');
-      for (const element of new Set([...this.modalBackground, ...siblings])) {
-        if (!this.homePriorInert.has(element)) this.homePriorInert.set(element, element.inert);
-        element.inert = true;
-      }
+      this.inertGuard = applyInert(
+        this.overlay,
+        this.modalBackground,
+        element => element.dataset.uiAboveHome === 'true',
+      );
       return;
     }
-    for (const [element, wasInert] of this.homePriorInert) element.inert = wasInert;
-    this.homePriorInert.clear();
+    this.inertGuard?.release();
+    this.inertGuard = null;
   }
 
   private renderCards(): void {

@@ -31,7 +31,23 @@ export interface RoomOverlayView {
   readonly pausedByLocal: boolean;
 }
 
-/** Lobby, invite, terminal-result, and transport-error presentation. */
+/**
+ * Lobby, invite, terminal-result, and transport-error presentation.
+ *
+ * Not routed through ModalController today (no focus trap, no background
+ * inertness, no Escape handling) despite containing interactive buttons
+ * (ready/copy/home). This was evaluated for Slice 7 of the deduplication
+ * plan and deliberately deferred rather than done partially: `render()` is a
+ * state machine with distinct lobby/result/error/paused/finishing branches
+ * that each show a different subset of actions (the paused branch, for
+ * instance, hides the home link on purpose — there's no way back into a
+ * live match). Making this modal correctly means coordinating dialog
+ * semantics, initial focus, Escape, inertness, and focus restoration with
+ * every one of those branches at once, not swapping the visibility
+ * mechanism alone. That coordination is real, correctness-sensitive work
+ * deserving its own reviewable change — tracked as follow-up, not bundled
+ * here.
+ */
 export class MultiplayerRoomOverlay {
   private readonly root: HTMLElement;
   private readonly eyebrow: HTMLElement;

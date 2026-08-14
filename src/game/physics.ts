@@ -5,7 +5,7 @@ import type { PhysicsStep, DropStep, FallStep, ClearStep, PushStep } from './eve
 import { StepKind } from './events.js';
 import {
   cloneBoard, countHorizontalRun, countVerticalRun, deepCloneBoard,
-  landingRow, placeDisc, removeDisc, applyGravity,
+  isBoardEmpty, landingRow, placeDisc, removeDisc, applyGravity,
 } from './board.js';
 import {
   entryEdgeForAngle, oppositeEdge,
@@ -81,10 +81,6 @@ export function commitBoard(target: Board, source: Board): void {
       target[r]![c] = source[r]![c]!;
     }
   }
-}
-
-function isBoardEmpty(board: Board): boolean {
-  return board.every(row => row.every(cell => cell === null));
 }
 
 // Resolves every clear/reveal/fall chain on a board that has already changed.

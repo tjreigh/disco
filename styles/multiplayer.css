@@ -10,12 +10,12 @@
 .multiplayer-room[hidden] { display: none; }
 .multiplayer-room__panel {
   width: min(390px, 94vw);
-  border: 1px solid #486581;
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   padding: 24px;
-  background: #102a43;
+  background: var(--color-surface);
   box-shadow: 0 22px 54px rgba(0, 0, 0, .5);
-  color: #f0f4f8;
+  color: var(--color-text);
   text-align: center;
 }
 .multiplayer-room__eyebrow {
@@ -41,14 +41,14 @@
 .multiplayer-room__badge[hidden] { display: none; }
 .multiplayer-room__message {
   margin-top: 10px;
-  color: #9fb3c8;
+  color: var(--color-text-dim);
   font-size: 13px;
   line-height: 1.45;
 }
 .multiplayer-room__code {
   display: block;
   margin-top: 18px;
-  color: #9ed7ff;
+  color: var(--color-accent-light);
   font: 800 27px ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: .18em;
 }
@@ -62,10 +62,10 @@
   display: grid;
   min-height: 42px;
   place-items: center;
-  border: 1px solid #486581;
+  border: 1px solid var(--color-border);
   border-radius: 5px;
   padding: 9px 12px;
-  background: #0b2034;
+  background: var(--color-surface-deep);
   color: #d9e2ec;
   font: 700 11px ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: .08em;
@@ -73,11 +73,11 @@
   cursor: pointer;
 }
 .multiplayer-room__button[hidden] { display: none; }
-.multiplayer-room__button:hover { border-color: #62b0e8; background: #16324f; }
-.multiplayer-room__button:focus-visible { outline: 2px solid #9ed7ff; outline-offset: 2px; }
+.multiplayer-room__button:hover { border-color: var(--color-accent); background: var(--color-surface-alt); }
+.multiplayer-room__button:focus-visible { outline: 2px solid var(--color-accent-light); outline-offset: 2px; }
 .multiplayer-room__button:disabled { cursor: wait; opacity: .6; }
 .multiplayer-room__button--primary {
-  border-color: #62b0e8;
+  border-color: var(--color-accent);
   background: #1769aa;
   color: #ffffff;
 }

@@ -93,6 +93,11 @@ export function isBoardFull(board: Board): boolean {
   return board.every(row => row.every(cell => cell !== null));
 }
 
+/** True when every cell on the board is empty. */
+export function isBoardEmpty(board: Board): boolean {
+  return board.every(row => row.every(cell => cell === null));
+}
+
 export type GravityDirection = 'down' | 'up' | 'left' | 'right';
 
 // vertical: gravity pulls along rows (down/up), lanes are columns.

@@ -1,5 +1,6 @@
 import { deepCloneBoard, makeEmptyBoard } from '../game/board.js';
 import { GameEngine } from '../game/engine.js';
+import { formatMultiplier } from './format.js';
 import type {
   GameOverReason,
   RewindPreview,
@@ -564,6 +565,3 @@ export class LocalBoardSession {
   }
 }
 
-function formatMultiplier(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(2);
-}

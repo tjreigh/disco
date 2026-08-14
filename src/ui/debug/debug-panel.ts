@@ -4,7 +4,7 @@ import type { Board, Disc } from '../../game/model.js';
 import { DiscKind } from '../../game/model.js';
 import type { GameState } from '../../game/state.js';
 import { StepKind } from '../../game/events.js';
-import { buildDebugReport } from './debug-report.js';
+import { buildDebugReport, snapshot } from './debug-report.js';
 import { blurOnClick, cloneTemplate, mustQuery } from '../dom-utils.js';
 import { browserStorage } from '../../platform/browser-storage.js';
 
@@ -63,10 +63,6 @@ export function resolveDebugPanelAccess(
 
   const storedAccess = readStoredDebugAccess(storage)?.toLowerCase() ?? null;
   return storedAccess === 'logic' || storedAccess === 'full' ? 'full' : 'report';
-}
-
-function snapshot<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function discText(disc: Disc): string {
@@ -167,6 +163,15 @@ export function snapshotTurnHistory(
   };
 }
 
+/**
+ * Deliberately non-modal: a developer/debug side panel, not a dialog. It
+ * does not use ModalController — no focus trap, no background inertness —
+ * so the game underneath stays interactive and inspectable while this is
+ * open. Escape does not close it (unlike every dialog in this app) because
+ * the 'd'/'D' toggle shortcut is its own convention; treat this as a
+ * product decision to revisit only if DebugPanel starts blocking gameplay
+ * input the way a real modal would.
+ */
 export class DebugPanel {
   readonly root: HTMLElement;
   onForceGameOver?: () => void;

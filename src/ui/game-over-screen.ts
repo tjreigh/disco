@@ -1,6 +1,7 @@
-import { perMinuteRate, type GameStats } from '../game/stats.js';
+import type { GameStats } from '../game/stats.js';
 import type { GameOverReason } from '../game/engine.js';
 import { blurOnClick, cloneTemplate, mustQuery } from './dom-utils.js';
+import { formatDuration, formatRate } from './format.js';
 import { ModalController } from './modal-controller.js';
 
 export const GAME_OVER_RUN_STATS_EXPANDED_KEY = 'disco.game-over.run-stats-expanded';
@@ -135,12 +136,12 @@ export class GameOverScreen {
         : `Best chain this game: ${bestRunRecord.toLocaleString('en-US')} wave${bestRunRecord === 1 ? '' : 's'}`
       : '';
     this.runRecord.hidden = bestRunRecord <= 0;
-    this.runTime.textContent = this.formatDuration(playTimeMs);
+    this.runTime.textContent = formatDuration(playTimeMs);
     this.runDropped.textContent = discsDropped.toLocaleString('en-US');
     this.runBroken.textContent = discsBroken.toLocaleString('en-US');
-    this.runScoreRate.textContent = this.formatRate(score, playTimeMs);
-    this.runDropRate.textContent = this.formatRate(discsDropped, playTimeMs);
-    this.runBrokenRate.textContent = this.formatRate(discsBroken, playTimeMs);
+    this.runScoreRate.textContent = formatRate(score, playTimeMs);
+    this.runDropRate.textContent = formatRate(discsDropped, playTimeMs);
+    this.runBrokenRate.textContent = formatRate(discsBroken, playTimeMs);
     const recordUnit = isStackMode ? 'cleared' : `wave${stats.longestStreak === 1 ? '' : 's'}`;
     this.records.textContent = `High ${stats.highScore.toLocaleString('en-US')} · ${recordLabel} ${stats.longestStreak.toLocaleString('en-US')} ${recordUnit}`;
     this.average.textContent = `Average ${stats.averageScore.toLocaleString('en-US')} over ${stats.gamesPlayed.toLocaleString('en-US')} game${stats.gamesPlayed === 1 ? '' : 's'}`;
@@ -159,22 +160,6 @@ export class GameOverScreen {
     highlight.className = 'game-over-highlight';
     highlight.textContent = label;
     return highlight;
-  }
-
-  private formatDuration(milliseconds: number): string {
-    const totalMinutes = Math.floor(milliseconds / 60_000);
-    if (totalMinutes < 1) return '<1m';
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
-    if (hours === 0) return `${minutes}m`;
-    return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
-  }
-
-  private formatRate(total: number, playTimeMs: number): string {
-    const rate = perMinuteRate(total, playTimeMs);
-    return rate === null
-      ? '—'
-      : rate.toLocaleString('en-US', { maximumFractionDigits: 1 });
   }
 
   private setRunStatsExpanded(expanded: boolean, persist = true): void {

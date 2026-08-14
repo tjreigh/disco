@@ -3,7 +3,7 @@ import { DiscKind } from './model.js';
 import type { GameRulesConfig, GenerationRules } from './modes/mode.js';
 import { unnumberedProbabilityForLevel } from './modes/mode.js';
 import type { RandomSource } from './random.js';
-import { cloneBoard, landingRow, placeDisc, removeDisc, applyGravity } from './board.js';
+import { cloneBoard, isBoardEmpty, landingRow, placeDisc, removeDisc, applyGravity } from './board.js';
 
 // Module-level counter keeps IDs unique across game restarts within a session,
 // so a new disc never accidentally shares an ID with a disc from a previous game
@@ -108,7 +108,7 @@ function resolvesToEmptyBoard(rules: GameRulesConfig, board: Board): boolean {
     for (const pos of clears) removeDisc(board, pos);
     applyGravity(board);
   }
-  return board.every(row => row.every(cell => cell == null));
+  return isBoardEmpty(board);
 }
 
 // True if dropping a fresh Numbered disc of this value into any legal column,
