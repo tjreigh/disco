@@ -47,17 +47,18 @@ await new Promise((resolve, reject) => {
 
   socket.once('open', () => {
     socket.send(JSON.stringify({
-      type: 'authenticate-room',
       protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
-      roomId: admission.roomId,
-      playerId: admission.playerId,
-      reconnectCredential: admission.reconnectCredential,
+      authenticate: {
+        roomId: admission.roomId,
+        playerId: admission.playerId,
+        reconnectCredential: admission.reconnectCredential,
+      },
     }));
   });
   socket.once('message', raw => {
     clearTimeout(timeout);
     const message = JSON.parse(raw.toString());
-    if (message.type !== 'room-state') {
+    if (message.event?.type !== 'room-state') {
       socket.terminate();
       reject(new Error(`unexpected multiplayer response: ${raw.toString()}`));
       return;

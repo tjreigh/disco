@@ -88,14 +88,21 @@ function firstSocket(): FakeWebSocket {
 }
 
 function validSnapshot(overrides: Record<string, unknown> = {}) {
+  const {
+    protocolVersion = MULTIPLAYER_PROTOCOL_VERSION,
+    roomId = admission.roomId,
+    mode: snapshotMode = mode,
+    ...eventOverrides
+  } = overrides;
   return {
-    protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
-    roomId: admission.roomId,
-    mode,
-    type: 'room-state',
-    localReady: false,
-    opponentReady: false,
-    ...overrides,
+    protocolVersion,
+    room: { id: roomId, mode: snapshotMode },
+    event: {
+      type: 'room-state',
+      localReady: false,
+      opponentReady: false,
+      ...eventOverrides,
+    },
   };
 }
 
@@ -132,11 +139,12 @@ describe('WebSocketMultiplayerTransport authentication readiness', () => {
     expect(states.at(-1)).toBe('reconnecting');
     expect(socket.sent).toHaveLength(1);
     expect(JSON.parse(socket.sent[0]!)).toMatchObject({
-      type: 'authenticate-room',
       protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
-      roomId: admission.roomId,
-      playerId: admission.playerId,
-      reconnectCredential: admission.reconnectCredential,
+      authenticate: {
+        roomId: admission.roomId,
+        playerId: admission.playerId,
+        reconnectCredential: admission.reconnectCredential,
+      },
     });
     transport.destroy();
   });
@@ -156,7 +164,7 @@ describe('WebSocketMultiplayerTransport authentication readiness', () => {
       type: 'set-ready',
       ready: true,
     });
-    // Queued, not sent yet — only the authenticate-room frame has gone out.
+    // Queued, not sent yet — only the authentication frame has gone out.
     expect(socket.sent).toHaveLength(1);
 
     const snapshot = validSnapshot();
@@ -164,10 +172,19 @@ describe('WebSocketMultiplayerTransport authentication readiness', () => {
 
     expect(states.at(-1)).toBe('connected');
     expect(messages).toHaveLength(1);
-    expect(messages[0]).toEqual(snapshot);
+    expect(messages[0]).toEqual({
+      protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+      roomId: admission.roomId,
+      mode,
+      type: 'room-state',
+      localReady: false,
+      opponentReady: false,
+    });
     // The coalesced set-ready flushes right after, and only once.
     expect(socket.sent).toHaveLength(2);
-    expect(JSON.parse(socket.sent[1]!)).toMatchObject({ type: 'set-ready', ready: true });
+    expect(JSON.parse(socket.sent[1]!)).toMatchObject({
+      command: { type: 'set-ready', ready: true },
+    });
 
     // A second, unrelated message must not re-flush anything.
     socket.simulateMessage(validSnapshot({ localReady: true }));
@@ -272,7 +289,7 @@ describe('WebSocketMultiplayerTransport durable queue policy', () => {
     transport.send({ ...envelope, type: 'finish-match', matchId: 'm1', progress: { sequence: 1, score: 0, turnsPlayed: 0 } });
     transport.send({ ...envelope, type: 'resume-session', matchId: null, lastProgressSequence: 0 });
 
-    // Only the initial authenticate-room frame has gone out — nothing queued flushes on auth either.
+    // Only the initial authentication frame has gone out — nothing queued flushes on auth either.
     socket.simulateMessage(validSnapshot());
     expect(socket.sent).toHaveLength(1);
     transport.destroy();
@@ -288,9 +305,11 @@ describe('WebSocketMultiplayerTransport durable queue policy', () => {
     transport.send({ ...envelope, type: 'set-ready', ready: true });
 
     socket.simulateMessage(validSnapshot());
-    // authenticate-room + exactly one flushed set-ready (the latest value).
+    // Authentication + exactly one flushed set-ready (the latest value).
     expect(socket.sent).toHaveLength(2);
-    expect(JSON.parse(socket.sent[1]!)).toMatchObject({ type: 'set-ready', ready: true });
+    expect(JSON.parse(socket.sent[1]!)).toMatchObject({
+      command: { type: 'set-ready', ready: true },
+    });
     transport.destroy();
   });
 
@@ -309,7 +328,9 @@ describe('WebSocketMultiplayerTransport durable queue policy', () => {
       column: 4,
     });
     expect(socket.sent).toHaveLength(2);
-    expect(JSON.parse(socket.sent[1]!)).toMatchObject({ type: 'move-cursor', column: 4 });
+    expect(JSON.parse(socket.sent[1]!)).toMatchObject({
+      command: { type: 'move-cursor', column: 4 },
+    });
     transport.destroy();
   });
 });
@@ -376,6 +397,6 @@ describe('WebSocketMultiplayerTransport reconnection', () => {
       type: 'set-ready',
       ready: false,
     });
-    expect(socket.sent).toHaveLength(1); // only the original authenticate-room frame
+    expect(socket.sent).toHaveLength(1); // only the original authentication frame
   });
 });

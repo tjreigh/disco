@@ -8,12 +8,14 @@ import {
 } from './multiplayer-contracts.js';
 import type {
   MultiplayerClientMessage,
+  MultiplayerClientWireMessage,
   MultiplayerMatchResult,
   MultiplayerModeIdentity,
   MultiplayerPlayerProgress,
   MultiplayerPlayerScore,
   MultiplayerProgress,
   MultiplayerServerMessage,
+  MultiplayerServerWireMessage,
   TurnResultWire,
   WireBoard,
   WireCell,
@@ -34,6 +36,75 @@ export type MultiplayerMessageError = 'invalid-message' | 'protocol-mismatch';
 export type MultiplayerMessageParseResult<T> =
   | { readonly ok: true; readonly message: T }
   | { readonly ok: false; readonly error: MultiplayerMessageError };
+
+export interface MultiplayerClientMessageContext {
+  readonly roomId: string;
+  readonly playerId: string;
+}
+
+/** Convert the internal command shape to the JSON sent over the socket. */
+export function encodeMultiplayerClientMessage(
+  message: MultiplayerClientMessage,
+): MultiplayerClientWireMessage {
+  const { protocolVersion, roomId: _roomId, playerId: _playerId, ...command } = message;
+  return { protocolVersion, command };
+}
+
+/** Parse socket JSON and restore identity from the authenticated connection. */
+export function parseMultiplayerClientWireMessage(
+  value: unknown,
+  context: MultiplayerClientMessageContext,
+): MultiplayerMessageParseResult<MultiplayerClientMessage> {
+  const protocolError = protocolErrorFor(value);
+  if (protocolError) return { ok: false, error: protocolError };
+  if (!isRecord(value)
+    || !hasExactKeys(value, ['protocolVersion', 'command'])
+    || !isRecord(value.command)
+    || hasAnyKey(value.command, ['protocolVersion', 'roomId', 'playerId'])) {
+    return invalidMessage();
+  }
+  return parseMultiplayerClientMessage({
+    protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+    roomId: context.roomId,
+    playerId: context.playerId,
+    ...value.command,
+  });
+}
+
+/** Convert an internal room event to the JSON sent over the socket. */
+export function encodeMultiplayerServerMessage(
+  message: MultiplayerServerMessage,
+): MultiplayerServerWireMessage {
+  const { protocolVersion, roomId, mode, ...event } = message;
+  return {
+    protocolVersion,
+    room: { id: roomId, mode },
+    event,
+  };
+}
+
+/** Parse socket JSON into the transport-neutral event used by controllers. */
+export function parseMultiplayerServerWireMessage(
+  value: unknown,
+): MultiplayerMessageParseResult<MultiplayerServerMessage> {
+  const protocolError = protocolErrorFor(value);
+  if (protocolError) return { ok: false, error: protocolError };
+  if (!isRecord(value)
+    || !hasExactKeys(value, ['protocolVersion', 'room', 'event'])
+    || !isRecord(value.room)
+    || !hasExactKeys(value.room, ['id', 'mode'])
+    || !isNonEmptyString(value.room.id)
+    || !isRecord(value.event)
+    || hasAnyKey(value.event, ['protocolVersion', 'roomId', 'mode'])) {
+    return invalidMessage();
+  }
+  return parseMultiplayerServerMessage({
+    protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+    roomId: value.room.id,
+    mode: value.room.mode,
+    ...value.event,
+  });
+}
 
 export function parseMultiplayerClientMessage(
   value: unknown,
@@ -733,4 +804,8 @@ function hasExactKeys(
   const actual = Object.keys(value);
   return actual.length === expected.length
     && actual.every(key => expected.includes(key));
+}
+
+function hasAnyKey(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  return keys.some(key => key in value);
 }

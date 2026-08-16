@@ -2,7 +2,7 @@ import type { GameOverReason } from './game-values.js';
 export type { GameOverReason } from './game-values.js';
 
 /** Stable identities and value contracts shared by multiplayer messages. */
-export const MULTIPLAYER_PROTOCOL_VERSION = 3 as const;
+export const MULTIPLAYER_PROTOCOL_VERSION = 4 as const;
 export const SCORE_RACE_MODE_ID = 'score-race' as const;
 export const SCORE_RACE_MODE_VERSION = 1 as const;
 export const SCORE_RACE_RULES_VERSION = 1 as const;
@@ -218,6 +218,49 @@ export type MultiplayerServerMessage =
       readonly turnsPerLevel: number;
       readonly turnsRemaining: number;
     });
+
+/**
+ * The JSON protocol keeps transport metadata separate from the command or
+ * event a person is trying to inspect. The room and player on a client
+ * command come from the authenticated socket, so they are intentionally not
+ * repeated in every command body.
+ *
+ * Client example:
+ * `{ "protocolVersion": 4, "command": { "type": "play-turn", "matchId": "m1", "column": 3 } }`
+ *
+ * Server example:
+ * `{ "protocolVersion": 4, "room": { "id": "ABCD", "mode": ... }, "event": { "type": "room-state", ... } }`
+ *
+ * `MultiplayerClientMessage` and `MultiplayerServerMessage` above are the
+ * transport-neutral forms used inside the application and room services.
+ */
+type WithoutEnvelope<Message, Keys extends PropertyKey> = Message extends unknown
+  ? Omit<Message, Keys>
+  : never;
+
+export type MultiplayerClientCommand = WithoutEnvelope<
+  MultiplayerClientMessage,
+  keyof ClientMessageBase
+>;
+
+export interface MultiplayerClientWireMessage {
+  readonly protocolVersion: MultiplayerProtocolVersion;
+  readonly command: MultiplayerClientCommand;
+}
+
+export type MultiplayerServerEvent = WithoutEnvelope<
+  MultiplayerServerMessage,
+  keyof ServerMessageBase
+>;
+
+export interface MultiplayerServerWireMessage {
+  readonly protocolVersion: MultiplayerProtocolVersion;
+  readonly room: {
+    readonly id: string;
+    readonly mode: MultiplayerModeIdentity;
+  };
+  readonly event: MultiplayerServerEvent;
+}
 
 export type MultiplayerConnectionState = 'connected' | 'disconnected' | 'reconnecting';
 

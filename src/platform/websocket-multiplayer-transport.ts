@@ -8,7 +8,10 @@ import {
   MULTIPLAYER_PROTOCOL_VERSION,
   sameMultiplayerModeIdentity,
 } from '../shared/multiplayer-contracts.js';
-import { parseMultiplayerServerMessage } from '../shared/multiplayer-messages.js';
+import {
+  encodeMultiplayerClientMessage,
+  parseMultiplayerServerWireMessage,
+} from '../shared/multiplayer-messages.js';
 import type {
   MultiplayerSessionTransport,
 } from '../app/multiplayer-session-controller.js';
@@ -65,7 +68,7 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
   send(message: MultiplayerClientMessage): void {
     if (this.terminal) return;
     if (this.socket?.readyState === WebSocket.OPEN && this.authenticated) {
-      this.socket.send(JSON.stringify(message));
+      this.socket.send(JSON.stringify(encodeMultiplayerClientMessage(message)));
       return;
     }
     if (message.type !== 'set-ready') return;
@@ -114,11 +117,12 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
       if (this.socket !== socket || this.terminal) return;
       console.log(`${this.logTag} transport socket open, sending credentials`);
       socket.send(JSON.stringify({
-        type: 'authenticate-room',
         protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
-        roomId: this.admission.roomId,
-        playerId: this.admission.playerId,
-        reconnectCredential: this.admission.reconnectCredential,
+        authenticate: {
+          roomId: this.admission.roomId,
+          playerId: this.admission.playerId,
+          reconnectCredential: this.admission.reconnectCredential,
+        },
       }));
       this.reconnectAttempt = 0;
       // Socket open only means the network connection exists — state stays
@@ -136,12 +140,20 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
         return;
       }
 
-      if (!this.authenticated) {
-        const parsed = parseMultiplayerServerMessage(raw);
-        if (!parsed.ok) {
+      const parsed = parseMultiplayerServerWireMessage(raw);
+      if (!parsed.ok) {
+        if (!this.authenticated) {
           this.failAuthentication(socket, parsed.error);
-          return;
+        } else {
+          // Controllers own the user-facing compatibility state. Forward the
+          // malformed value so they can retain the offending payload in their
+          // diagnostics just as they did before the wire envelope was added.
+          for (const listener of this.messageListeners) listener(raw);
         }
+        return;
+      }
+
+      if (!this.authenticated) {
         if (parsed.message.roomId !== this.admission.roomId) {
           this.failAuthentication(socket, 'room-not-found');
           return;
@@ -155,12 +167,12 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
         this.authenticated = true;
         this.setState('connected');
         console.log(`${this.logTag} transport authenticated`);
-        for (const listener of this.messageListeners) listener(raw);
+        for (const listener of this.messageListeners) listener(parsed.message);
         this.flushReadiness(socket);
         return;
       }
 
-      for (const listener of this.messageListeners) listener(raw);
+      for (const listener of this.messageListeners) listener(parsed.message);
     });
 
     socket.addEventListener('close', event => {
@@ -195,7 +207,7 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
     if (!this.queuedReadiness) return;
     const message = this.queuedReadiness;
     this.queuedReadiness = null;
-    socket.send(JSON.stringify(message));
+    socket.send(JSON.stringify(encodeMultiplayerClientMessage(message)));
   }
 
   private scheduleReconnect(): void {

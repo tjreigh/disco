@@ -131,12 +131,11 @@ describe('multiplayer room gateway', () => {
     expect(guestCountdown).toEqual(hostCountdown);
 
     await new Promise(resolve => setTimeout(resolve, 10));
-    host.send(JSON.stringify({
-      ...clientEnvelope(hostAdmission),
+    host.send(JSON.stringify(clientCommand({
       type: 'publish-progress',
       matchId: hostCountdown.matchId,
       progress: { sequence: 1, score: 120, turnsPlayed: 1 },
-    }));
+    })));
     expect(await nextMessageOfType(guest, 'opponent-progress')).toMatchObject({
       matchId: hostCountdown.matchId,
       progress: {
@@ -148,19 +147,17 @@ describe('multiplayer room gateway', () => {
       },
     });
 
-    host.send(JSON.stringify({
-      ...clientEnvelope(hostAdmission),
+    host.send(JSON.stringify(clientCommand({
       type: 'finish-match',
       matchId: hostCountdown.matchId,
       progress: { sequence: 1, score: 120, turnsPlayed: 1 },
-    }));
+    })));
     await nextMessageOfType(guest, 'opponent-progress');
-    guest.send(JSON.stringify({
-      ...clientEnvelope(guestAdmission),
+    guest.send(JSON.stringify(clientCommand({
       type: 'finish-match',
       matchId: hostCountdown.matchId,
       progress: { sequence: 1, score: 80, turnsPlayed: 1 },
-    }));
+    })));
 
     const hostResult = await nextMessageOfType(host, 'match-finished');
     const guestResult = await nextMessageOfType(guest, 'match-finished');
@@ -214,9 +211,12 @@ async function connect(instance: FastifyInstance, admission: Admission): Promise
   attachHeartbeatResponder(socket);
   socketAdmissions.set(socket, admission);
   socket.send(JSON.stringify({
-    type: 'authenticate-room',
-    ...clientEnvelope(admission),
-    reconnectCredential: admission.reconnectCredential,
+    protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+    authenticate: {
+      roomId: admission.roomId,
+      playerId: admission.playerId,
+      reconnectCredential: admission.reconnectCredential,
+    },
   }));
   await nextMessageOfType(socket, 'room-state');
   return socket;
@@ -230,9 +230,12 @@ async function reconnectMidMatch(instance: FastifyInstance, admission: Admission
   attachHeartbeatResponder(socket);
   socketAdmissions.set(socket, admission);
   socket.send(JSON.stringify({
-    type: 'authenticate-room',
-    ...clientEnvelope(admission),
-    reconnectCredential: admission.reconnectCredential,
+    protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+    authenticate: {
+      roomId: admission.roomId,
+      playerId: admission.playerId,
+      reconnectCredential: admission.reconnectCredential,
+    },
   }));
   await nextMessageOfType(socket, 'turn-assigned');
   // Status is deliberately last in the snapshot (see snapshotDeliveries) — drain it too.
@@ -240,21 +243,19 @@ async function reconnectMidMatch(instance: FastifyInstance, admission: Admission
   return socket;
 }
 
-function clientEnvelope(admission: Admission) {
+function clientCommand(command: Record<string, unknown>) {
   return {
     protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
-    roomId: admission.roomId,
-    playerId: admission.playerId,
+    command,
   };
 }
 
 async function readyPlayer(socket: WebSocket, ready: boolean): Promise<void> {
-  const admission = await admissionForSocket(socket);
-  socket.send(JSON.stringify({
-    ...clientEnvelope(admission),
+  await admissionForSocket(socket);
+  socket.send(JSON.stringify(clientCommand({
     type: 'set-ready',
     ready,
-  }));
+  })));
   await nextMessageOfType(socket, 'room-state');
 }
 
@@ -269,7 +270,7 @@ async function admissionForSocket(socket: WebSocket): Promise<Admission> {
 async function nextMessageOfType(socket: WebSocket, type: string): Promise<any> {
   while (true) {
     const message = await nextJson(socket);
-    if (message.type === type) return message;
+    if (message.event?.type === type) return message.event;
   }
 }
 
@@ -440,12 +441,11 @@ async function startDuel(instance: FastifyInstance): Promise<DuelPlayers> {
 
 /** Proves the match is still live and convergent: the active player drops, both sockets see the result. */
 async function assertMatchStillUsable(duel: DuelPlayers): Promise<void> {
-  duel.activeSocket.send(JSON.stringify({
-    ...clientEnvelope(duel.activeAdmission),
+  duel.activeSocket.send(JSON.stringify(clientCommand({
     type: 'play-turn',
     matchId: duel.matchId,
     column: 3,
-  }));
+  })));
   const hostPlayed = await nextMessageOfType(duel.hostSocket, 'turn-played');
   const guestPlayed = await nextMessageOfType(duel.guestSocket, 'turn-played');
   expect(hostPlayed.turnResult.playerId).toBe(duel.activeAdmission.playerId);
@@ -457,12 +457,11 @@ describe('multiplayer room gateway — shared duel recoverable failures', () => 
     const instance = await createDuelApp();
     const duel = await startDuel(instance);
 
-    duel.inactiveSocket.send(JSON.stringify({
-      ...clientEnvelope(duel.inactiveAdmission),
+    duel.inactiveSocket.send(JSON.stringify(clientCommand({
       type: 'move-cursor',
       matchId: duel.matchId,
       column: 5,
-    }));
+    })));
 
     // Recoverable playing-state snapshot is turn-assigned followed by duel-status.
     const snapshotAssigned = await nextMessageOfType(duel.inactiveSocket, 'turn-assigned');
@@ -484,12 +483,11 @@ describe('multiplayer room gateway — shared duel recoverable failures', () => 
     // The active player plays a real turn — the turn now belongs to the opponent.
     const mover = duel.activeAdmission;
     const moverSocket = duel.activeSocket;
-    moverSocket.send(JSON.stringify({
-      ...clientEnvelope(mover),
+    moverSocket.send(JSON.stringify(clientCommand({
       type: 'play-turn',
       matchId: duel.matchId,
       column: 2,
-    }));
+    })));
     await nextMessageOfType(duel.hostSocket, 'turn-played');
     await nextMessageOfType(duel.guestSocket, 'turn-played');
     await nextMessageOfType(duel.hostSocket, 'turn-assigned');
@@ -498,12 +496,11 @@ describe('multiplayer room gateway — shared duel recoverable failures', () => 
     await nextMessageOfType(duel.guestSocket, 'duel-status');
 
     // The player who just moved tries to move again immediately — duplicate/stale.
-    moverSocket.send(JSON.stringify({
-      ...clientEnvelope(mover),
+    moverSocket.send(JSON.stringify(clientCommand({
       type: 'play-turn',
       matchId: duel.matchId,
       column: 1,
-    }));
+    })));
     const snapshotAssigned = await nextMessageOfType(moverSocket, 'turn-assigned');
     expect(snapshotAssigned.playerId).not.toBe(mover.playerId);
     await nextMessageOfType(moverSocket, 'duel-status');
@@ -531,10 +528,7 @@ describe('multiplayer room gateway — shared duel recoverable failures', () => 
         : type === 'set-paused'
           ? { type, matchId: staleMatchId, paused: true }
           : { type, matchId: staleMatchId };
-      duel.activeSocket.send(JSON.stringify({
-        ...clientEnvelope(duel.activeAdmission),
-        ...payload,
-      }));
+      duel.activeSocket.send(JSON.stringify(clientCommand(payload)));
       const snapshotAssigned = await nextMessageOfType(duel.activeSocket, 'turn-assigned');
       expect(snapshotAssigned.matchId).toBe(duel.matchId);
       await nextMessageOfType(duel.activeSocket, 'duel-status');
@@ -549,12 +543,11 @@ describe('multiplayer room gateway — shared duel recoverable failures', () => 
     const duel = await startDuel(instance);
 
     for (let attempt = 0; attempt < 5; attempt++) {
-      duel.inactiveSocket.send(JSON.stringify({
-        ...clientEnvelope(duel.inactiveAdmission),
+      duel.inactiveSocket.send(JSON.stringify(clientCommand({
         type: 'move-cursor',
         matchId: duel.matchId,
         column: attempt,
-      }));
+      })));
       await nextMessageOfType(duel.inactiveSocket, 'turn-assigned');
       await nextMessageOfType(duel.inactiveSocket, 'duel-status');
     }
@@ -582,11 +575,12 @@ describe('multiplayer room gateway — shared duel recoverable failures', () => 
     const duel = await startDuel(instance);
 
     duel.activeSocket.send(JSON.stringify({
-      ...clientEnvelope(duel.activeAdmission),
       protocolVersion: MULTIPLAYER_PROTOCOL_VERSION + 1,
-      type: 'play-turn',
-      matchId: duel.matchId,
-      column: 3,
+      command: {
+        type: 'play-turn',
+        matchId: duel.matchId,
+        column: 3,
+      },
     }));
 
     // parseClientMessage collapses every post-auth client parse failure

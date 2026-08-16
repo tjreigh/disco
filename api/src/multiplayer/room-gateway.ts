@@ -3,8 +3,9 @@ import type { RawData, WebSocket } from 'ws';
 import { z } from 'zod';
 import {
   MULTIPLAYER_PROTOCOL_VERSION,
+  encodeMultiplayerServerMessage,
   multiplayerModeIdentity,
-  parseMultiplayerClientMessage,
+  parseMultiplayerClientWireMessage,
 } from './contracts.js';
 import type {
   MultiplayerClientMessage,
@@ -66,11 +67,12 @@ const roomParamsSchema = z.object({
 }).strict();
 
 const socketAuthenticationSchema = z.object({
-  type: z.literal('authenticate-room'),
   protocolVersion: z.number().int().positive(),
-  roomId: z.string().trim().min(1).max(32).transform(value => value.toUpperCase()),
-  playerId: z.string().trim().min(1).max(128),
-  reconnectCredential: z.string().trim().min(1).max(256),
+  authenticate: z.object({
+    roomId: z.string().trim().min(1).max(32).transform(value => value.toUpperCase()),
+    playerId: z.string().trim().min(1).max(128),
+    reconnectCredential: z.string().trim().min(1).max(256),
+  }).strict(),
 }).strict();
 
 export interface MultiplayerGatewayOptions {
@@ -154,7 +156,7 @@ export async function registerMultiplayerGateway(
       logNotableEvent(delivery.message, loggedEvents);
       const active = sockets.get(delivery.playerId);
       if (active && active.socket.readyState === active.socket.OPEN) {
-        active.socket.send(JSON.stringify(delivery.message));
+        active.socket.send(JSON.stringify(encodeMultiplayerServerMessage(delivery.message)));
       }
     }
   };
@@ -287,12 +289,12 @@ export async function registerMultiplayerGateway(
           closeWithError(socket, 'protocol-mismatch');
           return;
         }
-        const service = roomOwners.get(authentication.roomId);
+        const service = roomOwners.get(authentication.authenticate.roomId);
         if (!service) {
           closeWithError(socket, 'room-not-found');
           return;
         }
-        const result = service.connect(authentication);
+        const result = service.connect(authentication.authenticate);
         if (!result.ok) {
           dispatch(result.deliveries);
           closeWithError(socket, result.error);
@@ -313,7 +315,7 @@ export async function registerMultiplayerGateway(
         return;
       }
 
-      const parsed = parseClientMessage(raw);
+      const parsed = parseClientMessage(raw, connection);
       if (!parsed) {
         closeWithError(socket, 'invalid-message');
         return;
@@ -355,8 +357,11 @@ function parseSocketAuthentication(raw: RawData) {
   return parsed.success ? parsed.data : null;
 }
 
-function parseClientMessage(raw: RawData): MultiplayerClientMessage | null {
-  const parsed = parseMultiplayerClientMessage(parseJson(raw));
+function parseClientMessage(
+  raw: RawData,
+  connection: RoomConnection,
+): MultiplayerClientMessage | null {
+  const parsed = parseMultiplayerClientWireMessage(parseJson(raw), connection);
   return parsed.ok ? parsed.message : null;
 }
 
