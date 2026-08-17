@@ -5,6 +5,16 @@
       <h1></h1>
       <span class="multiplayer-room__badge" hidden></span>
       <p class="multiplayer-room__message" aria-live="polite"></p>
+      <div class="multiplayer-room__players" aria-label="Player status">
+        <div class="multiplayer-room__player" data-player="local">
+          <span class="multiplayer-room__player-name">YOU</span>
+          <span class="multiplayer-room__player-status"></span>
+        </div>
+        <div class="multiplayer-room__player" data-player="opponent">
+          <span class="multiplayer-room__player-name">OPPONENT</span>
+          <span class="multiplayer-room__player-status"></span>
+        </div>
+      </div>
       <strong class="multiplayer-room__code"></strong>
       <div class="multiplayer-room__actions">
         <button type="button" class="multiplayer-room__button multiplayer-room__button--primary">READY</button>

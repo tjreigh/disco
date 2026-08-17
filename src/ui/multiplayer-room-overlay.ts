@@ -13,6 +13,8 @@ export interface RoomOverlayView {
   readonly connection: MultiplayerConnectionState;
   readonly roomId: string;
   readonly localReady: boolean;
+  readonly opponentJoined: boolean;
+  readonly opponentConnected: boolean;
   readonly opponentReady: boolean;
   readonly result: MultiplayerLocalResult | null;
   readonly compatibilityError: MultiplayerCompatibilityError | null;
@@ -31,6 +33,9 @@ export class MultiplayerRoomOverlay {
   private readonly title: HTMLElement;
   private readonly badge: HTMLElement;
   private readonly message: HTMLElement;
+  private readonly players: HTMLElement;
+  private readonly localPlayerStatus: HTMLElement;
+  private readonly opponentPlayerStatus: HTMLElement;
   private readonly roomCode: HTMLElement;
   private readonly actions: HTMLElement;
   private readonly readyButton: HTMLButtonElement;
@@ -50,6 +55,9 @@ export class MultiplayerRoomOverlay {
     this.title = mustQuery(fragment, '.multiplayer-room__panel > h1');
     this.badge = mustQuery(fragment, '.multiplayer-room__badge');
     this.message = mustQuery(fragment, '.multiplayer-room__message');
+    this.players = mustQuery(fragment, '.multiplayer-room__players');
+    this.localPlayerStatus = mustQuery(fragment, '[data-player="local"] .multiplayer-room__player-status');
+    this.opponentPlayerStatus = mustQuery(fragment, '[data-player="opponent"] .multiplayer-room__player-status');
     this.roomCode = mustQuery(fragment, '.multiplayer-room__code');
     this.actions = mustQuery(fragment, '.multiplayer-room__actions');
     this.readyButton = mustQuery(fragment, '.multiplayer-room__button--primary');
@@ -81,6 +89,7 @@ export class MultiplayerRoomOverlay {
     this.eyebrow.textContent = `MULTIPLAYER · ${this.modeLabel}`;
     this.title.textContent = 'CONNECTING';
     this.message.textContent = message;
+    this.players.hidden = true;
     this.roomCode.textContent = '';
     this.readyButton.hidden = true;
     this.copyButton.hidden = true;
@@ -115,6 +124,7 @@ export class MultiplayerRoomOverlay {
         : view.opponentReady
           ? `${score} · Your opponent wants another round.`
           : score;
+      this.renderPlayerStatus(view);
       this.roomCode.textContent = '';
       this.readyButton.hidden = false;
       this.readyButton.disabled = view.connection !== 'connected';
@@ -137,6 +147,7 @@ export class MultiplayerRoomOverlay {
       this.eyebrow.textContent = this.modeLabel;
       this.title.textContent = 'RUN COMPLETE';
       this.message.textContent = 'Waiting for the other player’s final score…';
+      this.renderPlayerStatus(view);
       this.roomCode.textContent = '';
       this.readyButton.hidden = true;
       this.copyButton.hidden = true;
@@ -155,6 +166,7 @@ export class MultiplayerRoomOverlay {
       this.eyebrow.textContent = this.modeLabel;
       this.title.textContent = 'PAUSED';
       this.message.textContent = 'Your opponent paused the match.';
+      this.players.hidden = true;
       this.roomCode.textContent = '';
       this.readyButton.hidden = true;
       this.copyButton.hidden = true;
@@ -170,9 +182,8 @@ export class MultiplayerRoomOverlay {
     this.root.dataset.state = 'lobby';
     this.eyebrow.textContent = `PRIVATE ${this.modeLabel}`;
     this.title.textContent = 'ROOM CODE';
-    this.message.textContent = view.localReady
-      ? 'You’re ready. Share the invite and wait for the other player.'
-      : 'Share this private link, then ready up when both players have joined.';
+    this.message.textContent = lobbyMessage(view);
+    this.renderPlayerStatus(view);
     this.roomCode.textContent = view.roomId;
     this.readyButton.hidden = false;
     this.readyButton.disabled = view.connection !== 'connected';
@@ -188,6 +199,7 @@ export class MultiplayerRoomOverlay {
     this.eyebrow.textContent = 'MULTIPLAYER UNAVAILABLE';
     this.title.textContent = 'ROOM ERROR';
     this.message.textContent = message;
+    this.players.hidden = true;
     this.roomCode.textContent = '';
     this.readyButton.hidden = true;
     this.copyButton.hidden = true;
@@ -207,6 +219,30 @@ export class MultiplayerRoomOverlay {
       this.copyButton.textContent = 'COPY FAILED';
     }
   }
+
+  private renderPlayerStatus(view: RoomOverlayView): void {
+    this.players.hidden = false;
+    this.localPlayerStatus.textContent = view.connection === 'connected'
+      ? view.localReady ? 'CONNECTED · READY' : 'CONNECTED · NOT READY'
+      : view.connection === 'reconnecting' ? 'RECONNECTING' : 'DISCONNECTED';
+    this.opponentPlayerStatus.textContent = !view.opponentJoined
+      ? 'NOT JOINED'
+      : !view.opponentConnected
+        ? 'JOINED · DISCONNECTED'
+        : view.opponentReady ? 'CONNECTED · READY' : 'CONNECTED · NOT READY';
+  }
+}
+
+function lobbyMessage(view: RoomOverlayView): string {
+  if (!view.opponentJoined) {
+    return view.localReady
+      ? 'You’re ready. Share the invite and wait for your opponent to join.'
+      : 'Share this private link, then ready up while you wait for your opponent.';
+  }
+  if (!view.opponentConnected) return 'Your opponent joined and is reconnecting.';
+  if (view.opponentReady && !view.localReady) return 'Your opponent is ready. Ready up to start.';
+  if (view.localReady && !view.opponentReady) return 'You’re ready. Waiting for your opponent.';
+  return 'Your opponent joined. Ready up when you’re set.';
 }
 
 // Keep distinct remediation guidance; controllers log the underlying detail.

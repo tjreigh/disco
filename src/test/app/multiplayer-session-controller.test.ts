@@ -250,14 +250,20 @@ describe('MultiplayerSessionController lifecycle', () => {
       type: 'room-state',
       localReady: true,
       opponentReady: false,
+      opponentJoined: true,
+      opponentConnected: true,
     }));
     expect(controller.view.result?.outcome).toBe('win');
     expect(controller.view.opponentReady).toBe(false);
+    expect(controller.view.opponentJoined).toBe(true);
+    expect(controller.view.opponentConnected).toBe(true);
 
     transport.receive(serverMessage({
       type: 'room-state',
       localReady: true,
       opponentReady: true,
+      opponentJoined: true,
+      opponentConnected: true,
     }));
     startMatch(transport, 1_000, SCORE_RACE_MODE, 'match-2');
     expect(controller.view.phase).toBe('countdown');
@@ -307,11 +313,15 @@ describe('MultiplayerSessionController lifecycle', () => {
       type: 'room-state',
       localReady: false,
       opponentReady: false,
+      opponentJoined: false,
+      opponentConnected: false,
     }, mismatchedMode));
     transport.receive(serverMessage({
       type: 'room-state',
       localReady: false,
       opponentReady: false,
+      opponentJoined: false,
+      opponentConnected: false,
     }));
 
     expect(controller.view.phase).toBe('finished');

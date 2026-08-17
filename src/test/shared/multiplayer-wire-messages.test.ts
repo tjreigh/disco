@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import {
   encodeMultiplayerClientMessage,
   encodeMultiplayerServerMessage,
+  parseMultiplayerServerMessage,
   parseMultiplayerClientWireMessage,
   parseMultiplayerServerWireMessage,
 } from '../../shared/multiplayer-messages.js';
@@ -50,6 +51,8 @@ describe('multiplayer wire envelopes', () => {
       type: 'room-state' as const,
       localReady: true,
       opponentReady: false,
+      opponentJoined: false,
+      opponentConnected: false,
     };
 
     const wire = encodeMultiplayerServerMessage(internal);
@@ -57,12 +60,27 @@ describe('multiplayer wire envelopes', () => {
     expect(wire).toEqual({
       protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
       room: { id: context.roomId, mode },
-      event: { type: 'room-state', localReady: true, opponentReady: false },
+      event: {
+        type: 'room-state', localReady: true, opponentReady: false,
+        opponentJoined: false, opponentConnected: false,
+      },
     });
     expect(parseMultiplayerServerWireMessage(wire)).toEqual({
       ok: true,
       message: internal,
     });
+  });
+
+  test('requires explicit opponent presence in room state', () => {
+    expect(parseMultiplayerServerMessage({
+      protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+      roomId: context.roomId,
+      mode,
+      type: 'room-state',
+      localReady: false,
+      opponentReady: false,
+      opponentConnected: false,
+    })).toEqual({ ok: false, error: 'invalid-message' });
   });
 
   test('reports a protocol mismatch before inspecting the body', () => {

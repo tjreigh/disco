@@ -227,6 +227,47 @@ function startPlaying(harness: RoomHarness): { matchId: string; firstPlayerId: s
 }
 
 describe('SharedBoardRoomService', () => {
+  test('reports opponent admission separately from an active connection', () => {
+    const service = createService();
+    const host = valueOf(service.createRoom(admissionRequest()));
+    const guest = valueOf(service.joinRoom({ ...admissionRequest(), roomId: host.roomId }));
+
+    const hostConnect = service.connect({
+      roomId: host.roomId, playerId: host.playerId, reconnectCredential: host.reconnectCredential,
+    });
+    const hostConnection = valueOf(hostConnect);
+    expect(hostConnect.deliveries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        playerId: host.playerId,
+        message: expect.objectContaining({
+          type: 'room-state', opponentJoined: true, opponentConnected: false,
+        }),
+      }),
+    ]));
+
+    const guestConnect = service.connect({
+      roomId: guest.roomId, playerId: guest.playerId, reconnectCredential: guest.reconnectCredential,
+    });
+    valueOf(guestConnect);
+    expect(guestConnect.deliveries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        message: expect.objectContaining({
+          type: 'room-state', opponentJoined: true, opponentConnected: true,
+        }),
+      }),
+    ]));
+
+    const disconnected = service.disconnect(hostConnection);
+    expect(disconnected).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        playerId: guest.playerId,
+        message: expect.objectContaining({
+          type: 'room-state', opponentJoined: true, opponentConnected: false,
+        }),
+      }),
+    ]));
+  });
+
   test('rejects incompatible protocol and mode on create/join', () => {
     const service = createService();
     expect(errorOf(service.createRoom({

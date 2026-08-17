@@ -273,6 +273,8 @@ describe('ScoreRaceRoomService', () => {
         type: 'room-state',
         localReady: false,
         opponentReady: false,
+        opponentJoined: false,
+        opponentConnected: false,
       },
     }]);
 
@@ -287,6 +289,18 @@ describe('ScoreRaceRoomService', () => {
     });
     const guestConnection = valueOf(guestConnected);
     expect(guestConnected.deliveries).toHaveLength(2);
+    expect(guestConnected.deliveries.map(delivery => delivery.message)).toEqual([
+      expect.objectContaining({
+        type: 'room-state',
+        opponentJoined: true,
+        opponentConnected: true,
+      }),
+      expect.objectContaining({
+        type: 'room-state',
+        opponentJoined: true,
+        opponentConnected: true,
+      }),
+    ]);
 
     const hostReady = service.receive(
       hostConnection,
@@ -351,6 +365,8 @@ describe('ScoreRaceRoomService', () => {
         type: 'room-state',
         localReady: false,
         opponentReady: false,
+        opponentJoined: true,
+        opponentConnected: false,
       }),
     }]);
 

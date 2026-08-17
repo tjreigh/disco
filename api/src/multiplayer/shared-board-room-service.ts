@@ -741,6 +741,8 @@ export class SharedBoardRoomService {
       type: 'room-state',
       localReady: player.ready,
       opponentReady: opponent?.ready ?? false,
+      opponentJoined: opponent !== undefined,
+      opponentConnected: Boolean(opponent?.connection),
     };
   }
 

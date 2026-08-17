@@ -1,6 +1,6 @@
 # Multiplayer WebSocket protocol
 
-Protocol version: `4`
+Protocol version: `5`
 
 The protocol separates connection metadata from gameplay data. Frames have
 one obvious job: authenticate a socket, send a client `command`, deliver a
@@ -12,7 +12,7 @@ The first client frame authenticates the socket:
 
 ```json
 {
-  "protocolVersion": 4,
+  "protocolVersion": 5,
   "authenticate": {
     "roomId": "ABCD2345",
     "playerId": "player-1",
@@ -27,7 +27,7 @@ the action:
 
 ```json
 {
-  "protocolVersion": 4,
+  "protocolVersion": 5,
   "command": {
     "type": "play-turn",
     "matchId": "match-1",
@@ -40,7 +40,7 @@ Server events keep room context together and separate from event data:
 
 ```json
 {
-  "protocolVersion": 4,
+  "protocolVersion": 5,
   "room": {
     "id": "ABCD2345",
     "mode": {
@@ -68,6 +68,24 @@ Server events keep room context together and separate from event data:
 | Server event | Shared lifecycle | `room-state`, `match-countdown`, `match-finished`, `match-paused` |
 | Server event | Score Race | `opponent-progress` |
 | Server event | Shared Duel | `turn-assigned`, `turn-played`, `turn-expired`, `opponent-cursor`, `duel-status` |
+
+The shared `room-state` event makes lobby presence explicit instead of asking
+clients to infer it from readiness:
+
+```json
+{
+  "type": "room-state",
+  "localReady": true,
+  "opponentReady": false,
+  "opponentJoined": true,
+  "opponentConnected": false
+}
+```
+
+`opponentJoined` means the second room slot has been claimed;
+`opponentConnected` means that player currently has an authenticated socket.
+Together they distinguish waiting for someone to join from waiting for an
+admitted opponent to reconnect.
 
 Transport failures retain their small shape so they can be sent even when
 authentication or protocol parsing fails:

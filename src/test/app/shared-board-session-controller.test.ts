@@ -74,6 +74,25 @@ function createSession(): {
 }
 
 describe('SharedBoardSessionController', () => {
+  test('exposes opponent presence, connection, and ready state from room-state', () => {
+    const { transport, controller } = createSession();
+    expect(controller.view.opponentJoined).toBe(false);
+    expect(controller.view.opponentConnected).toBe(false);
+
+    transport.receive(serverMessage({
+      type: 'room-state',
+      localReady: true,
+      opponentReady: false,
+      opponentJoined: true,
+      opponentConnected: true,
+    }));
+
+    expect(controller.view.localReady).toBe(true);
+    expect(controller.view.opponentReady).toBe(false);
+    expect(controller.view.opponentJoined).toBe(true);
+    expect(controller.view.opponentConnected).toBe(true);
+  });
+
   test('remainingMs counts down through countdown and into a turn deadline', () => {
     const { clock, transport, controller } = createSession();
     expect(controller.view.remainingMs).toBeNull();

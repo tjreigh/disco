@@ -2,7 +2,7 @@ import type { GameOverReason } from './game-values.js';
 export type { GameOverReason } from './game-values.js';
 
 /** Stable identities and value contracts shared by multiplayer messages. */
-export const MULTIPLAYER_PROTOCOL_VERSION = 4 as const;
+export const MULTIPLAYER_PROTOCOL_VERSION = 5 as const;
 export const SCORE_RACE_MODE_ID = 'score-race' as const;
 export const SCORE_RACE_MODE_VERSION = 1 as const;
 export const SCORE_RACE_RULES_VERSION = 1 as const;
@@ -120,6 +120,10 @@ export type MultiplayerServerMessage =
       readonly type: 'room-state';
       readonly localReady: boolean;
       readonly opponentReady: boolean;
+      /** True once the room's second player slot has been claimed. */
+      readonly opponentJoined: boolean;
+      /** True only while the admitted opponent has an active room connection. */
+      readonly opponentConnected: boolean;
     })
   | (ServerMessageBase & {
       readonly type: 'match-countdown';

@@ -38,6 +38,10 @@ export interface MultiplayerSessionView {
   readonly mode: MultiplayerModeIdentity;
   readonly localReady: boolean;
   readonly opponentReady: boolean;
+  /** Whether the room's opponent slot has been claimed. */
+  readonly opponentJoined: boolean;
+  /** Whether the other room slot currently has a connected player. */
+  readonly opponentConnected: boolean;
   readonly matchId: string | null;
   readonly startsAt: number | null;
   readonly deadline: number | null;
@@ -115,6 +119,8 @@ export class MultiplayerSessionController {
   };
   private connection: MultiplayerConnectionState = 'connected';
   private progressSequence = 0;
+  private opponentJoined = false;
+  private opponentConnected = false;
 
   constructor(options: MultiplayerSessionControllerOptions) {
     this.roomId = options.roomId;
@@ -154,6 +160,8 @@ export class MultiplayerSessionController {
       opponentReady: this.lifecycle.kind === 'lobby' || this.lifecycle.kind === 'complete'
         ? this.lifecycle.opponentReady
         : true,
+      opponentJoined: this.opponentJoined,
+      opponentConnected: this.opponentConnected,
       matchId: match?.matchId ?? null,
       startsAt: match?.startsAt ?? null,
       deadline: match?.deadline ?? null,
@@ -247,6 +255,8 @@ export class MultiplayerSessionController {
 
     switch (message.type) {
       case 'room-state':
+        this.opponentJoined = message.opponentJoined;
+        this.opponentConnected = message.opponentConnected;
         if (this.lifecycle.kind === 'lobby') {
           this.lifecycle = {
             kind: 'lobby',

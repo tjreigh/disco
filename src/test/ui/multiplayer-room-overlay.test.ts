@@ -26,6 +26,8 @@ function completedView(): MultiplayerSessionView {
     mode: multiplayerModeIdentity(SCORE_RACE_MODE),
     localReady: false,
     opponentReady: false,
+    opponentJoined: false,
+    opponentConnected: false,
     matchId: 'match-1',
     startsAt: 0,
     deadline: 180_000,
@@ -96,6 +98,40 @@ describe('MultiplayerRoomOverlay', () => {
     }), null);
 
     expect(document.querySelector<HTMLElement>('.multiplayer-room')!.hidden).toBe(true);
+  });
+
+  test('makes each player’s joined, connection, and readiness state explicit in the lobby', () => {
+    const overlay = new MultiplayerRoomOverlay();
+    overlay.render(overlayView({
+      ...completedView(),
+      phase: 'lobby',
+      connection: 'connected',
+      result: null,
+      localReady: true,
+      opponentReady: false,
+    }), null);
+
+    const players = document.querySelector<HTMLElement>('.multiplayer-room__players')!;
+    expect(players.hidden).toBe(false);
+    expect(players.querySelector('[data-player="local"]')?.textContent).toContain('CONNECTED · READY');
+    expect(players.querySelector('[data-player="opponent"]')?.textContent).toContain('NOT JOINED');
+
+    overlay.render({
+      ...overlayView({ ...completedView(), phase: 'lobby', connection: 'connected', result: null }),
+      opponentJoined: true,
+      opponentConnected: false,
+    }, null);
+    expect(players.querySelector('[data-player="opponent"]')?.textContent)
+      .toContain('JOINED · DISCONNECTED');
+    expect(document.querySelector('.multiplayer-room__message')?.textContent)
+      .toContain('joined and is reconnecting');
+
+    overlay.render({
+      ...overlayView({ ...completedView(), phase: 'ready', connection: 'connected', result: null, opponentReady: true }),
+      opponentJoined: true,
+      opponentConnected: true,
+    }, null);
+    expect(players.querySelector('[data-player="opponent"]')?.textContent).toContain('CONNECTED · READY');
   });
 
   test('shows a passive paused banner only to the player who did not pause, with no dead-end home link', () => {

@@ -101,6 +101,8 @@ function validSnapshot(overrides: Record<string, unknown> = {}) {
       type: 'room-state',
       localReady: false,
       opponentReady: false,
+      opponentJoined: false,
+      opponentConnected: false,
       ...eventOverrides,
     },
   };
@@ -179,6 +181,8 @@ describe('WebSocketMultiplayerTransport authentication readiness', () => {
       type: 'room-state',
       localReady: false,
       opponentReady: false,
+      opponentJoined: false,
+      opponentConnected: false,
     });
     // The coalesced set-ready flushes right after, and only once.
     expect(socket.sent).toHaveLength(2);

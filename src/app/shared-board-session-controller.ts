@@ -35,6 +35,10 @@ export interface SharedBoardSessionView {
   readonly mode: MultiplayerModeIdentity;
   readonly localReady: boolean;
   readonly opponentReady: boolean;
+  /** Whether the room's opponent slot has been claimed. */
+  readonly opponentJoined: boolean;
+  /** Whether the other room slot currently has a connected player. */
+  readonly opponentConnected: boolean;
   readonly matchId: string | null;
   readonly startsAt: number | null;
   readonly remainingMs: number | null;
@@ -136,6 +140,8 @@ export class SharedBoardSessionController {
   readonly #unsubConnection: () => void;
   #connection: MultiplayerConnectionState;
   #lifecycle: MatchLifecycle;
+  #opponentJoined = false;
+  #opponentConnected = false;
   // Diagnostic only: timestamps a local play-turn send so the matching
   // turn-played can log a round-trip latency. Cleared on apply or on any
   // resync that makes the pairing unreliable (see #handleDuelStatus).
@@ -364,6 +370,8 @@ export class SharedBoardSessionController {
   }
 
   #handleRoomState(message: MultiplayerServerMessage & { type: 'room-state' }): void {
+    this.#opponentJoined = message.opponentJoined;
+    this.#opponentConnected = message.opponentConnected;
     const lifecycle = this.#lifecycle;
     if (lifecycle.kind !== 'lobby' && lifecycle.kind !== 'complete') return;
     lifecycle.localReady = message.localReady;
@@ -667,6 +675,8 @@ export class SharedBoardSessionController {
       mode: this.#mode,
       localReady: lifecycle.kind === 'lobby' || lifecycle.kind === 'complete' ? lifecycle.localReady : true,
       opponentReady: lifecycle.kind === 'lobby' || lifecycle.kind === 'complete' ? lifecycle.opponentReady : true,
+      opponentJoined: this.#opponentJoined,
+      opponentConnected: this.#opponentConnected,
       matchId: ('match' in lifecycle && lifecycle.match) ? lifecycle.match.matchId : null,
       startsAt: ('match' in lifecycle && lifecycle.match) ? lifecycle.match.startsAt : null,
       remainingMs,

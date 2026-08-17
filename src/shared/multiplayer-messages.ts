@@ -220,10 +220,13 @@ export function parseMultiplayerServerMessage(
   switch (value.type) {
     case 'room-state':
       if (!hasExactKeys(value, [
-        'protocolVersion', 'roomId', 'mode', 'type', 'localReady', 'opponentReady',
+        'protocolVersion', 'roomId', 'mode', 'type',
+        'localReady', 'opponentReady', 'opponentJoined', 'opponentConnected',
       ])
         || typeof value.localReady !== 'boolean'
-        || typeof value.opponentReady !== 'boolean') {
+        || typeof value.opponentReady !== 'boolean'
+        || typeof value.opponentJoined !== 'boolean'
+        || typeof value.opponentConnected !== 'boolean') {
         return invalidMessage();
       }
       return {
@@ -233,6 +236,8 @@ export function parseMultiplayerServerMessage(
           type: value.type,
           localReady: value.localReady,
           opponentReady: value.opponentReady,
+          opponentJoined: value.opponentJoined,
+          opponentConnected: value.opponentConnected,
         },
       };
     case 'match-countdown':
