@@ -20,6 +20,7 @@ import type {
 import { releaseGameplayFocus } from '../ui/dom-utils.js';
 import { GameControls } from '../ui/game-controls.js';
 import { GameHud } from '../ui/game-hud.js';
+import { MultiplayerChat } from '../ui/multiplayer-chat.js';
 import { MultiplayerHud } from '../ui/multiplayer-hud.js';
 import { MultiplayerPauseMenu } from '../ui/multiplayer-pause-menu.js';
 import { MultiplayerRoomOverlay } from '../ui/multiplayer-room-overlay.js';
@@ -64,6 +65,7 @@ export class MultiplayerGame {
   private controls: GameControls | null = null;
   private gameHud: GameHud | null = null;
   private multiplayerHud: MultiplayerHud | null = null;
+  private chat: MultiplayerChat | null = null;
   private unsubscribeTransportError: (() => void) | null = null;
   private transportError: MultiplayerTransportError | null = null;
   private rafId = 0;
@@ -113,6 +115,7 @@ export class MultiplayerGame {
     this.controls?.destroy();
     this.gameHud?.destroy();
     this.multiplayerHud?.destroy();
+    this.chat?.destroy();
     this.session?.destroy();
     this.transport?.destroy();
     this.roomOverlay.destroy();
@@ -157,6 +160,8 @@ export class MultiplayerGame {
       this.gameHud = new GameHud(this.mounts.stage);
       this.gameHud.root.dataset.multiplayer = 'true';
       this.multiplayerHud = new MultiplayerHud(this.mounts.stage);
+      this.chat = new MultiplayerChat(this.mounts.overlays);
+      this.chat.setOnSend(text => this.session?.sendChat(text) ?? false);
       this.input = new InputHandler(
         this.canvas,
         intent => this.handleIntent(intent),
@@ -207,7 +212,8 @@ export class MultiplayerGame {
     const controls = this.controls;
     const gameHud = this.gameHud;
     const multiplayerHud = this.multiplayerHud;
-    if (!session || !renderer || !controls || !gameHud || !multiplayerHud) return;
+    const chat = this.chat;
+    if (!session || !renderer || !controls || !gameHud || !multiplayerHud || !chat) return;
 
     this.rafId = requestAnimationFrame(this.loop);
     session.tick();
@@ -251,6 +257,7 @@ export class MultiplayerGame {
       { ...view, pausedByLocal: view.pausedBy === view.playerId },
       this.transportError,
     );
+    chat.render(view.messages, view.playerId, view.connection !== 'connected');
 
     const canPause = view.phase === 'playing';
     this.pauseMenu.setCanOpen(canPause);

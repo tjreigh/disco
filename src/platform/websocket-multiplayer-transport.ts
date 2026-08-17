@@ -47,9 +47,11 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
   >();
   // Only 'set-ready' is retained while unauthenticated/reconnecting, and
   // coalesced to its latest value — every other message type (gameplay,
-  // pause, forfeit, Score Race progress/resume) is dropped outright rather
-  // than queued, since a stale copy replayed later can never be valid.
-  // Controllers already re-emit what they need once `connected` fires.
+  // pause, forfeit, Score Race progress/resume, and chat) is dropped outright
+  // rather than queued, since a stale copy replayed later can never be valid.
+  // Controllers already re-emit what they need once `connected` fires. Chat
+  // is intentionally ephemeral, so losing a message sent mid-reconnect is the
+  // expected behavior, not a gap.
   private queuedReadiness: MultiplayerClientMessage | null = null;
   private socket: WebSocket | null = null;
   private state: MultiplayerConnectionState = 'reconnecting';

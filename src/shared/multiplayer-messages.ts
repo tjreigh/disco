@@ -2,6 +2,7 @@ import {
   isWireBonusKind,
   isWireDiscKind,
   isWireEntryEdge,
+  MAX_CHAT_MESSAGE_LENGTH,
   MULTIPLAYER_PROTOCOL_VERSION,
   SHARED_DUEL_BOARD_COLS,
   SHARED_DUEL_BOARD_ROWS,
@@ -194,6 +195,19 @@ export function parseMultiplayerClientMessage(
         ok: true,
         message: { ...base, type: value.type, matchId: value.matchId },
       };
+    case 'send-chat': {
+      if (!hasExactKeys(value, [
+        'protocolVersion', 'roomId', 'playerId', 'type', 'text',
+      ])) {
+        return invalidMessage();
+      }
+      const text = normalizeChatText(value.text);
+      if (!text) return invalidMessage();
+      return {
+        ok: true,
+        message: { ...base, type: value.type, text },
+      };
+    }
     default:
       return invalidMessage();
   }
@@ -470,6 +484,35 @@ export function parseMultiplayerServerMessage(
         },
       };
     }
+    case 'chat-message': {
+      if (!hasExactKeys(value, [
+        'protocolVersion', 'roomId', 'mode', 'type', 'playerId', 'text',
+      ])
+        || !isNonEmptyString(value.playerId)) {
+        return invalidMessage();
+      }
+      const text = normalizeChatText(value.text);
+      if (!text) return invalidMessage();
+      return {
+        ok: true,
+        message: {
+          ...base,
+          type: value.type,
+          playerId: value.playerId,
+          text,
+        },
+      };
+    }
+    case 'chat-rate-limited':
+      if (!hasExactKeys(value, [
+        'protocolVersion', 'roomId', 'mode', 'type',
+      ])) {
+        return invalidMessage();
+      }
+      return {
+        ok: true,
+        message: { ...base, type: value.type },
+      };
     default:
       return invalidMessage();
   }
@@ -788,6 +831,28 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
+}
+
+/**
+ * Single source of truth for chat text normalization, shared by the parser and
+ * both client session controllers. Trims first, then validates the normalized
+ * value, so a message whose content is within the length limit is accepted
+ * even when wrapped in whitespace. Control characters (including newlines and
+ * tabs) are rejected so the single-line chat log can't be broken across rows.
+ */
+export function normalizeChatText(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > MAX_CHAT_MESSAGE_LENGTH) return null;
+  if (hasControlCharacters(trimmed)) return null;
+  return trimmed;
+}
+
+function hasControlCharacters(value: string): boolean {
+  // Cc includes the C0/C1 ranges (tabs, newlines, DEL, NEL, and friends).
+  // Zl/Zp cover Unicode line and paragraph separators, which also violate the
+  // single-line wire contract even though they are not classified as controls.
+  return /[\p{Cc}\p{Zl}\p{Zp}]/u.test(value);
 }
 
 function isNonNegativeInteger(value: unknown): value is number {

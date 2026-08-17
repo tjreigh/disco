@@ -1,0 +1,19 @@
+<template id="tpl-multiplayer-chat">
+  <section class="multiplayer-chat" aria-label="Chat">
+    <button type="button" class="multiplayer-chat__toggle" aria-expanded="false" aria-label="Open chat">CHAT<span class="multiplayer-chat__unread" hidden aria-hidden="true"></span></button>
+    <div class="multiplayer-chat__panel" hidden>
+      <div class="multiplayer-chat__log" role="log" aria-live="polite"></div>
+      <form class="multiplayer-chat__form">
+        <input
+          class="multiplayer-chat__input"
+          type="text"
+          autocomplete="off"
+          enterkeyhint="send"
+          aria-label="Chat message"
+          placeholder="Chat…"
+        />
+        <button class="multiplayer-chat__send" type="submit">SEND</button>
+      </form>
+    </div>
+  </section>
+</template>

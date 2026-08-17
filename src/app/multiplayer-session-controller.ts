@@ -6,7 +6,10 @@ import {
   MULTIPLAYER_PROTOCOL_VERSION,
   sameMultiplayerModeIdentity,
 } from '../shared/multiplayer-contracts.js';
-import { parseMultiplayerServerMessage } from '../shared/multiplayer-messages.js';
+import {
+  normalizeChatText,
+  parseMultiplayerServerMessage,
+} from '../shared/multiplayer-messages.js';
 import type {
   MultiplayerClientMessage,
   MultiplayerConnectionState,
@@ -16,6 +19,8 @@ import type {
   MultiplayerProgress,
   MultiplayerServerMessage,
 } from '../shared/multiplayer-contracts.js';
+import { MultiplayerChatLog } from './multiplayer-chat-log.js';
+import type { ChatLogEntry } from './multiplayer-chat-log.js';
 import { LocalBoardSession } from './local-board-session.js';
 import type { LocalBoardSessionView } from './local-board-session.js';
 import type { MultiplayerCompatibilityError, MultiplayerPhase } from './multiplayer-view-types.js';
@@ -52,6 +57,7 @@ export interface MultiplayerSessionView {
   readonly board: LocalBoardSessionView;
   readonly paused: boolean;
   readonly pausedBy: string | null;
+  readonly messages: readonly ChatLogEntry[];
 }
 
 export interface MultiplayerSessionControllerOptions {
@@ -110,6 +116,7 @@ export class MultiplayerSessionController {
   private readonly clock: SessionClock;
   private readonly transport: MultiplayerSessionTransport;
   private readonly session: LocalBoardSession;
+  private readonly chatLog: MultiplayerChatLog;
   private readonly unsubscribeMessages: () => void;
   private readonly unsubscribeConnection: () => void;
   private lifecycle: MatchLifecycle = {
@@ -129,6 +136,7 @@ export class MultiplayerSessionController {
     this.mode = multiplayerModeIdentity(options.mode);
     this.clock = options.clock;
     this.transport = options.transport;
+    this.chatLog = new MultiplayerChatLog(this.playerId);
     this.session = new LocalBoardSession({
       rules: options.mode.rules,
       events: {
@@ -174,6 +182,7 @@ export class MultiplayerSessionController {
       board: this.session.view,
       paused: this.lifecycle.kind === 'playing' && this.lifecycle.paused !== null,
       pausedBy: this.lifecycle.kind === 'playing' ? this.lifecycle.paused?.by ?? null : null,
+      messages: this.chatLog.view,
     };
   }
 
@@ -194,6 +203,15 @@ export class MultiplayerSessionController {
   forfeit(): void {
     if (this.lifecycle.kind !== 'playing') return;
     this.send({ type: 'forfeit-match', matchId: this.lifecycle.match.matchId });
+  }
+
+  /** Sends a chat message; returns false when it can't be sent (disconnected, empty, or too long). */
+  sendChat(text: string): boolean {
+    if (this.connection !== 'connected') return false;
+    const normalized = normalizeChatText(text);
+    if (!normalized) return false;
+    this.send({ type: 'send-chat', text: normalized });
+    return true;
   }
 
   move(lane: number): boolean {
@@ -301,6 +319,12 @@ export class MultiplayerSessionController {
         break;
       case 'match-paused':
         this.handleMatchPaused(message);
+        break;
+      case 'chat-message':
+        this.chatLog.receive({ playerId: message.playerId, text: message.text });
+        break;
+      case 'chat-rate-limited':
+        this.chatLog.noteThrottled();
         break;
     }
   }

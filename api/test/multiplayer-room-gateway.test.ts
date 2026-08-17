@@ -172,6 +172,21 @@ describe('multiplayer room gateway', () => {
     });
   });
 
+  it('relays chat to both players from the lobby', async () => {
+    const instance = await createApp();
+    const hostAdmission = await admit(instance, '/multiplayer/rooms');
+    const guestAdmission = await admit(instance, `/multiplayer/rooms/${hostAdmission.roomId}/join`);
+    const host = await connect(instance, hostAdmission);
+    const guest = await connect(instance, guestAdmission);
+
+    host.send(JSON.stringify(clientCommand({ type: 'send-chat', text: 'hello there' })));
+
+    const hostChat = await nextMessageOfType(host, 'chat-message');
+    const guestChat = await nextMessageOfType(guest, 'chat-message');
+    expect(hostChat).toEqual({ type: 'chat-message', playerId: hostAdmission.playerId, text: 'hello there' });
+    expect(guestChat).toEqual(hostChat);
+  });
+
   it('rejects an invalid first frame without admitting the socket', async () => {
     const instance = await createApp();
     const socket = await instance.injectWS('/multiplayer/socket');

@@ -117,3 +117,109 @@
 }
 .multiplayer-room[data-state="result"] .multiplayer-room__eyebrow { color: #ffd166; }
 .multiplayer-room[data-state="error"] .multiplayer-room__eyebrow { color: #ef6b73; }
+
+/* --- Room chat -------------------------------------------------------- */
+.multiplayer-chat {
+  position: fixed;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  /* Same layer as the room surface; chat is mounted afterward so its toggle
+     and panel remain usable in the lobby/result without covering pause menus. */
+  z-index: 34;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  width: min(280px, calc(100% - 24px));
+  pointer-events: none;
+}
+.multiplayer-chat__toggle,
+.multiplayer-chat__panel { pointer-events: auto; }
+.multiplayer-chat__toggle {
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: rgba(16, 42, 67, .94);
+  color: var(--color-text);
+  font: 800 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .08em;
+  cursor: pointer;
+}
+.multiplayer-chat__toggle:hover { border-color: var(--color-accent); }
+.multiplayer-chat__toggle:focus-visible { outline: 2px solid var(--color-accent-light); outline-offset: 2px; }
+.multiplayer-chat__unread {
+  display: inline-grid;
+  min-width: 16px;
+  height: 16px;
+  place-items: center;
+  margin-left: 6px;
+  border-radius: 999px;
+  background: #ef6b73;
+  color: #fff;
+  font-size: 9px;
+  letter-spacing: 0;
+}
+.multiplayer-chat__unread[hidden] { display: none; }
+.multiplayer-chat__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: rgba(10, 16, 32, .82);
+}
+.multiplayer-chat__panel[hidden] { display: none; }
+.multiplayer-chat__log {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 150px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.multiplayer-chat__entry {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+.multiplayer-chat__entry--notice {
+  color: #ffd166;
+  font-style: italic;
+}
+.multiplayer-chat__author {
+  margin-right: 6px;
+  font: 800 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .08em;
+}
+.multiplayer-chat__entry[data-owner="you"] .multiplayer-chat__author { color: var(--color-accent-light); }
+.multiplayer-chat__entry[data-owner="opponent"] .multiplayer-chat__author { color: #f6ad55; }
+.multiplayer-chat__form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+}
+.multiplayer-chat__input {
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--color-surface-deep);
+  color: var(--color-text);
+  font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.multiplayer-chat__input:focus-visible { outline: 2px solid var(--color-accent-light); outline-offset: 1px; }
+.multiplayer-chat__input:disabled { opacity: .5; }
+.multiplayer-chat__send {
+  border: 1px solid var(--color-accent);
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: #1769aa;
+  color: #ffffff;
+  font: 700 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .08em;
+  cursor: pointer;
+}
+.multiplayer-chat__send:disabled { opacity: .5; cursor: not-allowed; }

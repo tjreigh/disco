@@ -6,6 +6,7 @@ import {
   SHARED_DUEL_ROOM_MODE,
   SharedBoardRoomService,
 } from '../src/multiplayer/shared-board-room-service.js';
+import { MAX_CHAT_MESSAGES_PER_WINDOW } from '../src/multiplayer/chat-policy.js';
 import { createRoomIdAllocator } from '../src/multiplayer/room-values.js';
 import type {
   MultiplayerClientMessage,
@@ -1275,5 +1276,58 @@ describe('SharedBoardRoomService room id allocation', () => {
 
     expect(() => service.createRoom(admissionRequest())).toThrow();
     expect(valueOf(service.createRoom(admissionRequest())).roomId).toBe('RETRY-ROOM');
+  });
+});
+
+describe('SharedBoardRoomService chat', () => {
+  test('relays chat to both players from the lobby', () => {
+    const harness = setupRoom();
+    const result = harness.service.receive(
+      harness.hostConnection,
+      message(harness.host, { type: 'send-chat', text: 'hello' }),
+    );
+    valueOf(result);
+    const chats = messagesOf(result.deliveries).filter(m => m.type === 'chat-message');
+    expect(chats).toHaveLength(2);
+    expect(chats[0]).toEqual(expect.objectContaining({
+      type: 'chat-message', playerId: harness.host.playerId, text: 'hello',
+    }));
+  });
+
+  test('rate-limits chat and reports the throttle back to the sender only', () => {
+    const harness = setupRoom();
+    for (let index = 0; index < MAX_CHAT_MESSAGES_PER_WINDOW; index++) {
+      valueOf(harness.service.receive(
+        harness.hostConnection,
+        message(harness.host, { type: 'send-chat', text: `message-${index}` }),
+      ));
+    }
+    const limited = harness.service.receive(
+      harness.hostConnection,
+      message(harness.host, { type: 'send-chat', text: 'overflow' }),
+    );
+    valueOf(limited);
+
+    const rateLimited = limited.deliveries.filter(delivery => delivery.message.type === 'chat-rate-limited');
+    expect(rateLimited).toHaveLength(1);
+    expect(rateLimited[0]?.playerId).toBe(harness.host.playerId);
+    expect(limited.deliveries.some(delivery => delivery.message.type === 'chat-message')).toBe(false);
+  });
+
+  test('accepted chat extends the lobby TTL even before both players are ready', () => {
+    const clock = new ManualClock();
+    const service = createService(clock);
+    const host = valueOf(service.createRoom(admissionRequest()));
+    valueOf(service.joinRoom({ ...admissionRequest(), roomId: host.roomId }));
+    const hostConnection = connect(service, host);
+
+    clock.time += LOBBY_TTL_MS - 1;
+    valueOf(service.receive(
+      hostConnection,
+      message(host, { type: 'send-chat', text: 'still here' }),
+    ));
+
+    clock.time += 2;
+    expect(service.tick().expiredRoomIds).toEqual([]);
   });
 });

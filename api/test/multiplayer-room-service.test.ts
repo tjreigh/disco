@@ -7,6 +7,7 @@ import {
   SCORE_RACE_ROOM_MODE,
   ScoreRaceRoomService,
 } from '../src/multiplayer/room-service.js';
+import { MAX_CHAT_MESSAGES_PER_WINDOW } from '../src/multiplayer/chat-policy.js';
 import { createRoomIdAllocator } from '../src/multiplayer/room-values.js';
 import type {
   MultiplayerClientMessage,
@@ -1180,5 +1181,63 @@ describe('ScoreRaceRoomService pause and forfeit', () => {
     // The pause no longer blocks anything post-forfeit — the match is over.
     harness.clock.time = countdown.deadline + 100;
     expect(harness.service.tick().deliveries).toEqual([]);
+  });
+});
+
+describe('ScoreRaceRoomService chat', () => {
+  test('relays chat to both players from any lifecycle phase', () => {
+    const harness = setupRoom();
+    const result = harness.service.receive(
+      harness.hostConnection,
+      message(harness.host, { type: 'send-chat', text: 'hello' }),
+    );
+    valueOf(result);
+    const chats = result.deliveries.filter(delivery => delivery.message.type === 'chat-message');
+    expect(chats.map(delivery => delivery.playerId).sort()).toEqual(
+      [harness.host.playerId, harness.guest.playerId].sort(),
+    );
+    expect(chats).toHaveLength(2);
+    expect(chats[0]?.message).toEqual(expect.objectContaining({
+      type: 'chat-message', playerId: harness.host.playerId, text: 'hello',
+    }));
+  });
+
+  test('rate-limits chat and reports the throttle back to the sender only', () => {
+    const harness = setupRoom();
+    for (let index = 0; index < MAX_CHAT_MESSAGES_PER_WINDOW; index++) {
+      valueOf(harness.service.receive(
+        harness.hostConnection,
+        message(harness.host, { type: 'send-chat', text: `message-${index}` }),
+      ));
+    }
+    const limited = harness.service.receive(
+      harness.hostConnection,
+      message(harness.host, { type: 'send-chat', text: 'overflow' }),
+    );
+    valueOf(limited);
+
+    const rateLimited = limited.deliveries.filter(delivery => delivery.message.type === 'chat-rate-limited');
+    expect(rateLimited).toHaveLength(1);
+    expect(rateLimited[0]?.playerId).toBe(harness.host.playerId);
+    expect(limited.deliveries.some(delivery => delivery.message.type === 'chat-message')).toBe(false);
+  });
+
+  test('accepted chat counts as room activity and extends the lobby TTL', () => {
+    const clock = new ManualClock();
+    const service = createService(clock);
+    const host = valueOf(service.createRoom(admissionRequest()));
+    valueOf(service.joinRoom({ ...admissionRequest(), roomId: host.roomId }));
+    const hostConnection = connect(service, host);
+
+    // Advance to just before the lobby would expire, then chat to refresh it.
+    clock.time += LOBBY_TTL_MS - 1;
+    valueOf(service.receive(
+      hostConnection,
+      message(host, { type: 'send-chat', text: 'still here' }),
+    ));
+
+    // Past the original expiry, still alive only because the chat reset it.
+    clock.time += 2;
+    expect(service.tick().expiredRoomIds).toEqual([]);
   });
 });

@@ -853,3 +853,102 @@ describe('duel-status server message', () => {
     expect(result).toEqual({ ok: false, error: 'protocol-mismatch' });
   });
 });
+
+describe('send-chat client message', () => {
+  test('parses a valid message and trims surrounding whitespace', () => {
+    const result = parseMultiplayerClientMessage({
+      ...base, playerId: 'p1', type: 'send-chat', text: '  gl hf  ',
+    });
+    expect(result).toEqual({
+      ok: true,
+      message: { ...base, playerId: 'p1', type: 'send-chat', text: 'gl hf' },
+    });
+  });
+
+  test('accepts a message whose trimmed length sits at the limit', () => {
+    const result = parseMultiplayerClientMessage({
+      ...base, playerId: 'p1', type: 'send-chat', text: `  ${'a'.repeat(500)}  `,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok && result.message.type === 'send-chat') {
+      expect(result.message.text.length).toBe(500);
+    }
+  });
+
+  test('rejects an empty or whitespace-only message', () => {
+    for (const text of ['', '   ']) {
+      const result = parseMultiplayerClientMessage({
+        ...base, playerId: 'p1', type: 'send-chat', text,
+      });
+      expect(result).toEqual({ ok: false, error: 'invalid-message' });
+    }
+  });
+
+  test('rejects a message over the length limit', () => {
+    const result = parseMultiplayerClientMessage({
+      ...base, playerId: 'p1', type: 'send-chat', text: 'a'.repeat(501),
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects ASCII and Unicode characters that can split a chat row', () => {
+    for (const text of [
+      'line one\nline two',
+      'line one\u0085line two',
+      'line one\u2028line two',
+      'line one\u2029line two',
+    ]) {
+      const result = parseMultiplayerClientMessage({
+        ...base, playerId: 'p1', type: 'send-chat', text,
+      });
+      expect(result).toEqual({ ok: false, error: 'invalid-message' });
+    }
+  });
+
+  test('rejects a non-string text', () => {
+    const result = parseMultiplayerClientMessage({
+      ...base, playerId: 'p1', type: 'send-chat', text: 42,
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+});
+
+describe('chat-message server message', () => {
+  test('parses a valid relayed message', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base, mode, type: 'chat-message', playerId: 'p2', text: 'nice one',
+    });
+    expect(result).toEqual({
+      ok: true,
+      message: { ...base, mode, type: 'chat-message', playerId: 'p2', text: 'nice one' },
+    });
+  });
+
+  test('rejects a missing playerId or an invalid text', () => {
+    expect(parseMultiplayerServerMessage({
+      ...base, mode, type: 'chat-message', text: 'hi',
+    })).toEqual({ ok: false, error: 'invalid-message' });
+    expect(parseMultiplayerServerMessage({
+      ...base, mode, type: 'chat-message', playerId: 'p2', text: '   ',
+    })).toEqual({ ok: false, error: 'invalid-message' });
+  });
+});
+
+describe('chat-rate-limited server message', () => {
+  test('parses with no payload', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base, mode, type: 'chat-rate-limited',
+    });
+    expect(result).toEqual({
+      ok: true,
+      message: { ...base, mode, type: 'chat-rate-limited' },
+    });
+  });
+
+  test('rejects extra keys', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base, mode, type: 'chat-rate-limited', text: 'nope',
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+});

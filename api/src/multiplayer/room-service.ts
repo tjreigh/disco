@@ -38,6 +38,7 @@ import {
   requiredValue,
   uint32Value,
 } from './room-values.js';
+import { ChatRateLimiter } from './chat-policy.js';
 
 const DEFAULT_COUNTDOWN_MS = 3_000;
 const DEFAULT_LOBBY_TTL_MS = 30 * 60 * 1_000;
@@ -114,6 +115,7 @@ export class ScoreRaceRoomService {
   private readonly countdownMs: number;
   private readonly lobbyTtlMs: number;
   private readonly resultTtlMs: number;
+  private readonly chatLimiter: ChatRateLimiter;
 
   constructor(options: ScoreRaceRoomServiceOptions) {
     this.clock = options.clock;
@@ -122,6 +124,7 @@ export class ScoreRaceRoomService {
     this.countdownMs = positiveDuration(options.countdownMs ?? DEFAULT_COUNTDOWN_MS);
     this.lobbyTtlMs = positiveDuration(options.lobbyTtlMs ?? DEFAULT_LOBBY_TTL_MS);
     this.resultTtlMs = positiveDuration(options.resultTtlMs ?? DEFAULT_RESULT_TTL_MS);
+    this.chatLimiter = new ChatRateLimiter(this.clock);
   }
 
   createRoom(request: RoomAdmissionRequest): RoomServiceResult<RoomAdmission> {
@@ -254,6 +257,8 @@ export class ScoreRaceRoomService {
         return this.setPaused(room, player, message.matchId, message.paused, deliveries);
       case 'forfeit-match':
         return this.forfeitMatch(room, player, message.matchId, deliveries);
+      case 'send-chat':
+        return this.sendChat(room, player, message.text, deliveries);
       case 'play-turn':
       case 'move-cursor':
         return failure('invalid-state', deliveries);
@@ -273,6 +278,7 @@ export class ScoreRaceRoomService {
       }
       deliveries.push(...this.advanceRoom(room));
     }
+    this.chatLimiter.sweep(now);
     return { deliveries, expiredRoomIds };
   }
 
@@ -469,6 +475,46 @@ export class ScoreRaceRoomService {
       ...this.broadcast(room, () => this.finishedMessage(room, match, result)),
     ];
     return success(null, deliveries);
+  }
+
+  private sendChat(
+    room: Room,
+    player: RoomPlayer,
+    text: string,
+    priorDeliveries: readonly RoomDelivery[],
+  ): RoomServiceResult<null> {
+    // Chat is valid in every lifecycle phase (lobby through result) and is
+    // relayed to both players, so the sender and opponent stay symmetric.
+    if (!this.chatLimiter.allow(player.id)) {
+      // Never silently drop: tell the sender their message was throttled.
+      return success(null, [
+        ...priorDeliveries,
+        { playerId: player.id, message: this.chatRateLimitedMessage(room) },
+      ]);
+    }
+    // Accepted chat counts as room activity, extending the lobby/result TTL
+    // so an active conversation can't outlive the room it's happening in.
+    this.touchReadyRoom(room);
+    return success(null, [
+      ...priorDeliveries,
+      ...this.broadcast(room, () => this.chatMessage(room, player.id, text)),
+    ]);
+  }
+
+  private chatMessage(room: Room, playerId: string, text: string): MultiplayerServerMessage {
+    return {
+      ...this.serverEnvelope(room),
+      type: 'chat-message',
+      playerId,
+      text,
+    };
+  }
+
+  private chatRateLimitedMessage(room: Room): MultiplayerServerMessage {
+    return {
+      ...this.serverEnvelope(room),
+      type: 'chat-rate-limited',
+    };
   }
 
   private resumeMatchClock(

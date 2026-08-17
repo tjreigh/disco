@@ -43,6 +43,7 @@ function completedView(): MultiplayerSessionView {
     board: {} as LocalBoardSessionView,
     paused: false,
     pausedBy: null,
+    messages: [],
   };
 }
 

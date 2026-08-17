@@ -399,3 +399,30 @@ describe('MultiplayerSessionController lifecycle', () => {
     });
   });
 });
+
+describe('MultiplayerSessionController chat', () => {
+  test('sends a normalized chat message', () => {
+    const { transport, controller } = createSession();
+    expect(controller.sendChat('  hi  ')).toBe(true);
+    expect(transport.sent.at(-1)).toMatchObject({ type: 'send-chat', text: 'hi' });
+  });
+
+  test('appends received chat messages and throttle notices to the view', () => {
+    const { transport, controller } = createSession();
+    transport.receive(serverMessage({ type: 'chat-message', playerId: 'opponent', text: 'hello' }));
+    transport.receive(serverMessage({ type: 'chat-rate-limited' }));
+    expect(controller.view.messages).toEqual([
+      { kind: 'message', playerId: 'opponent', text: 'hello' },
+      { kind: 'notice', text: expect.any(String) },
+    ]);
+  });
+
+  test('refuses to send empty, over-long, or disconnected chat', () => {
+    const { transport, controller } = createSession();
+    expect(controller.sendChat('   ')).toBe(false);
+    expect(controller.sendChat('a'.repeat(501))).toBe(false);
+    transport.setConnection('disconnected');
+    expect(controller.sendChat('hi')).toBe(false);
+    expect(transport.sent).toEqual([]);
+  });
+});

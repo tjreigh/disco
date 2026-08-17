@@ -38,6 +38,7 @@ import {
   requiredValue,
   uint32Value,
 } from './room-values.js';
+import { ChatRateLimiter } from './chat-policy.js';
 
 const DEFAULT_COUNTDOWN_MS = 3_000;
 const DEFAULT_LOBBY_TTL_MS = 30 * 60 * 1_000;
@@ -112,6 +113,7 @@ export class SharedBoardRoomService {
   private readonly disruptionThreshold: number;
   private readonly statusPulseMs: number;
   private readonly abandonTimeoutMs: number;
+  private readonly chatLimiter: ChatRateLimiter;
 
   constructor(options: SharedBoardRoomServiceOptions) {
     this.clock = options.clock;
@@ -126,6 +128,7 @@ export class SharedBoardRoomService {
       ? positiveDuration(options.statusPulseMs)
       : DEFAULT_STATUS_PULSE_MS;
     this.abandonTimeoutMs = options.abandonTimeoutMs ?? DEFAULT_ABANDON_TIMEOUT_MS;
+    this.chatLimiter = new ChatRateLimiter(this.clock);
   }
 
   createRoom(request: RoomAdmissionRequest): RoomServiceResult<RoomAdmission> {
@@ -280,6 +283,8 @@ export class SharedBoardRoomService {
         return this.setPaused(room, player, message.matchId, message.paused, deliveries);
       case 'forfeit-match':
         return this.forfeitMatch(room, player, message.matchId, deliveries);
+      case 'send-chat':
+        return this.sendChat(room, player, message.text, deliveries);
       default:
         // A message family belonging to a different multiplayer mode (e.g.
         // Score Race's publish-progress reaching a duel room) — fatal, not a
@@ -301,6 +306,7 @@ export class SharedBoardRoomService {
       }
       deliveries.push(...this.advanceRoom(room));
     }
+    this.chatLimiter.sweep(now);
     return { deliveries, expiredRoomIds };
   }
 
@@ -462,6 +468,67 @@ export class SharedBoardRoomService {
 
     const deliveries = this.completeAsForfeit(room, duelMatch, player, opponent, priorDeliveries);
     return { ok: true, value: null, deliveries };
+  }
+
+  private sendChat(
+    room: DuelRoom,
+    player: RoomPlayer,
+    text: string,
+    priorDeliveries: readonly RoomDelivery[],
+  ): RoomServiceResult<null> {
+    // Chat is valid in every lifecycle phase (lobby through result) and is
+    // relayed to both players, so the sender and opponent stay symmetric.
+    if (!this.chatLimiter.allow(player.id)) {
+      // Never silently drop: tell the sender their message was throttled.
+      return {
+        ok: true,
+        value: null,
+        deliveries: [
+          ...priorDeliveries,
+          { playerId: player.id, message: this.chatRateLimitedMessage(room) },
+        ],
+      };
+    }
+    // Accepted chat counts as room activity, extending the lobby/result TTL
+    // so an active conversation can't outlive the room it's happening in.
+    this.touchRoomForChat(room);
+    return {
+      ok: true,
+      value: null,
+      deliveries: [
+        ...priorDeliveries,
+        ...this.broadcast(room, () => this.chatMessage(room, player.id, text)),
+      ],
+    };
+  }
+
+  private chatMessage(room: DuelRoom, playerId: string, text: string): MultiplayerServerMessage {
+    return {
+      protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+      roomId: room.id,
+      mode: SHARED_DUEL_ROOM_MODE,
+      type: 'chat-message',
+      playerId,
+      text,
+    };
+  }
+
+  private chatRateLimitedMessage(room: DuelRoom): MultiplayerServerMessage {
+    return {
+      protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+      roomId: room.id,
+      mode: SHARED_DUEL_ROOM_MODE,
+      type: 'chat-rate-limited',
+    };
+  }
+
+  /** Unlike touchReadyRoom (gated on both-ready), chat extends TTL on its own. */
+  private touchRoomForChat(room: DuelRoom): void {
+    if (room.lifecycle.kind === 'lobby') {
+      room.lifecycle.expiresAt = this.clock.now() + this.lobbyTtlMs;
+    } else if (room.lifecycle.kind === 'complete') {
+      room.lifecycle.expiresAt = this.clock.now() + this.resultTtlMs;
+    }
   }
 
   /** Whether the turn clock must be frozen right now: an explicit pause, or any player missing a live connection. */

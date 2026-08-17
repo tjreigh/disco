@@ -2,7 +2,7 @@ import type { GameOverReason } from './game-values.js';
 export type { GameOverReason } from './game-values.js';
 
 /** Stable identities and value contracts shared by multiplayer messages. */
-export const MULTIPLAYER_PROTOCOL_VERSION = 5 as const;
+export const MULTIPLAYER_PROTOCOL_VERSION = 6 as const;
 export const SCORE_RACE_MODE_ID = 'score-race' as const;
 export const SCORE_RACE_MODE_VERSION = 1 as const;
 export const SCORE_RACE_RULES_VERSION = 1 as const;
@@ -16,6 +16,9 @@ export const SHARED_DUEL_DISRUPTION_THRESHOLD = 3 as const;
 /** Runtime board dimensions, test-enforced against the isolated game build. */
 export const SHARED_DUEL_BOARD_ROWS = 7 as const;
 export const SHARED_DUEL_BOARD_COLS = 7 as const;
+
+/** Hard cap on a single chat message's trimmed length, shared by parser and UI. */
+export const MAX_CHAT_MESSAGE_LENGTH = 500 as const;
 
 export type MultiplayerProtocolVersion = typeof MULTIPLAYER_PROTOCOL_VERSION;
 
@@ -63,6 +66,12 @@ export interface MultiplayerLocalResult {
   readonly forfeitedBy: 'local' | 'opponent' | null;
 }
 
+/** A single room chat line, delivered identically to both players. */
+export interface ChatMessage {
+  readonly playerId: string;
+  readonly text: string;
+}
+
 interface ClientMessageBase {
   readonly protocolVersion: MultiplayerProtocolVersion;
   readonly roomId: string;
@@ -107,6 +116,10 @@ export type MultiplayerClientMessage =
   | (ClientMessageBase & {
       readonly type: 'forfeit-match';
       readonly matchId: string;
+    })
+  | (ClientMessageBase & {
+      readonly type: 'send-chat';
+      readonly text: string;
     });
 
 interface ServerMessageBase {
@@ -221,6 +234,14 @@ export type MultiplayerServerMessage =
       readonly level: number;
       readonly turnsPerLevel: number;
       readonly turnsRemaining: number;
+    })
+  | (ServerMessageBase & {
+      readonly type: 'chat-message';
+      readonly playerId: string;
+      readonly text: string;
+    })
+  | (ServerMessageBase & {
+      readonly type: 'chat-rate-limited';
     });
 
 /**

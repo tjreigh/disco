@@ -13,7 +13,12 @@ import type {
   WireDisc,
   WireStep,
 } from '../shared/multiplayer-contracts.js';
-import { parseMultiplayerServerMessage } from '../shared/multiplayer-messages.js';
+import {
+  normalizeChatText,
+  parseMultiplayerServerMessage,
+} from '../shared/multiplayer-messages.js';
+import { MultiplayerChatLog } from './multiplayer-chat-log.js';
+import type { ChatLogEntry } from './multiplayer-chat-log.js';
 import type { MultiplayerModeDefinition } from '../game/modes/mode.js';
 import type { MultiplayerCompatibilityError, MultiplayerPhase } from './multiplayer-view-types.js';
 
@@ -61,6 +66,7 @@ export interface SharedBoardSessionView {
   readonly compatibilityError: MultiplayerCompatibilityError | null;
   readonly paused: boolean;
   readonly pausedBy: string | null;
+  readonly messages: readonly ChatLogEntry[];
 }
 
 export interface SharedBoardSessionControllerOptions {
@@ -136,6 +142,7 @@ export class SharedBoardSessionController {
   readonly #mode: MultiplayerModeIdentity;
   readonly #clock: SessionClock;
   readonly #transport: SharedBoardTransport;
+  readonly #chatLog: MultiplayerChatLog;
   readonly #unsubMessage: () => void;
   readonly #unsubConnection: () => void;
   #connection: MultiplayerConnectionState;
@@ -156,6 +163,7 @@ export class SharedBoardSessionController {
     this.#transport = options.transport;
     this.#connection = 'connected';
     this.#lifecycle = { kind: 'lobby', localReady: false, opponentReady: false };
+    this.#chatLog = new MultiplayerChatLog(this.#playerId);
 
     this.#unsubMessage = options.transport.subscribe(message => this.#receive(message));
     this.#unsubConnection = options.transport.subscribeConnection(state => this.#handleConnection(state));
@@ -262,6 +270,21 @@ export class SharedBoardSessionController {
     });
   }
 
+  /** Sends a chat message; returns false when it can't be sent (disconnected, empty, or too long). */
+  sendChat(text: string): boolean {
+    if (this.#connection !== 'connected') return false;
+    const normalized = normalizeChatText(text);
+    if (!normalized) return false;
+    this.#transport.send({
+      protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+      roomId: this.#roomId,
+      playerId: this.#playerId,
+      type: 'send-chat',
+      text: normalized,
+    });
+    return true;
+  }
+
   /** One-shot: returns the most recent unconsumed turn result, if any, for the caller to animate. */
   consumePendingTurnResult(): PendingTurnResult | null {
     const lifecycle = this.#lifecycle;
@@ -329,6 +352,12 @@ export class SharedBoardSessionController {
         this.#handleDuelStatus(message);
         break;
       case 'opponent-progress':
+        break;
+      case 'chat-message':
+        this.#chatLog.receive({ playerId: message.playerId, text: message.text });
+        break;
+      case 'chat-rate-limited':
+        this.#chatLog.noteThrottled();
         break;
     }
   }
@@ -697,6 +726,7 @@ export class SharedBoardSessionController {
       compatibilityError: lifecycle.kind === 'incompatible' ? lifecycle.error : null,
       paused: lifecycle.kind === 'playing' && lifecycle.paused !== null,
       pausedBy: lifecycle.kind === 'playing' ? lifecycle.paused?.by ?? null : null,
+      messages: this.#chatLog.view,
     };
   }
 

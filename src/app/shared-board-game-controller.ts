@@ -19,6 +19,7 @@ import type { WireBoard, WireDisc, WireDiscKind, WireGridPos, WireStep } from '.
 import { releaseGameplayFocus } from '../ui/dom-utils.js';
 import { GameControls } from '../ui/game-controls.js';
 import { GameHud } from '../ui/game-hud.js';
+import { MultiplayerChat } from '../ui/multiplayer-chat.js';
 import { MultiplayerPauseMenu } from '../ui/multiplayer-pause-menu.js';
 import { MultiplayerRoomOverlay } from '../ui/multiplayer-room-overlay.js';
 import { SharedBoardHud } from '../ui/shared-board-hud.js';
@@ -63,6 +64,7 @@ export class SharedBoardGame {
   #controls: GameControls | null = null;
   #gameHud: GameHud | null = null;
   #sharedBoardHud: SharedBoardHud | null = null;
+  #chat: MultiplayerChat | null = null;
   #input: InputHandler | null = null;
   #unsubTransportError: (() => void) | null = null;
   #transportError: MultiplayerTransportError | null = null;
@@ -160,6 +162,8 @@ export class SharedBoardGame {
       this.#gameHud = new GameHud(this.#mounts.stage);
       this.#gameHud.root.dataset.multiplayer = 'true';
       this.#sharedBoardHud = new SharedBoardHud('DISCO DUEL', this.#mounts.stage);
+      this.#chat = new MultiplayerChat(this.#mounts.overlays);
+      this.#chat.setOnSend(text => this.#session?.sendChat(text) ?? false);
 
       this.#input = new InputHandler(
         this.#canvas,
@@ -197,6 +201,8 @@ export class SharedBoardGame {
     this.#gameHud = null;
     this.#sharedBoardHud?.destroy();
     this.#sharedBoardHud = null;
+    this.#chat?.destroy();
+    this.#chat = null;
     this.#session?.destroy();
     this.#session = null;
     this.#transport?.destroy();
@@ -338,6 +344,7 @@ export class SharedBoardGame {
       result: view.result,
       compatibilityError: view.compatibilityError,
     });
+    this.#chat?.render(view.messages, view.playerId, view.connection !== 'connected');
     this.#roomOverlay.render(
       { ...view, pausedByLocal: view.pausedBy === view.playerId },
       this.#transportError,

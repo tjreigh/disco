@@ -90,4 +90,47 @@ describe('multiplayer wire envelopes', () => {
       event: {},
     })).toEqual({ ok: false, error: 'protocol-mismatch' });
   });
+
+  test('a chat command does not repeat authenticated identity', () => {
+    const internal = {
+      protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+      ...context,
+      type: 'send-chat' as const,
+      text: 'hello',
+    };
+
+    const wire = encodeMultiplayerClientMessage(internal);
+
+    expect(wire).toEqual({
+      protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+      command: { type: 'send-chat', text: 'hello' },
+    });
+    expect(parseMultiplayerClientWireMessage(wire, context)).toEqual({
+      ok: true,
+      message: internal,
+    });
+  });
+
+  test('a chat event carries only the sender and text', () => {
+    const internal = {
+      protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+      roomId: context.roomId,
+      mode,
+      type: 'chat-message' as const,
+      playerId: 'player-2',
+      text: 'hello',
+    };
+
+    const wire = encodeMultiplayerServerMessage(internal);
+
+    expect(wire).toEqual({
+      protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+      room: { id: context.roomId, mode },
+      event: { type: 'chat-message', playerId: 'player-2', text: 'hello' },
+    });
+    expect(parseMultiplayerServerWireMessage(wire)).toEqual({
+      ok: true,
+      message: internal,
+    });
+  });
 });
