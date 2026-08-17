@@ -306,6 +306,15 @@
   letter-spacing: .03em;
   white-space: nowrap;
 }
+.multiplayer-hud__ping { flex-shrink: 0; }
+.multiplayer-hud__ping-value {
+  flex: 0 0 auto;
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 1;
+  white-space: nowrap;
+}
+.multiplayer-hud__ping-value[data-stale="true"] { color: #f6ad55; }
 .multiplayer-hud__result {
   flex: 0 1 auto;
   color: #81e6b3;

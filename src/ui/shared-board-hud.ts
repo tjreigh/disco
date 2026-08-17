@@ -1,6 +1,6 @@
 import type { MultiplayerLocalResult } from '../shared/multiplayer-contracts.js';
 import type { MultiplayerCompatibilityError, MultiplayerPhase } from '../app/multiplayer-view-types.js';
-import { resultText, statusText, timerLabelText, timerText } from './multiplayer-hud-format.js';
+import { pingText, resultText, statusText, timerLabelText, timerText } from './multiplayer-hud-format.js';
 import { cloneTemplate, mustQuery } from './dom-utils.js';
 
 export interface SharedBoardHudView {
@@ -11,6 +11,8 @@ export interface SharedBoardHudView {
   readonly isMyTurn: boolean;
   readonly result: MultiplayerLocalResult | null;
   readonly compatibilityError: MultiplayerCompatibilityError | null;
+  readonly pingMs: number | null;
+  readonly connectionStale: boolean;
 }
 
 /** Score/turn/status-only Disco Duel chrome; the shared board remains the primary view. */
@@ -23,6 +25,7 @@ export class SharedBoardHud {
   private readonly turnAnnouncement: HTMLElement;
   private readonly timerLabel: HTMLElement;
   private readonly timer: HTMLElement;
+  private readonly pingValue: HTMLElement;
   private readonly result: HTMLElement;
 
   constructor(
@@ -38,6 +41,7 @@ export class SharedBoardHud {
     this.turnAnnouncement = mustQuery(fragment, '.multiplayer-hud__turn-sr');
     this.timerLabel = mustQuery(fragment, '.multiplayer-hud__timer-label');
     this.timer = mustQuery(fragment, '.multiplayer-hud__timer');
+    this.pingValue = mustQuery(fragment, '.multiplayer-hud__ping-value');
     this.result = mustQuery(fragment, '.multiplayer-hud__result');
 
     this.modeLabelEl.textContent = this.modeLabel;
@@ -51,6 +55,8 @@ export class SharedBoardHud {
     this.turnAnnouncement.textContent = turnText(view.phase, view.isMyTurn);
     this.timerLabel.textContent = timerLabelText(view.phase);
     this.timer.textContent = timerText(view.phase, view.remainingMs);
+    this.pingValue.textContent = pingText(view.pingMs, view.connectionStale);
+    this.pingValue.dataset.stale = String(view.connectionStale);
     this.result.textContent = resultText(view.result);
     this.result.hidden = view.result === null;
     this.root.dataset.result = String(view.result !== null);

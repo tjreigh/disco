@@ -952,3 +952,54 @@ describe('chat-rate-limited server message', () => {
     expect(result).toEqual({ ok: false, error: 'invalid-message' });
   });
 });
+
+describe('ping client message', () => {
+  test('parses a valid ping', () => {
+    const result = parseMultiplayerClientMessage({
+      ...base, playerId: 'p1', type: 'ping', nonce: 3,
+    });
+    expect(result).toEqual({
+      ok: true,
+      message: { ...base, playerId: 'p1', type: 'ping', nonce: 3 },
+    });
+  });
+
+  test('rejects a negative or non-integer nonce', () => {
+    expect(parseMultiplayerClientMessage({
+      ...base, playerId: 'p1', type: 'ping', nonce: -1,
+    })).toEqual({ ok: false, error: 'invalid-message' });
+    expect(parseMultiplayerClientMessage({
+      ...base, playerId: 'p1', type: 'ping', nonce: 1.5,
+    })).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
+  test('rejects a missing nonce or extra keys', () => {
+    expect(parseMultiplayerClientMessage({
+      ...base, playerId: 'p1', type: 'ping',
+    })).toEqual({ ok: false, error: 'invalid-message' });
+    expect(parseMultiplayerClientMessage({
+      ...base, playerId: 'p1', type: 'ping', nonce: 1, extra: true,
+    })).toEqual({ ok: false, error: 'invalid-message' });
+  });
+});
+
+describe('pong server message', () => {
+  test('parses a valid pong', () => {
+    const result = parseMultiplayerServerMessage({
+      ...base, mode, type: 'pong', nonce: 3,
+    });
+    expect(result).toEqual({
+      ok: true,
+      message: { ...base, mode, type: 'pong', nonce: 3 },
+    });
+  });
+
+  test('rejects a missing or invalid nonce', () => {
+    expect(parseMultiplayerServerMessage({
+      ...base, mode, type: 'pong',
+    })).toEqual({ ok: false, error: 'invalid-message' });
+    expect(parseMultiplayerServerMessage({
+      ...base, mode, type: 'pong', nonce: '3',
+    })).toEqual({ ok: false, error: 'invalid-message' });
+  });
+});

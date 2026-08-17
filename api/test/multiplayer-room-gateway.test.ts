@@ -187,6 +187,23 @@ describe('multiplayer room gateway', () => {
     expect(guestChat).toEqual(hostChat);
   });
 
+  it('answers a transport-level ping with a matching pong without disturbing the room', async () => {
+    const instance = await createApp();
+    const hostAdmission = await admit(instance, '/multiplayer/rooms');
+    const host = await connect(instance, hostAdmission);
+
+    host.send(JSON.stringify(clientCommand({ type: 'ping', nonce: 42 })));
+
+    const pong = await nextMessageOfType(host, 'pong');
+    expect(pong).toEqual({ type: 'pong', nonce: 42 });
+    expect(host.readyState).toBe(host.OPEN);
+
+    // Ping is transport machinery, not room state: the lobby is unchanged and
+    // the socket still accepts normal commands afterward.
+    host.send(JSON.stringify(clientCommand({ type: 'set-ready', ready: true })));
+    await nextMessageOfType(host, 'room-state');
+  });
+
   it('rejects an invalid first frame without admitting the socket', async () => {
     const instance = await createApp();
     const socket = await instance.injectWS('/multiplayer/socket');

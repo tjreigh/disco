@@ -108,6 +108,14 @@ function validSnapshot(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function pongEnvelope(nonce: number) {
+  return {
+    protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+    room: { id: admission.roomId, mode },
+    event: { type: 'pong', nonce },
+  };
+}
+
 function connectionStates(transport: WebSocketMultiplayerTransport): MultiplayerConnectionState[] {
   const states: MultiplayerConnectionState[] = [];
   transport.subscribeConnection(state => states.push(state));
@@ -402,5 +410,77 @@ describe('WebSocketMultiplayerTransport reconnection', () => {
       ready: false,
     });
     expect(socket.sent).toHaveLength(1); // only the original authentication frame
+  });
+});
+
+describe('WebSocketMultiplayerTransport connection diagnostics', () => {
+  test('sends an application-level ping once authenticated', () => {
+    vi.useFakeTimers();
+    const transport = new WebSocketMultiplayerTransport('https://api.example.test', admission);
+    const socket = firstSocket();
+    socket.simulateOpen();
+    socket.simulateMessage(validSnapshot());
+    expect(socket.sent).toHaveLength(1); // authentication frame only
+
+    vi.advanceTimersByTime(5_000);
+    expect(socket.sent).toHaveLength(2);
+    expect(JSON.parse(socket.sent[1]!)).toMatchObject({
+      command: { type: 'ping', nonce: 0 },
+    });
+    transport.destroy();
+  });
+
+  test('a matching pong measures round-trip latency and is not forwarded to controllers', () => {
+    vi.useFakeTimers();
+    const transport = new WebSocketMultiplayerTransport('https://api.example.test', admission);
+    const messages: unknown[] = [];
+    transport.subscribe(message => messages.push(message));
+    const socket = firstSocket();
+    socket.simulateOpen();
+    socket.simulateMessage(validSnapshot());
+    expect(messages).toHaveLength(1);
+
+    vi.advanceTimersByTime(5_000); // sends ping nonce 0
+    vi.advanceTimersByTime(20);    // simulate a 20ms round trip
+    socket.simulateMessage(pongEnvelope(0));
+
+    expect(transport.diagnostics.rttMs).toBe(20);
+    expect(transport.diagnostics.stale).toBe(false);
+    expect(messages).toHaveLength(1); // pong never reaches the controllers
+    transport.destroy();
+  });
+
+  test('an unanswered ping flags the connection stale after its deadline', () => {
+    vi.useFakeTimers();
+    const transport = new WebSocketMultiplayerTransport('https://api.example.test', admission);
+    const socket = firstSocket();
+    socket.simulateOpen();
+    socket.simulateMessage(validSnapshot());
+    expect(transport.diagnostics.stale).toBe(false);
+
+    vi.advanceTimersByTime(5_000); // ping sent
+    vi.advanceTimersByTime(10_000); // deadline passes -> stale
+    expect(transport.diagnostics.stale).toBe(true);
+
+    // A late pong recovers the connection health.
+    socket.simulateMessage(pongEnvelope(0));
+    expect(transport.diagnostics.stale).toBe(false);
+    transport.destroy();
+  });
+
+  test('unexpected disconnects count toward reconnects and clear per-connection metrics', () => {
+    vi.useFakeTimers();
+    const transport = new WebSocketMultiplayerTransport('https://api.example.test', admission);
+    const socket = firstSocket();
+    socket.simulateOpen();
+    socket.simulateMessage(validSnapshot());
+    expect(transport.diagnostics.reconnects).toBe(0);
+    expect(transport.diagnostics.connectedAt).not.toBeNull();
+
+    socket.simulateAbnormalClose();
+    expect(transport.diagnostics.reconnects).toBe(1);
+    expect(transport.diagnostics.connectedAt).toBeNull();
+    expect(transport.diagnostics.rttMs).toBeNull();
+    transport.destroy();
   });
 });

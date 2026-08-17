@@ -208,6 +208,16 @@ export function parseMultiplayerClientMessage(
         message: { ...base, type: value.type, text },
       };
     }
+    case 'ping':
+      if (!hasExactKeys(value, [
+        'protocolVersion', 'roomId', 'playerId', 'type', 'nonce',
+      ]) || !isNonNegativeInteger(value.nonce)) {
+        return invalidMessage();
+      }
+      return {
+        ok: true,
+        message: { ...base, type: value.type, nonce: value.nonce },
+      };
     default:
       return invalidMessage();
   }
@@ -512,6 +522,16 @@ export function parseMultiplayerServerMessage(
       return {
         ok: true,
         message: { ...base, type: value.type },
+      };
+    case 'pong':
+      if (!hasExactKeys(value, [
+        'protocolVersion', 'roomId', 'mode', 'type', 'nonce',
+      ]) || !isNonNegativeInteger(value.nonce)) {
+        return invalidMessage();
+      }
+      return {
+        ok: true,
+        message: { ...base, type: value.type, nonce: value.nonce },
       };
     default:
       return invalidMessage();

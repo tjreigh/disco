@@ -1,6 +1,6 @@
 # Multiplayer WebSocket protocol
 
-Protocol version: `6`
+Protocol version: `7`
 
 The protocol separates connection metadata from gameplay data. Frames have
 one obvious job: authenticate a socket, send a client `command`, deliver a
@@ -12,7 +12,7 @@ The first client frame authenticates the socket:
 
 ```json
 {
-  "protocolVersion": 6,
+  "protocolVersion": 7,
   "authenticate": {
     "roomId": "ABCD2345",
     "playerId": "player-1",
@@ -27,7 +27,7 @@ the action:
 
 ```json
 {
-  "protocolVersion": 6,
+  "protocolVersion": 7,
   "command": {
     "type": "play-turn",
     "matchId": "match-1",
@@ -40,7 +40,7 @@ Server events keep room context together and separate from event data:
 
 ```json
 {
-  "protocolVersion": 6,
+  "protocolVersion": 7,
   "room": {
     "id": "ABCD2345",
     "mode": {
@@ -64,10 +64,12 @@ Server events keep room context together and separate from event data:
 | --- | --- | --- |
 | Client command | Lobby | `set-ready` |
 | Client command | Room chat | `send-chat` |
+| Client command | Transport | `ping` |
 | Client command | Score Race | `publish-progress`, `finish-match`, `resume-session` |
 | Client command | Shared Duel | `play-turn`, `move-cursor`, `set-paused`, `forfeit-match` |
 | Server event | Shared lifecycle | `room-state`, `match-countdown`, `match-finished`, `match-paused` |
 | Server event | Room chat | `chat-message`, `chat-rate-limited` |
+| Server event | Transport | `pong` |
 | Server event | Score Race | `opponent-progress` |
 | Server event | Shared Duel | `turn-assigned`, `turn-played`, `turn-expired`, `opponent-cursor`, `duel-status` |
 
@@ -102,6 +104,30 @@ authentication or protocol parsing fails:
 ```json
 { "type": "room-transport-error", "error": "invalid-message" }
 ```
+
+## Connection diagnostics
+
+The server heartbeat (a protocol-level `ping` every 20s, terminated on a
+missed `pong`) already detects silently dead sockets server-side, but the
+browser WebSocket API cannot send or observe those frames. A client measures
+round-trip latency with an application-level ping, answered by the gateway in
+one place for every mode:
+
+```json
+{ "protocolVersion": 7, "command": { "type": "ping", "nonce": 3 } }
+```
+
+```json
+{
+  "protocolVersion": 7,
+  "room": { "id": "ABCD2345", "mode": { ... } },
+  "event": { "type": "pong", "nonce": 3 }
+}
+```
+
+`ping` is transport machinery, not room state: it never reaches a room
+service, and the client's transport resolves the matching `pong` locally (the
+`nonce` disambiguates replies) so controllers never see either message.
 
 ## Changing the protocol
 

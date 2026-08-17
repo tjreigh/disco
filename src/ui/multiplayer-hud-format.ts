@@ -48,3 +48,10 @@ export function resultText(result: MultiplayerLocalResult | null): string {
   const label = result.outcome === 'win' ? 'YOU WIN' : result.outcome === 'loss' ? 'YOU LOSE' : 'TIE';
   return `${label} · ${result.localScore.toLocaleString('en-US')}–${result.opponentScore.toLocaleString('en-US')}`;
 }
+
+/** Connection-health readout: a stale ping is a dropped-packet alert. */
+export function pingText(pingMs: number | null, stale: boolean): string {
+  if (stale) return 'NO REPLY';
+  if (pingMs === null) return '—';
+  return `${pingMs}ms`;
+}

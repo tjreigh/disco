@@ -335,6 +335,7 @@ export class SharedBoardGame {
 
     this.#renderControls(view);
     this.#renderHud(view);
+    const diagnostics = this.#transport?.diagnostics ?? null;
     this.#sharedBoardHud?.render({
       phase: view.phase,
       remainingMs: view.remainingMs,
@@ -343,6 +344,8 @@ export class SharedBoardGame {
       isMyTurn: view.isMyTurn,
       result: view.result,
       compatibilityError: view.compatibilityError,
+      pingMs: diagnostics?.rttMs ?? null,
+      connectionStale: diagnostics?.stale ?? false,
     });
     this.#chat?.render(view.messages, view.playerId, view.connection !== 'connected');
     this.#roomOverlay.render(

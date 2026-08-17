@@ -261,6 +261,8 @@ export class ScoreRaceRoomService {
         return this.sendChat(room, player, message.text, deliveries);
       case 'play-turn':
       case 'move-cursor':
+      // Transport-level ping is answered by the gateway, never forwarded here.
+      case 'ping':
         return failure('invalid-state', deliveries);
     }
   }

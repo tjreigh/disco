@@ -245,6 +245,7 @@ export class MultiplayerGame {
       hasGravity: false,
       hasRestart: false,
     });
+    const diagnostics = this.transport?.diagnostics ?? null;
     multiplayerHud.render({
       phase: view.phase,
       remainingMs: view.remainingMs,
@@ -252,6 +253,8 @@ export class MultiplayerGame {
       opponent: view.opponent,
       result: view.result,
       compatibilityError: view.compatibilityError,
+      pingMs: diagnostics?.rttMs ?? null,
+      connectionStale: diagnostics?.stale ?? false,
     });
     this.roomOverlay.render(
       { ...view, pausedByLocal: view.pausedBy === view.playerId },

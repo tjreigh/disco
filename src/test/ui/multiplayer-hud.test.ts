@@ -18,6 +18,8 @@ describe('MultiplayerHud', () => {
       opponent: null,
       result: null,
       compatibilityError: null,
+      pingMs: null,
+      connectionStale: false,
     });
     expect(document.querySelector('.multiplayer-hud__timer-label')?.textContent).toBe('STARTS IN');
     expect(document.querySelector('.multiplayer-hud__timer')?.textContent).toBe('3');
@@ -37,6 +39,8 @@ describe('MultiplayerHud', () => {
       },
       result: null,
       compatibilityError: null,
+      pingMs: null,
+      connectionStale: false,
     });
     expect(document.querySelector('.multiplayer-hud')?.textContent).toContain('REJOINING');
     expect(document.querySelector('.multiplayer-hud__opponent-value')?.textContent).toBe('1,250');
@@ -53,6 +57,8 @@ describe('MultiplayerHud', () => {
         forfeitedBy: null,
       },
       compatibilityError: null,
+      pingMs: null,
+      connectionStale: false,
     });
     expect(document.querySelector('.multiplayer-hud__result')?.textContent)
       .toBe('YOU WIN · 2,000–1,250');

@@ -2,7 +2,7 @@ import type { GameOverReason } from './game-values.js';
 export type { GameOverReason } from './game-values.js';
 
 /** Stable identities and value contracts shared by multiplayer messages. */
-export const MULTIPLAYER_PROTOCOL_VERSION = 6 as const;
+export const MULTIPLAYER_PROTOCOL_VERSION = 7 as const;
 export const SCORE_RACE_MODE_ID = 'score-race' as const;
 export const SCORE_RACE_MODE_VERSION = 1 as const;
 export const SCORE_RACE_RULES_VERSION = 1 as const;
@@ -120,6 +120,11 @@ export type MultiplayerClientMessage =
   | (ClientMessageBase & {
       readonly type: 'send-chat';
       readonly text: string;
+    })
+  | (ClientMessageBase & {
+      readonly type: 'ping';
+      /** Client-generated counter echoed by the server's `pong` so the client can match the reply and measure round-trip latency. */
+      readonly nonce: number;
     });
 
 interface ServerMessageBase {
@@ -242,6 +247,11 @@ export type MultiplayerServerMessage =
     })
   | (ServerMessageBase & {
       readonly type: 'chat-rate-limited';
+    })
+  | (ServerMessageBase & {
+      readonly type: 'pong';
+      /** Echoes the client `ping` nonce so the client can compute round-trip latency. */
+      readonly nonce: number;
     });
 
 /**

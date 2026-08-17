@@ -111,6 +111,11 @@ export async function registerMultiplayerGateway(
 ): Promise<void> {
   const sockets = new Map<string, ActiveSocket>();
   const roomOwners = new Map<string, MultiplayerRoomService>();
+  // The socket's own first frame carries no mode identity, so the gateway
+  // remembers the mode each room was admitted under alongside its owner.
+  // Needed to answer transport-level `ping` commands with a `pong` event
+  // without routing through (or depending on) any particular room service.
+  const roomModes = new Map<string, MultiplayerModeIdentity>();
   const tickMs = options.tickMs ?? ROOM_TICK_MS;
   const recoverableCounts = new Map<string, number>();
   const recoverableLastLoggedAt = new Map<string, number>();
@@ -190,6 +195,7 @@ export async function registerMultiplayerGateway(
       dispatch(result.deliveries);
       for (const roomId of result.expiredRoomIds) {
         roomOwners.delete(roomId);
+        roomModes.delete(roomId);
         clearRecoverableRejections(roomId);
       }
     }
@@ -248,7 +254,10 @@ export async function registerMultiplayerGateway(
       protocolVersion: body.protocolVersion,
       mode: multiplayerModeIdentity(body.mode),
     });
-    if (result.ok) roomOwners.set(result.value.roomId, service);
+    if (result.ok) {
+      roomOwners.set(result.value.roomId, service);
+      roomModes.set(result.value.roomId, result.value.mode);
+    }
     return sendAdmissionResult(reply, result, 201);
   });
 
@@ -265,7 +274,10 @@ export async function registerMultiplayerGateway(
       protocolVersion: body.protocolVersion,
       mode: multiplayerModeIdentity(body.mode),
     });
-    if (result.ok) roomOwners.set(roomId, service);
+    if (result.ok) {
+      roomOwners.set(roomId, service);
+      roomModes.set(roomId, result.value.mode);
+    }
     return sendAdmissionResult(reply, result, 201);
   });
 
@@ -318,6 +330,13 @@ export async function registerMultiplayerGateway(
       const parsed = parseClientMessage(raw, connection);
       if (!parsed) {
         closeWithError(socket, 'invalid-message');
+        return;
+      }
+      // Transport-level ping: answered here, in one place for every mode,
+      // rather than in each room service. It never touches room state, so no
+      // service method needs to learn about it.
+      if (parsed.type === 'ping') {
+        sendPong(socket, connection, roomModes.get(connection.roomId), parsed.nonce);
         return;
       }
       const result = ownerService.receive(connection, parsed);
@@ -380,6 +399,24 @@ function closeWithError(
   if (socket.readyState !== socket.OPEN) return;
   const message: TransportErrorMessage = { type: 'room-transport-error', error };
   socket.send(JSON.stringify(message), () => socket.close(1008, error));
+}
+
+function sendPong(
+  socket: WebSocket,
+  connection: RoomConnection,
+  mode: MultiplayerModeIdentity | undefined,
+  nonce: number,
+): void {
+  // A room's mode is recorded at admission, so an authenticated room always
+  // has one; guard anyway rather than send a malformed envelope.
+  if (socket.readyState !== socket.OPEN || !mode) return;
+  socket.send(JSON.stringify(encodeMultiplayerServerMessage({
+    protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+    roomId: connection.roomId,
+    mode,
+    type: 'pong',
+    nonce,
+  })));
 }
 
 function sendAdmissionResult<T>(

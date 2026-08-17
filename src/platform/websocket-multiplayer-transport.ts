@@ -19,7 +19,29 @@ import type { MultiplayerAdmission } from './multiplayer-api-client.js';
 
 const RECONNECT_DELAYS_MS = [250, 500, 1_000, 2_000, 5_000] as const;
 
+// Application-level ping cadence and its answer deadline. The browser
+// WebSocket API cannot send or observe the protocol-level ping/pong frames
+// the server heartbeat uses, so latency is measured with these messages
+// instead. An unanswered ping is how a silently-dead connection (one the
+// server hasn't terminated yet) becomes visible client-side.
+const DIAGNOSTIC_PING_INTERVAL_MS = 5_000;
+const DIAGNOSTIC_PING_TIMEOUT_MS = 10_000;
+
 export type MultiplayerTransportError = MultiplayerTransportErrorCode;
+
+/** Lightweight, UI-ready snapshot of the connection's live health. */
+export interface MultiplayerConnectionDiagnostics {
+  /** Latest measured round-trip latency, or null until the first pong. */
+  readonly rttMs: number | null;
+  /** Total unexpected disconnects this session (excludes clean client closes). */
+  readonly reconnects: number;
+  /** Client clock reading when the last server message arrived, or null. */
+  readonly lastMessageAt: number | null;
+  /** Client clock reading when the connection last authenticated, or null. */
+  readonly connectedAt: number | null;
+  /** True when a ping has gone unanswered past its deadline (a drop in progress). */
+  readonly stale: boolean;
+}
 
 interface TransportErrorMessage {
   readonly type: 'room-transport-error';
@@ -45,6 +67,9 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
   private readonly errorListeners = new Set<
     (error: MultiplayerTransportError) => void
   >();
+  private readonly diagnosticsListeners = new Set<
+    (diagnostics: MultiplayerConnectionDiagnostics) => void
+  >();
   // Only 'set-ready' is retained while unauthenticated/reconnecting, and
   // coalesced to its latest value — every other message type (gameplay,
   // pause, forfeit, Score Race progress/resume, and chat) is dropped outright
@@ -59,6 +84,16 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
   private reconnectAttempt = 0;
   private reconnectTimer: number | null = null;
   private terminal = false;
+  // Connection-health diagnostics, updated as traffic and the ping loop
+  // produce observations. Subscribers get the latest snapshot immediately.
+  private pingTimer: number | null = null;
+  private nextPingNonce = 0;
+  private pingPending: { readonly nonce: number; readonly sentAt: number } | null = null;
+  private rttMs: number | null = null;
+  private reconnects = 0;
+  private lastMessageAt: number | null = null;
+  private connectedAt: number | null = null;
+  private stale = false;
 
   constructor(apiBaseUrl: string, admission: MultiplayerAdmission) {
     this.url = websocketUrl(apiBaseUrl);
@@ -95,15 +130,35 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
     return () => this.errorListeners.delete(listener);
   }
 
+  get diagnostics(): MultiplayerConnectionDiagnostics {
+    return {
+      rttMs: this.rttMs,
+      reconnects: this.reconnects,
+      lastMessageAt: this.lastMessageAt,
+      connectedAt: this.connectedAt,
+      stale: this.stale,
+    };
+  }
+
+  subscribeDiagnostics(
+    listener: (diagnostics: MultiplayerConnectionDiagnostics) => void,
+  ): () => void {
+    this.diagnosticsListeners.add(listener);
+    listener(this.diagnostics);
+    return () => this.diagnosticsListeners.delete(listener);
+  }
+
   destroy(): void {
     this.terminal = true;
     if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+    this.stopPingLoop();
     this.socket?.close(1000, 'Client closed');
     this.socket = null;
     this.messageListeners.clear();
     this.connectionListeners.clear();
     this.errorListeners.clear();
+    this.diagnosticsListeners.clear();
     this.queuedReadiness = null;
   }
 
@@ -167,14 +222,28 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
         // Entire sequence runs synchronously in this one message event, so
         // no user input or queued send can interleave with it.
         this.authenticated = true;
+        this.lastMessageAt = Date.now();
+        this.connectedAt = this.lastMessageAt;
         this.setState('connected');
+        this.startPingLoop();
         console.log(`${this.logTag} transport authenticated`);
         for (const listener of this.messageListeners) listener(parsed.message);
         this.flushReadiness(socket);
+        this.emitDiagnostics();
+        return;
+      }
+
+      this.lastMessageAt = Date.now();
+      // pong is transport machinery, not gameplay — resolve the round-trip
+      // here and never forward it to the controllers (which would otherwise
+      // treat the unfamiliar event as a compatibility failure).
+      if (parsed.message.type === 'pong') {
+        this.handlePong(parsed.message.nonce);
         return;
       }
 
       for (const listener of this.messageListeners) listener(parsed.message);
+      this.emitDiagnostics();
     });
 
     socket.addEventListener('close', event => {
@@ -189,11 +258,19 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
       );
       this.socket = null;
       this.authenticated = false;
+      this.stopPingLoop();
+      this.rttMs = null;
+      this.lastMessageAt = null;
+      this.connectedAt = null;
+      this.stale = false;
       if (this.terminal || event.code === 1000) {
         this.setState('disconnected');
+        this.emitDiagnostics();
         return;
       }
+      this.reconnects++;
       this.setState('disconnected');
+      this.emitDiagnostics();
       this.scheduleReconnect();
     });
   }
@@ -231,6 +308,66 @@ export class WebSocketMultiplayerTransport implements MultiplayerSessionTranspor
     console.log(`${this.logTag} transport connection state: ${this.state} -> ${state}`);
     this.state = state;
     for (const listener of this.connectionListeners) listener(state);
+  }
+
+  private startPingLoop(): void {
+    this.stopPingLoop();
+    this.pingTimer = window.setInterval(() => this.pingTick(), DIAGNOSTIC_PING_INTERVAL_MS);
+  }
+
+  private stopPingLoop(): void {
+    if (this.pingTimer !== null) window.clearInterval(this.pingTimer);
+    this.pingTimer = null;
+    this.pingPending = null;
+  }
+
+  private pingTick(): void {
+    if (this.terminal || !this.authenticated) return;
+    const socket = this.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    const now = Date.now();
+    if (this.pingPending) {
+      // A previous ping is still outstanding. Only flag the connection stale
+      // once it misses its deadline, then clear the pending probe so the next
+      // tick sends a fresh one — keeping the line probed rather than giving up
+      // after a single lost reply.
+      if (now - this.pingPending.sentAt >= DIAGNOSTIC_PING_TIMEOUT_MS) {
+        console.warn(`${this.logTag} transport ping unanswered for ${DIAGNOSTIC_PING_TIMEOUT_MS}ms — connection stale`);
+        this.pingPending = null;
+        this.setStale(true);
+      }
+      return;
+    }
+    const nonce = this.nextPingNonce++;
+    this.pingPending = { nonce, sentAt: now };
+    socket.send(JSON.stringify(encodeMultiplayerClientMessage({
+      protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+      roomId: this.admission.roomId,
+      playerId: this.admission.playerId,
+      type: 'ping',
+      nonce,
+    })));
+  }
+
+  private handlePong(nonce: number): void {
+    if (this.pingPending && this.pingPending.nonce === nonce) {
+      this.rttMs = Date.now() - this.pingPending.sentAt;
+      this.pingPending = null;
+      console.debug(`${this.logTag} transport ping round-trip: ${this.rttMs}ms`);
+    }
+    this.setStale(false);
+    this.emitDiagnostics();
+  }
+
+  private setStale(stale: boolean): void {
+    if (stale === this.stale) return;
+    this.stale = stale;
+    this.emitDiagnostics();
+  }
+
+  private emitDiagnostics(): void {
+    const diagnostics = this.diagnostics;
+    for (const listener of this.diagnosticsListeners) listener(diagnostics);
   }
 }
 
