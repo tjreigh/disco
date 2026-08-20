@@ -65,15 +65,28 @@ export function mergeLocalAndRemoteStats(local: GameStats, remote: GameStats): G
 }
 
 function mergeLocalRecordsIntoRemoteStats(local: GameStats, remote: GameStats): GameStats {
+  const gamesPlayed = Math.max(local.gamesPlayed, remote.gamesPlayed);
+  const totalScore = Math.max(local.totalScore, remote.totalScore);
   return {
-    ...remote,
     highScore: Math.max(local.highScore, remote.highScore),
     longestStreak: Math.max(local.longestStreak, remote.longestStreak),
+    gamesPlayed,
+    totalScore,
+    totalPlayTimeMs: Math.max(local.totalPlayTimeMs, remote.totalPlayTimeMs),
+    totalDiscsDropped: Math.max(local.totalDiscsDropped, remote.totalDiscsDropped),
+    totalDiscsBroken: Math.max(local.totalDiscsBroken, remote.totalDiscsBroken),
+    averageScore: gamesPlayed > 0 ? Math.round(totalScore / gamesPlayed) : 0,
   };
 }
 
 function hasBetterLocalRecords(local: GameStats, remote: GameStats): boolean {
-  return local.highScore > remote.highScore || local.longestStreak > remote.longestStreak;
+  return local.highScore > remote.highScore
+    || local.longestStreak > remote.longestStreak
+    || local.totalPlayTimeMs > remote.totalPlayTimeMs
+    || local.totalScore > remote.totalScore
+    || local.gamesPlayed > remote.gamesPlayed
+    || local.totalDiscsDropped > remote.totalDiscsDropped
+    || local.totalDiscsBroken > remote.totalDiscsBroken;
 }
 
 function hasStats(stats: GameStats): boolean {

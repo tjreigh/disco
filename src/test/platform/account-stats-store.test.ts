@@ -199,14 +199,69 @@ describe('AccountStatsStore', () => {
     });
   });
 
-  test('promotes better local records on later sign-ins without reimporting totals', async () => {
+  test('promotes better local totals on later sign-ins without reimporting (double-counting)', async () => {
     const localByMode = new Map<string, GameStats>([
-      ['classic', stats({ highScore: 1500, longestStreak: 7, gamesPlayed: 10, totalScore: 5000, averageScore: 500 })],
+      ['classic', stats({
+        highScore: 1500, longestStreak: 7, gamesPlayed: 10, totalScore: 5000, averageScore: 500,
+        totalPlayTimeMs: 600_000, totalDiscsDropped: 80, totalDiscsBroken: 30,
+      })],
     ]);
     const storage = makeMemoryStorage({ 'disco_imported_account_account-1': '1' });
     const api = createApi({
       remoteStats: {
-        classic: stats({ highScore: 1000, longestStreak: 5, gamesPlayed: 2, totalScore: 900, averageScore: 450 }),
+        // Simulates a completed game's fire-and-forget submitScore() never
+        // landing before an earlier reload: remote is behind local on every
+        // cumulative counter, not just the two "record" fields.
+        classic: stats({
+          highScore: 1000, longestStreak: 5, gamesPlayed: 2, totalScore: 900, averageScore: 450,
+          totalPlayTimeMs: 30_000, totalDiscsDropped: 10, totalDiscsBroken: 5,
+        }),
+      },
+    });
+
+    const store = new AccountStatsStore(TEST_MODES, {
+      api,
+      storage,
+      loadCookieStats: modeId => cloneStats(localByMode.get(modeId) ?? stats()),
+      saveCookieStats: (modeId, value) => {
+        localByMode.set(modeId, cloneStats(value));
+      },
+    });
+
+    await store.ready;
+
+    const expected = {
+      highScore: 1500,
+      longestStreak: 7,
+      gamesPlayed: 10,
+      totalScore: 5000,
+      averageScore: 500,
+      totalPlayTimeMs: 600_000,
+      totalDiscsDropped: 80,
+      totalDiscsBroken: 30,
+    };
+    expect(store.loadStats('classic')).toEqual(expected);
+    // The corrected totals must also be written back to the cookie, so a
+    // later reload before the API call can't re-derive the stale merge.
+    expect(localByMode.get('classic')).toEqual(expected);
+    expect(api.putStats).toHaveBeenCalledTimes(1);
+    expect(api.putStats).toHaveBeenCalledWith('classic', expected);
+  });
+
+  test('trusts remote totals when they are ahead of local (e.g. played on another device)', async () => {
+    const localByMode = new Map<string, GameStats>([
+      ['classic', stats({
+        highScore: 1000, longestStreak: 5, gamesPlayed: 2, totalScore: 900, averageScore: 450,
+        totalPlayTimeMs: 30_000, totalDiscsDropped: 10, totalDiscsBroken: 5,
+      })],
+    ]);
+    const storage = makeMemoryStorage({ 'disco_imported_account_account-1': '1' });
+    const api = createApi({
+      remoteStats: {
+        classic: stats({
+          highScore: 1500, longestStreak: 7, gamesPlayed: 10, totalScore: 5000, averageScore: 500,
+          totalPlayTimeMs: 600_000, totalDiscsDropped: 80, totalDiscsBroken: 30,
+        }),
       },
     });
 
@@ -224,24 +279,14 @@ describe('AccountStatsStore', () => {
     expect(store.loadStats('classic')).toEqual({
       highScore: 1500,
       longestStreak: 7,
-      gamesPlayed: 2,
-      totalScore: 900,
-      averageScore: 450,
-      totalPlayTimeMs: 0,
-      totalDiscsDropped: 0,
-      totalDiscsBroken: 0,
+      gamesPlayed: 10,
+      totalScore: 5000,
+      averageScore: 500,
+      totalPlayTimeMs: 600_000,
+      totalDiscsDropped: 80,
+      totalDiscsBroken: 30,
     });
-    expect(api.putStats).toHaveBeenCalledTimes(1);
-    expect(api.putStats).toHaveBeenCalledWith('classic', {
-      highScore: 1500,
-      longestStreak: 7,
-      gamesPlayed: 2,
-      totalScore: 900,
-      averageScore: 450,
-      totalPlayTimeMs: 0,
-      totalDiscsDropped: 0,
-      totalDiscsBroken: 0,
-    });
+    expect(api.putStats).not.toHaveBeenCalled();
   });
 
   test('falls back to guest cookie stats when the API is unavailable', async () => {
