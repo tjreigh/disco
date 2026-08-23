@@ -132,6 +132,36 @@ describe('SharedBoardSessionController', () => {
     expect(controller.view.remainingMs).toBe(11_000);
   });
 
+  // The server pads a resolved turn's deadline with a variable amount of
+  // grace so the previous turn's cascade animation finishes before the real
+  // countdown is enforced (see api's turn-animation-grace.ts) — but showing
+  // that inflated total would make the visible timer start at a different
+  // number every turn depending on how big the last cascade was. The display
+  // must clamp to the mode's real turn timeout (15s) regardless.
+  test('clamps the displayed remainingMs to the real turn timeout even when the deadline carries extra grace', () => {
+    const { clock, transport, controller } = createSession();
+    startCountdown(transport);
+    transport.receive(serverMessage({
+      type: 'turn-assigned',
+      matchId: 'match-1',
+      playerId: 'local-player',
+      turnDeadline: 18_000, // 3s of animation-replay grace beyond the real 15s budget
+      board: emptyBoard(),
+      currentDisc: discA,
+      nextDisc: discB,
+      level: 1,
+      turnsPerLevel: 7,
+      turnsRemaining: 7,
+      revision: 0,
+    }));
+    expect(controller.view.remainingMs).toBe(15_000);
+
+    // Once elapsed time eats past the grace, the real countdown resumes
+    // ticking down normally from there.
+    clock.value = 4_000;
+    expect(controller.view.remainingMs).toBe(14_000);
+  });
+
   // Regression: the opponent's countdown used to be zeroed out
   // (turnDeadline: isMyTurn ? message.turnDeadline : 0), hiding it entirely.
   test('shows a live remainingMs during the opponent\'s turn too', () => {

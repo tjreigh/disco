@@ -694,9 +694,23 @@ export class SharedBoardSessionController {
       : lifecycle.kind === 'playing'
         ? lifecycle.turnDeadline
         : null;
-    const remainingMs = lifecycle.kind === 'playing' && lifecycle.paused
+    const rawRemainingMs = lifecycle.kind === 'playing' && lifecycle.paused
       ? lifecycle.paused.remainingMs
       : target === null ? null : Math.max(0, target - now);
+    // A resolved turn's deadline includes server-side grace for the previous
+    // turn's cascade animation to finish (see api's turn-animation-grace.ts)
+    // on top of the real per-turn budget. Shown as-is, the visible timer's
+    // starting number would bounce around turn to turn depending on how
+    // flashy the last cascade was. Clamp the display to the mode's real turn
+    // timeout so it always starts at the same number — the clamp only holds
+    // the display steady during the animation's grace window, it never
+    // shortens actual thinking time (the deadline itself is untouched).
+    const turnTimeoutMs = lifecycle.kind === 'playing' && this.#definition.session.kind === 'shared-board-duel@1'
+      ? this.#definition.session.turnTimeoutMs
+      : null;
+    const remainingMs = turnTimeoutMs !== null && rawRemainingMs !== null
+      ? Math.min(rawRemainingMs, turnTimeoutMs)
+      : rawRemainingMs;
 
     return {
       phase,
