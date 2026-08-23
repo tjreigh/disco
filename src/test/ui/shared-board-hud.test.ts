@@ -17,6 +17,7 @@ describe('SharedBoardHud', () => {
       localScore: 30,
       opponentScore: 10,
       isMyTurn: true,
+      turnSubmissionPending: false,
       result: null,
       compatibilityError: null,
       pingMs: null,
@@ -44,6 +45,7 @@ describe('SharedBoardHud', () => {
       localScore: 30,
       opponentScore: 10,
       isMyTurn: false,
+      turnSubmissionPending: false,
       result: null,
       compatibilityError: null,
       pingMs: null,
@@ -55,6 +57,30 @@ describe('SharedBoardHud', () => {
     expect(document.querySelector('.multiplayer-hud')?.getAttribute('data-turn')).toBe('opponent');
   });
 
+  // A submitted move leaves the pre-submission deadline stale until the
+  // server answers — the timer must show a distinct "sent" state instead of
+  // continuing to count down (or sitting clamped at 0:00), which used to
+  // read as the game having hung.
+  test('shows a distinct pending state instead of a countdown while a move is in flight', () => {
+    const hud = new SharedBoardHud();
+
+    hud.render({
+      phase: 'playing',
+      remainingMs: 0,
+      localScore: 30,
+      opponentScore: 10,
+      isMyTurn: true,
+      turnSubmissionPending: true,
+      result: null,
+      compatibilityError: null,
+      pingMs: null,
+      connectionStale: false,
+    });
+
+    expect(document.querySelector('.multiplayer-hud__timer-label')?.textContent).toBe('MOVE');
+    expect(document.querySelector('.multiplayer-hud__timer')?.textContent).toBe('SENT');
+  });
+
   test('renders lobby/countdown/compatibility-error status text', () => {
     const hud = new SharedBoardHud();
 
@@ -64,6 +90,7 @@ describe('SharedBoardHud', () => {
       localScore: 0,
       opponentScore: 0,
       isMyTurn: false,
+      turnSubmissionPending: false,
       result: null,
       compatibilityError: null,
       pingMs: null,
@@ -79,6 +106,7 @@ describe('SharedBoardHud', () => {
       localScore: 0,
       opponentScore: 0,
       isMyTurn: false,
+      turnSubmissionPending: false,
       result: null,
       compatibilityError: null,
       pingMs: null,
@@ -93,6 +121,7 @@ describe('SharedBoardHud', () => {
       localScore: 0,
       opponentScore: 0,
       isMyTurn: true,
+      turnSubmissionPending: false,
       result: null,
       compatibilityError: 'rules-mismatch',
       pingMs: null,
@@ -110,6 +139,7 @@ describe('SharedBoardHud', () => {
       localScore: 400,
       opponentScore: 300,
       isMyTurn: false,
+      turnSubmissionPending: false,
       result: { outcome: 'win', localScore: 400, opponentScore: 300, forfeitedBy: null },
       compatibilityError: null,
       pingMs: null,
@@ -125,6 +155,7 @@ describe('SharedBoardHud', () => {
       localScore: 0,
       opponentScore: 0,
       isMyTurn: true,
+      turnSubmissionPending: false,
       result: null,
       compatibilityError: null,
       pingMs: null,
@@ -150,6 +181,7 @@ describe('SharedBoardHud', () => {
       localScore: 0,
       opponentScore: 0,
       isMyTurn: true,
+      turnSubmissionPending: false,
       result: null,
       compatibilityError: null,
       pingMs: 42,
@@ -164,6 +196,7 @@ describe('SharedBoardHud', () => {
       localScore: 0,
       opponentScore: 0,
       isMyTurn: true,
+      turnSubmissionPending: false,
       result: null,
       compatibilityError: null,
       pingMs: null,

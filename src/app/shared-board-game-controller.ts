@@ -342,6 +342,7 @@ export class SharedBoardGame {
       localScore: this.#displayedLocalScore,
       opponentScore: this.#displayedOpponentScore,
       isMyTurn: view.isMyTurn,
+      turnSubmissionPending: view.turnSubmissionPending,
       result: view.result,
       compatibilityError: view.compatibilityError,
       pingMs: diagnostics?.rttMs ?? null,

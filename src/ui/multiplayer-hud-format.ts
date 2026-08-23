@@ -29,11 +29,16 @@ export function statusText(
   }
 }
 
-export function timerLabelText(phase: MultiplayerPhase): string {
+export function timerLabelText(phase: MultiplayerPhase, turnSubmissionPending = false): string {
+  if (phase === 'playing' && turnSubmissionPending) return 'MOVE';
   return phase === 'countdown' ? 'STARTS IN' : phase === 'playing' ? 'TIME LEFT' : 'TIME';
 }
 
-export function timerText(phase: MultiplayerPhase, remainingMs: number | null): string {
+// A submitted move leaves the old deadline stale until the server answers —
+// showing a countdown (or a clamped 0:00) here reads as the game having
+// hung, when the move actually already landed and is just in transit back.
+export function timerText(phase: MultiplayerPhase, remainingMs: number | null, turnSubmissionPending = false): string {
+  if (phase === 'playing' && turnSubmissionPending) return 'SENT';
   if (remainingMs === null) return '—';
   if (phase === 'countdown') return String(Math.max(1, Math.ceil(remainingMs / 1_000)));
   if (phase !== 'playing') return '0:00';

@@ -948,6 +948,39 @@ describe('SharedBoardSessionController action hardening', () => {
     expect(transport.sent.filter(m => m.type === 'play-turn')).toHaveLength(2);
   });
 
+  test('turnSubmissionPending is true only while a local move is awaiting the server\'s answer', () => {
+    const { transport, controller } = createSession();
+    startCountdown(transport);
+    assignTurn(transport, { playerId: 'local-player', revision: 0 });
+    expect(controller.view.turnSubmissionPending).toBe(false);
+
+    controller.playTurn(3);
+    expect(controller.view.turnSubmissionPending).toBe(true);
+
+    transport.receive(serverMessage({
+      type: 'turn-played',
+      matchId: 'match-1',
+      board: emptyBoard(),
+      turnResult: {
+        playerId: 'local-player',
+        column: 3,
+        triggerScoreDelta: 0,
+        opponentScoreDelta: 0,
+        stackSize: 0,
+        steps: [],
+        gameOver: false,
+      },
+      nextPlayerId: 'opponent-player',
+      currentDisc: discC,
+      nextDisc: discA,
+      level: 1,
+      turnsPerLevel: 7,
+      turnsRemaining: 6,
+      revision: 1,
+    }));
+    expect(controller.view.turnSubmissionPending).toBe(false);
+  });
+
   test('a same-revision status pulse does not release a pending turn submission', () => {
     const { transport, controller } = createSession();
     startCountdown(transport);

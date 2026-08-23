@@ -9,6 +9,7 @@ export interface SharedBoardHudView {
   readonly localScore: number;
   readonly opponentScore: number;
   readonly isMyTurn: boolean;
+  readonly turnSubmissionPending: boolean;
   readonly result: MultiplayerLocalResult | null;
   readonly compatibilityError: MultiplayerCompatibilityError | null;
   readonly pingMs: number | null;
@@ -53,8 +54,8 @@ export class SharedBoardHud {
     this.localValue.textContent = view.localScore.toLocaleString('en-US');
     this.opponentValue.textContent = view.opponentScore.toLocaleString('en-US');
     this.turnAnnouncement.textContent = turnText(view.phase, view.isMyTurn);
-    this.timerLabel.textContent = timerLabelText(view.phase);
-    this.timer.textContent = timerText(view.phase, view.remainingMs);
+    this.timerLabel.textContent = timerLabelText(view.phase, view.turnSubmissionPending);
+    this.timer.textContent = timerText(view.phase, view.remainingMs, view.turnSubmissionPending);
     this.pingValue.textContent = pingText(view.pingMs, view.connectionStale);
     this.pingValue.dataset.stale = String(view.connectionStale);
     this.result.textContent = resultText(view.result);
