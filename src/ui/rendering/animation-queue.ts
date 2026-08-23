@@ -1,16 +1,11 @@
 import type { PhysicsStep } from '../../game/events.js';
 import { StepKind } from '../../game/events.js';
+import { DROP_MS_PER_ROW, FLASH_MS, CLEAR_MS, FALL_MS_PER_ROW, REVEAL_MS, PUSH_MS, gridDistance } from '../../game/animation-timing.js';
 import type { Disc, GridPos } from '../../game/model.js';
 import type { RichDiscAnimation, GravityShiftCue, ScoreIndicator, ScorePopup } from './animation-types.js';
 import { AnimPhase } from './animation-types.js';
 import { cellCenterY, cellCenterX, gridRows, gridCols } from './layout.js';
 
-const DROP_MS_PER_ROW = 60;
-const FLASH_MS = 280;
-const CLEAR_MS = 320;
-const FALL_MS_PER_ROW = 55;
-const REVEAL_MS = 350;
-const PUSH_MS = 420;
 const SCORE_POPUP_MS = 800;
 const SCORE_INDICATOR_MS = 1_100;
 const GRAVITY_SHIFT_MS = 550;
@@ -37,10 +32,6 @@ function makeAnim(
     alpha: 1, scale: 1, progress: 0,
     ...(waypoints ? { waypoints } : {}),
   };
-}
-
-function gridDistance(from: GridPos, to: GridPos): number {
-  return Math.max(Math.abs(to.row - from.row), Math.abs(to.col - from.col));
 }
 
 /** Sum of hop distances along a multi-point grid path, e.g. for duration scaling. */

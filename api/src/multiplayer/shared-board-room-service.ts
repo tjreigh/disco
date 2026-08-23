@@ -14,7 +14,9 @@ import type {
   MultiplayerMatchResult,
   MultiplayerServerMessage,
 } from './contracts.js';
+import type { WireStep } from '#multiplayer-contracts';
 import { SharedBoardMatch } from './shared-board-match.js';
+import { estimateTurnAnimationMs } from './turn-animation-grace.js';
 import type {
   RoomAdmission,
   RoomAdmissionRequest,
@@ -66,6 +68,8 @@ export interface SharedBoardRoomServiceOptions {
   readonly disruptionThreshold?: number;
   readonly statusPulseMs?: number;
   readonly abandonTimeoutMs?: number;
+  /** Overridable for tests that need exact turn-timeout arithmetic; production leaves this at its real animation-duration estimate. */
+  readonly estimateTurnAnimationMs?: (steps: readonly WireStep[]) => number;
 }
 
 interface RoomPlayer {
@@ -113,6 +117,7 @@ export class SharedBoardRoomService {
   private readonly disruptionThreshold: number;
   private readonly statusPulseMs: number;
   private readonly abandonTimeoutMs: number;
+  private readonly estimateTurnAnimationMs: (steps: readonly WireStep[]) => number;
   private readonly chatLimiter: ChatRateLimiter;
 
   constructor(options: SharedBoardRoomServiceOptions) {
@@ -128,6 +133,7 @@ export class SharedBoardRoomService {
       ? positiveDuration(options.statusPulseMs)
       : DEFAULT_STATUS_PULSE_MS;
     this.abandonTimeoutMs = options.abandonTimeoutMs ?? DEFAULT_ABANDON_TIMEOUT_MS;
+    this.estimateTurnAnimationMs = options.estimateTurnAnimationMs ?? estimateTurnAnimationMs;
     this.chatLimiter = new ChatRateLimiter(this.clock);
   }
 
@@ -366,7 +372,7 @@ export class SharedBoardRoomService {
       return recoverable('invalid-state', [...priorDeliveries, ...this.recoverySnapshot(room, player)]);
     }
 
-    match.setTurnTimer(this.clock.now());
+    match.setTurnTimer(this.clock.now() + this.estimateTurnAnimationMs(result.steps));
     const deliveries = [...priorDeliveries];
     const turnWireResult = {
       playerId: result.playerId,
@@ -660,7 +666,7 @@ export class SharedBoardRoomService {
             gameOver: result.gameOver,
             ...(result.gameOver && result.gameOverReason ? { gameOverReason: result.gameOverReason } : {}),
           };
-          match.setTurnTimer(now);
+          match.setTurnTimer(now + this.estimateTurnAnimationMs(result.steps));
 
           deliveries.push(...this.broadcast(room, () =>
             match.buildTurnExpiredMessage(room.id, SHARED_DUEL_ROOM_MODE, lifecycle.match.id, turnWireResult as never),

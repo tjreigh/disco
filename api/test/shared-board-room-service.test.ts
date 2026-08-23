@@ -13,6 +13,7 @@ import type {
   MultiplayerModeIdentity,
   MultiplayerServerMessage,
 } from '../src/multiplayer/contracts.js';
+import type { WireStep } from '#multiplayer-contracts';
 import type {
   RoomAdmission,
   RoomConnection,
@@ -97,7 +98,11 @@ interface RoomHarness {
 
 function createService(
   clock = new ManualClock(),
-  overrides: Partial<{ statusPulseMs: number; abandonTimeoutMs: number }> = {},
+  overrides: Partial<{
+    statusPulseMs: number;
+    abandonTimeoutMs: number;
+    estimateTurnAnimationMs: (steps: readonly WireStep[]) => number;
+  }> = {},
 ): SharedBoardRoomService {
   return new SharedBoardRoomService({
     clock,
@@ -106,6 +111,9 @@ function createService(
     lobbyTtlMs: LOBBY_TTL_MS,
     resultTtlMs: RESULT_TTL_MS,
     turnTimeoutMs: TURN_TIMEOUT_MS,
+    // Real turn-animation grace is covered by its own tests below; defaulting
+    // it to zero here keeps every other test's turn-timeout arithmetic exact.
+    estimateTurnAnimationMs: () => 0,
     ...overrides,
   });
 }
@@ -154,7 +162,11 @@ function connect(service: SharedBoardRoomService, admission: RoomAdmission): Roo
   }));
 }
 
-function setupRoom(overrides: Partial<{ statusPulseMs: number; abandonTimeoutMs: number }> = {}): RoomHarness {
+function setupRoom(overrides: Partial<{
+  statusPulseMs: number;
+  abandonTimeoutMs: number;
+  estimateTurnAnimationMs: (steps: readonly WireStep[]) => number;
+}> = {}): RoomHarness {
   const clock = new ManualClock();
   const service = createService(clock, overrides);
   const host = valueOf(service.createRoom(admissionRequest()));
@@ -436,6 +448,84 @@ describe('SharedBoardRoomService', () => {
     expect(assigned?.type).toBe('turn-assigned');
     if (assigned?.type !== 'turn-assigned') throw new Error('Expected turn-assigned');
     expect(assigned.playerId).toBe(opponentId);
+  });
+
+  test('withholds the next turn deadline by the estimated animation duration after a played turn', () => {
+    const GRACE_MS = 777;
+    const harness = setupRoom({ estimateTurnAnimationMs: () => GRACE_MS });
+    const { matchId, firstPlayerId } = startPlaying(harness);
+    const [connection, admission] = firstPlayerId === harness.host.playerId
+      ? [harness.hostConnection, harness.host]
+      : [harness.guestConnection, harness.guest];
+
+    harness.clock.time += 25;
+    const resolvedAt = harness.clock.time;
+    const result = harness.service.receive(
+      connection,
+      message(admission, { type: 'play-turn', matchId, column: 3 }),
+    );
+    valueOf(result);
+
+    const assigned = result.deliveries.find(d => d.message.type === 'turn-assigned')?.message;
+    if (assigned?.type !== 'turn-assigned') throw new Error('Expected turn-assigned');
+    expect(assigned.turnDeadline).toBe(resolvedAt + GRACE_MS + TURN_TIMEOUT_MS);
+  });
+
+  test('withholds the next turn deadline by the estimated animation duration after a turn auto-expires', () => {
+    const GRACE_MS = 333;
+    const harness = setupRoom({ estimateTurnAnimationMs: () => GRACE_MS });
+    startPlaying(harness);
+
+    harness.clock.time += TURN_TIMEOUT_MS;
+    const resolvedAt = harness.clock.time;
+    const tickResult = harness.service.tick();
+
+    const assigned = tickResult.deliveries.find(d => d.message.type === 'turn-assigned')?.message;
+    if (assigned?.type !== 'turn-assigned') throw new Error('Expected turn-assigned');
+    expect(assigned.turnDeadline).toBe(resolvedAt + GRACE_MS + TURN_TIMEOUT_MS);
+  });
+
+  test('feeds the resolved turn\'s actual steps into the animation-grace estimator', () => {
+    const received: (readonly WireStep[])[] = [];
+    const harness = setupRoom({
+      estimateTurnAnimationMs: steps => { received.push(steps); return 250; },
+    });
+    const { matchId, firstPlayerId } = startPlaying(harness);
+    const [connection, admission] = firstPlayerId === harness.host.playerId
+      ? [harness.hostConnection, harness.host]
+      : [harness.guestConnection, harness.guest];
+
+    const result = harness.service.receive(
+      connection,
+      message(admission, { type: 'play-turn', matchId, column: 3 }),
+    );
+    const played = result.deliveries.find(d => d.message.type === 'turn-played')?.message;
+    if (played?.type !== 'turn-played') throw new Error('Expected turn-played');
+
+    expect(received).toHaveLength(1);
+    expect(received[0]).toEqual(played.turnResult.steps);
+  });
+
+  // Confirms the class's real default (not the test harness's zero-grace
+  // convenience default) is actually wired up: every accepted turn contains
+  // at least one drop step, whose duration floors at 120ms, so a real turn
+  // played with no estimator override must push the deadline out further
+  // than turnTimeoutMs alone would.
+  test('the production default estimator adds real, non-zero grace', () => {
+    const harness = setupRoom({ estimateTurnAnimationMs: undefined });
+    const { matchId, firstPlayerId } = startPlaying(harness);
+    const [connection, admission] = firstPlayerId === harness.host.playerId
+      ? [harness.hostConnection, harness.host]
+      : [harness.guestConnection, harness.guest];
+
+    const resolvedAt = harness.clock.time;
+    const result = harness.service.receive(
+      connection,
+      message(admission, { type: 'play-turn', matchId, column: 3 }),
+    );
+    const assigned = result.deliveries.find(d => d.message.type === 'turn-assigned')?.message;
+    if (assigned?.type !== 'turn-assigned') throw new Error('Expected turn-assigned');
+    expect(assigned.turnDeadline).toBeGreaterThanOrEqual(resolvedAt + TURN_TIMEOUT_MS + 120);
   });
 
   test('relays the active player\'s cursor move to their opponent only', () => {

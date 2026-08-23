@@ -11,7 +11,8 @@
     "#game-save": "./dist/game/save.js",
     "#game-model": "./dist/game/model.js",
     "#game-modes": "./dist/game/modes/index.js",
-    "#game-board": "./dist/game/board.js"
+    "#game-board": "./dist/game/board.js",
+    "#game-animation-timing": "./dist/game/animation-timing.js"
   },
   "scripts": {
     "clean": "rm -rf dist",
