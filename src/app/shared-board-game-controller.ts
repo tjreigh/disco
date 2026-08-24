@@ -229,6 +229,9 @@ export class SharedBoardGame {
     if (session.consumeAnimationDiscard()) {
       this.#animQueue = null;
       this.#visualBoard = null;
+      // A resync has already snapped to the resolved board, so it reaches the
+      // same usable visual state as a naturally completed animation.
+      session.completeTurnAnimation();
     }
 
     // Pop up "YOUR TURN" exactly on the edge into it becoming your turn
@@ -254,6 +257,9 @@ export class SharedBoardGame {
       );
       this.#animQueue = null;
       this.#visualBoard = null;
+      // Do not make a refocused player wait for the server fallback once the
+      // stale animation has been intentionally replaced by the real board.
+      session.completeTurnAnimation();
     }
 
     const pending = session.consumePendingTurnResult();
@@ -318,7 +324,12 @@ export class SharedBoardGame {
           ));
         },
         step => applyStepToVisualBoard(this.#visualBoard!, step),
-        () => { this.#animQueue = null; },
+        () => {
+          this.#animQueue = null;
+          // Only the player selected for the next turn has an activation
+          // revision; their acknowledgement opens the authoritative clock.
+          session.completeTurnAnimation();
+        },
       );
     }
     this.#animQueue?.tick(now);

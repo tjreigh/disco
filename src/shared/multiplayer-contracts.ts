@@ -2,7 +2,7 @@ import type { GameOverReason } from './game-values.js';
 export type { GameOverReason } from './game-values.js';
 
 /** Stable identities and value contracts shared by multiplayer messages. */
-export const MULTIPLAYER_PROTOCOL_VERSION = 7 as const;
+export const MULTIPLAYER_PROTOCOL_VERSION = 8 as const;
 export const SCORE_RACE_MODE_ID = 'score-race' as const;
 export const SCORE_RACE_MODE_VERSION = 1 as const;
 export const SCORE_RACE_RULES_VERSION = 1 as const;
@@ -102,6 +102,12 @@ export type MultiplayerClientMessage =
       readonly type: 'play-turn';
       readonly matchId: string;
       readonly column: number;
+    })
+  /** Sent by the next player after rendering the preceding turn's animation. */
+  | (ClientMessageBase & {
+      readonly type: 'turn-ready';
+      readonly matchId: string;
+      readonly revision: number;
     })
   | (ClientMessageBase & {
       readonly type: 'move-cursor';

@@ -47,6 +47,7 @@ const DEFAULT_LOBBY_TTL_MS = 30 * 60 * 1_000;
 const DEFAULT_RESULT_TTL_MS = 5 * 60 * 1_000;
 const DEFAULT_STATUS_PULSE_MS = 1_000;
 const DEFAULT_ABANDON_TIMEOUT_MS = 3 * 60 * 1_000;
+const TURN_ACTIVATION_FALLBACK_BUFFER_MS = 5_000;
 
 export const SHARED_DUEL_ROOM_MODE = multiplayerModeIdentity({
   id: SHARED_DUEL_MODE_ID,
@@ -68,7 +69,7 @@ export interface SharedBoardRoomServiceOptions {
   readonly disruptionThreshold?: number;
   readonly statusPulseMs?: number;
   readonly abandonTimeoutMs?: number;
-  /** Overridable for tests that need exact turn-timeout arithmetic; production leaves this at its real animation-duration estimate. */
+  /** Overridable for tests; production uses it to size the bounded missing-ready fallback. */
   readonly estimateTurnAnimationMs?: (steps: readonly WireStep[]) => number;
 }
 
@@ -85,6 +86,8 @@ interface DuelMatch {
   readonly id: string;
   readonly match: SharedBoardMatch;
   readonly startsAt: number;
+  /** Non-null between a resolved turn and the next player's ready acknowledgement. */
+  activation: { readonly playerId: string; readonly revision: number; readonly fallbackAt: number } | null;
 }
 
 type DuelRoomLifecycle =
@@ -283,6 +286,8 @@ export class SharedBoardRoomService {
         return this.setReady(room, player, message.ready, deliveries);
       case 'play-turn':
         return this.playTurn(room, player, message.matchId, message.column, deliveries);
+      case 'turn-ready':
+        return this.turnReady(room, player, message.matchId, message.revision, deliveries);
       case 'move-cursor':
         return this.moveCursor(room, player, message.matchId, message.column, deliveries);
       case 'set-paused':
@@ -343,7 +348,7 @@ export class SharedBoardRoomService {
       });
       boardMatch.setTurnTimer(startsAt);
 
-      const duelMatch: DuelMatch = { id: matchId, match: boardMatch, startsAt };
+      const duelMatch: DuelMatch = { id: matchId, match: boardMatch, startsAt, activation: null };
       const playerOrder = playerIds;
       room.lifecycle = { kind: 'countdown', match: duelMatch, playerOrder };
       deliveries.push(...this.broadcast(room, () => this.countdownMessage(room, duelMatch)));
@@ -364,6 +369,11 @@ export class SharedBoardRoomService {
 
     const duelMatch = room.lifecycle.match;
     const match = duelMatch.match;
+    if (duelMatch.activation !== null) {
+      // The next player has not finished rendering the prior turn yet. Never
+      // let a direct protocol client bypass that visual/fairness boundary.
+      return recoverable('invalid-state', [...priorDeliveries, ...this.recoverySnapshot(room, player)]);
+    }
     const result = match.processTurn(player.id, column);
 
     if (result.kind === 'rejected') {
@@ -372,7 +382,6 @@ export class SharedBoardRoomService {
       return recoverable('invalid-state', [...priorDeliveries, ...this.recoverySnapshot(room, player)]);
     }
 
-    match.setTurnTimer(this.clock.now() + this.estimateTurnAnimationMs(result.steps));
     const deliveries = [...priorDeliveries];
     const turnWireResult = {
       playerId: result.playerId,
@@ -394,16 +403,51 @@ export class SharedBoardRoomService {
         this.finishedMessage(room, matchId, room.lifecycle as { kind: 'complete'; result: MultiplayerMatchResult }),
       ));
     } else {
+      this.beginTurnActivation(duelMatch, result.steps);
       deliveries.push(...this.broadcast(room, () =>
         match.buildTurnPlayedMessage(room.id, SHARED_DUEL_ROOM_MODE, matchId, turnWireResult as never),
-      ));
-      deliveries.push(...this.broadcast(room, () =>
-        match.buildTurnAssignedMessage(room.id, SHARED_DUEL_ROOM_MODE, matchId),
       ));
       deliveries.push(...this.broadcastDuelStatus(room, duelMatch));
     }
 
     return { ok: true, value: null, deliveries };
+  }
+
+  private turnReady(
+    room: DuelRoom, player: RoomPlayer, matchId: string, revision: number, priorDeliveries: RoomDelivery[],
+  ): RoomServiceResult<null> {
+    if (room.lifecycle.kind !== 'playing' || matchId !== room.lifecycle.match.id || this.isClockFrozen(room)) {
+      return recoverable('invalid-state', [...priorDeliveries, ...this.recoverySnapshot(room, player)]);
+    }
+    const duelMatch = room.lifecycle.match;
+    const activation = duelMatch.activation;
+    if (!activation || activation.playerId !== player.id || activation.revision !== revision) {
+      return recoverable('invalid-state', [...priorDeliveries, ...this.recoverySnapshot(room, player)]);
+    }
+    return { ok: true, value: null, deliveries: [...priorDeliveries, ...this.activateTurn(room, duelMatch)] };
+  }
+
+  /** Opens a resolved turn only after its active player has rendered it. */
+  private beginTurnActivation(duelMatch: DuelMatch, steps: readonly WireStep[]): void {
+    const now = this.clock.now();
+    duelMatch.match.clearTurnTimer();
+    duelMatch.activation = {
+      playerId: duelMatch.match.currentPlayerId,
+      revision: duelMatch.match.revision,
+      fallbackAt: now + this.estimateTurnAnimationMs(steps) + TURN_ACTIVATION_FALLBACK_BUFFER_MS,
+    };
+  }
+
+  /** Starts the real turn budget, either on a valid ready acknowledgement or bounded fallback. */
+  private activateTurn(room: DuelRoom, duelMatch: DuelMatch): RoomDelivery[] {
+    duelMatch.activation = null;
+    duelMatch.match.setTurnTimer(this.clock.now());
+    return [
+      ...this.broadcast(room, () => duelMatch.match.buildTurnAssignedMessage(
+        room.id, SHARED_DUEL_ROOM_MODE, duelMatch.id,
+      )),
+      ...this.broadcastDuelStatus(room, duelMatch),
+    ];
   }
 
   // Lightweight, non-authoritative: relays the active player's in-progress
@@ -420,7 +464,7 @@ export class SharedBoardRoomService {
     if (this.isClockFrozen(room)) {
       return recoverable('invalid-state', [...priorDeliveries, ...this.recoverySnapshot(room, player)]);
     }
-    if (!room.lifecycle.match.match.isCurrentPlayer(player.id)) {
+    if (room.lifecycle.match.activation !== null || !room.lifecycle.match.match.isCurrentPlayer(player.id)) {
       // Cursor move received after turn ownership already changed.
       return recoverable('invalid-state', [...priorDeliveries, ...this.recoverySnapshot(room, player)]);
     }
@@ -651,7 +695,12 @@ export class SharedBoardRoomService {
         return this.completeAsForfeit(room, lifecycle.match, abandoned, opponent, deliveries);
       }
 
-      if (!this.isClockFrozen(room) && lifecycle.match.match.isTurnExpired(now)) {
+      if (!this.isClockFrozen(room) && lifecycle.match.activation !== null
+        && now >= lifecycle.match.activation.fallbackAt) {
+        deliveries.push(...this.activateTurn(room, lifecycle.match));
+      }
+
+      if (!this.isClockFrozen(room) && lifecycle.match.activation === null && lifecycle.match.match.isTurnExpired(now)) {
         const match = lifecycle.match.match;
         const result = match.expireTurn();
 
@@ -666,8 +715,6 @@ export class SharedBoardRoomService {
             gameOver: result.gameOver,
             ...(result.gameOver && result.gameOverReason ? { gameOverReason: result.gameOverReason } : {}),
           };
-          match.setTurnTimer(now + this.estimateTurnAnimationMs(result.steps));
-
           deliveries.push(...this.broadcast(room, () =>
             match.buildTurnExpiredMessage(room.id, SHARED_DUEL_ROOM_MODE, lifecycle.match.id, turnWireResult as never),
           ));
@@ -681,9 +728,7 @@ export class SharedBoardRoomService {
             return deliveries;
           }
 
-          deliveries.push(...this.broadcast(room, () =>
-            match.buildTurnAssignedMessage(room.id, SHARED_DUEL_ROOM_MODE, lifecycle.match.id),
-          ));
+          this.beginTurnActivation(lifecycle.match, result.steps);
           deliveries.push(...this.broadcastDuelStatus(room, lifecycle.match));
         }
       }
@@ -731,15 +776,15 @@ export class SharedBoardRoomService {
       return [{ playerId: player.id, message: this.countdownMessage(room, lifecycle.match) }];
     }
     if (lifecycle.kind === 'playing') {
-      return [
-        {
-          playerId: player.id,
-          message: lifecycle.match.match.buildTurnAssignedMessage(
-            room.id, SHARED_DUEL_ROOM_MODE, lifecycle.match.id,
-          ),
-        },
-        ...this.targetedDuelStatus(room, lifecycle.match, player.id),
-      ];
+      const assigned = lifecycle.match.activation === null
+        ? [{
+            playerId: player.id,
+            message: lifecycle.match.match.buildTurnAssignedMessage(
+              room.id, SHARED_DUEL_ROOM_MODE, lifecycle.match.id,
+            ),
+          }]
+        : [];
+      return [...assigned, ...this.targetedDuelStatus(room, lifecycle.match, player.id)];
     }
     return [{ playerId: player.id, message: this.finishedMessage(room, lifecycle.match.id, lifecycle) }];
   }

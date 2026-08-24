@@ -108,6 +108,8 @@ type MatchLifecycle =
       opponentScore: number;
       isMyTurn: boolean;
       turnDeadline: number;
+      /** Revision awaiting this client's post-animation turn-ready acknowledgement. */
+      activationRevision: number | null;
       columnCursor: number;
       opponentColumnCursor: number | null;
       currentDisc: WireDisc;
@@ -219,6 +221,29 @@ export class SharedBoardSessionController {
       type: 'play-turn',
       matchId: lifecycle.match.matchId,
       column,
+    });
+  }
+
+  /** Opens our locally rendered turn; the server independently validates this revision. */
+  completeTurnAnimation(): void {
+    const lifecycle = this.#lifecycle;
+    if (lifecycle.kind !== 'playing' || lifecycle.activationRevision === null || lifecycle.paused) return;
+    if (this.#connection !== 'connected') return;
+    if (this.#definition.session.kind !== 'shared-board-duel@1') return;
+    const revision = lifecycle.activationRevision;
+    lifecycle.activationRevision = null;
+    // Start local presentation immediately when the animation ends. The
+    // server starts its authoritative clock when this ordered socket command
+    // arrives; turn-assigned will correct this estimate afterward.
+    lifecycle.isMyTurn = true;
+    lifecycle.turnDeadline = this.#clock.now() + this.#definition.session.turnTimeoutMs;
+    this.#transport.send({
+      protocolVersion: MULTIPLAYER_PROTOCOL_VERSION,
+      roomId: this.#roomId,
+      playerId: this.#playerId,
+      type: 'turn-ready',
+      matchId: lifecycle.match.matchId,
+      revision,
     });
   }
 
@@ -457,6 +482,7 @@ export class SharedBoardSessionController {
       opponentScore: lifecycle.kind === 'playing' ? lifecycle.opponentScore : 0,
       isMyTurn,
       turnDeadline: message.turnDeadline,
+      activationRevision: null,
       columnCursor: lifecycle.kind === 'playing' ? lifecycle.columnCursor : 3,
       // A fresh turn means the opponent hasn't hovered anywhere yet — the
       // paired duel-status that always follows corrects this to the
@@ -523,8 +549,9 @@ export class SharedBoardSessionController {
       lifecycle.opponentScore += message.turnResult.triggerScoreDelta;
     }
 
-    lifecycle.isMyTurn = message.nextPlayerId === this.#playerId;
+    lifecycle.isMyTurn = false;
     lifecycle.turnDeadline = 0;
+    lifecycle.activationRevision = message.nextPlayerId === this.#playerId ? message.revision : null;
     lifecycle.currentDisc = message.currentDisc;
     lifecycle.nextDisc = message.nextDisc;
     lifecycle.level = message.level;
@@ -595,9 +622,12 @@ export class SharedBoardSessionController {
     lifecycle.board = message.board;
     lifecycle.localScore = localScoreEntry.score;
     lifecycle.opponentScore = opponentScoreEntry.score;
-    lifecycle.isMyTurn = message.activePlayerId === this.#playerId;
+    lifecycle.isMyTurn = message.turnDeadline > 0 && message.activePlayerId === this.#playerId;
     const remainingMs = Math.max(0, message.turnDeadline - message.serverTime);
     lifecycle.turnDeadline = this.#clock.now() + remainingMs;
+    lifecycle.activationRevision = message.turnDeadline === 0 && message.activePlayerId === this.#playerId
+      ? message.revision
+      : null;
     lifecycle.currentDisc = message.currentDisc;
     lifecycle.nextDisc = message.nextDisc;
     lifecycle.level = message.level;
@@ -661,6 +691,7 @@ export class SharedBoardSessionController {
         opponentScore: 0,
         isMyTurn: false,
         turnDeadline: 0,
+        activationRevision: null,
         columnCursor: 3,
         opponentColumnCursor: null,
         currentDisc: NEUTRAL_DISC,
@@ -697,14 +728,9 @@ export class SharedBoardSessionController {
     const rawRemainingMs = lifecycle.kind === 'playing' && lifecycle.paused
       ? lifecycle.paused.remainingMs
       : target === null ? null : Math.max(0, target - now);
-    // A resolved turn's deadline includes server-side grace for the previous
-    // turn's cascade animation to finish (see api's turn-animation-grace.ts)
-    // on top of the real per-turn budget. Shown as-is, the visible timer's
-    // starting number would bounce around turn to turn depending on how
-    // flashy the last cascade was. Clamp the display to the mode's real turn
-    // timeout so it always starts at the same number — the clamp only holds
-    // the display steady during the animation's grace window, it never
-    // shortens actual thinking time (the deadline itself is untouched).
+    // `turn-ready` normally starts a real 15s deadline only after playback
+    // ends. Keep this defensive display bound for a status snapshot that
+    // carries a longer fallback deadline.
     const turnTimeoutMs = lifecycle.kind === 'playing' && this.#definition.session.kind === 'shared-board-duel@1'
       ? this.#definition.session.turnTimeoutMs
       : null;

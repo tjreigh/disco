@@ -164,6 +164,11 @@ export class SharedBoardMatch {
     this.turnDeadline = now + this.turnTimeoutMs;
   }
 
+  /** No player may submit while the next turn is awaiting visual activation. */
+  clearTurnTimer(): void {
+    this.turnDeadline = 0;
+  }
+
   shiftTurnTimer(deltaMs: number): void {
     if (this.turnDeadline > 0) this.turnDeadline += deltaMs;
   }

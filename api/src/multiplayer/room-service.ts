@@ -260,6 +260,7 @@ export class ScoreRaceRoomService {
       case 'send-chat':
         return this.sendChat(room, player, message.text, deliveries);
       case 'play-turn':
+      case 'turn-ready':
       case 'move-cursor':
       // Transport-level ping is answered by the gateway, never forwarded here.
       case 'ping':

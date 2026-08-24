@@ -520,10 +520,8 @@ describe('multiplayer room gateway — shared duel recoverable failures', () => 
       matchId: duel.matchId,
       column: 2,
     })));
-    await nextMessageOfType(duel.hostSocket, 'turn-played');
+    const played = await nextMessageOfType(duel.hostSocket, 'turn-played');
     await nextMessageOfType(duel.guestSocket, 'turn-played');
-    await nextMessageOfType(duel.hostSocket, 'turn-assigned');
-    await nextMessageOfType(duel.guestSocket, 'turn-assigned');
     await nextMessageOfType(duel.hostSocket, 'duel-status');
     await nextMessageOfType(duel.guestSocket, 'duel-status');
 
@@ -533,12 +531,20 @@ describe('multiplayer room gateway — shared duel recoverable failures', () => 
       matchId: duel.matchId,
       column: 1,
     })));
-    const snapshotAssigned = await nextMessageOfType(moverSocket, 'turn-assigned');
-    expect(snapshotAssigned.playerId).not.toBe(mover.playerId);
     await nextMessageOfType(moverSocket, 'duel-status');
 
     expect(moverSocket.readyState).toBe(moverSocket.OPEN);
-    // Rebuild the active/inactive pairing since the turn has since passed.
+    // The actual next player completes the animation handshake, which opens
+    // the server clock and sends the usual assignment to both clients.
+    duel.inactiveSocket.send(JSON.stringify(clientCommand({
+      type: 'turn-ready', matchId: duel.matchId, revision: played.revision,
+    })));
+    await nextMessageOfType(duel.hostSocket, 'turn-assigned');
+    await nextMessageOfType(duel.guestSocket, 'turn-assigned');
+    await nextMessageOfType(duel.hostSocket, 'duel-status');
+    await nextMessageOfType(duel.guestSocket, 'duel-status');
+
+    // Rebuild the active/inactive pairing since the turn has passed.
     const refreshed: DuelPlayers = {
       ...duel,
       activeAdmission: duel.inactiveAdmission,

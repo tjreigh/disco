@@ -5,9 +5,9 @@ import type { WireStep } from '#multiplayer-contracts';
  * How long the client's AnimationQueue will take to play these steps in
  * sequence, using the same per-step duration formulas (shared via
  * #game-animation-timing so the two can't drift out of sync). The server
- * adds this to the next turn's deadline so a player's thinking time only
- * starts once the previous turn's drop/cascade has actually finished
- * animating on screen, instead of counting down while it's still playing.
+ * uses this only to size the bounded fallback for a missing client
+ * acknowledgement. Normal activation is driven by post-animation
+ * `turn-ready`, so thinking time starts after actual on-screen playback.
  *
  * Wire steps never carry AnimationQueue's optional bent `path` (see
  * WireFallMove), so falls are estimated as straight-line here, matching what

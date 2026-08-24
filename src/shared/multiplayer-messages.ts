@@ -173,6 +173,15 @@ export function parseMultiplayerClientMessage(
         ok: true,
         message: { ...base, type: value.type, matchId: value.matchId, column: value.column },
       };
+    case 'turn-ready':
+      if (!hasExactKeys(value, [
+        'protocolVersion', 'roomId', 'playerId', 'type', 'matchId', 'revision',
+      ])
+        || !isNonEmptyString(value.matchId)
+        || !isNonNegativeInteger(value.revision)) {
+        return invalidMessage();
+      }
+      return { ok: true, message: { ...base, type: value.type, matchId: value.matchId, revision: value.revision } };
     case 'set-paused':
       if (!hasExactKeys(value, [
         'protocolVersion', 'roomId', 'playerId', 'type', 'matchId', 'paused',

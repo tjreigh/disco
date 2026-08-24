@@ -587,6 +587,27 @@ function assignTurn(
 }
 
 describe('SharedBoardSessionController duel-status reconciliation', () => {
+  test('acknowledges a pending activation after a forced resync snaps to the board', () => {
+    const { transport, controller } = createSession();
+    startCountdown(transport);
+    assignTurn(transport, { playerId: 'opponent-player', revision: 0 });
+
+    // A reconnect/missed-revision status carries the resolved board directly
+    // and marks us as the next player, but with no running deadline yet.
+    transport.receive(duelStatusMessage({
+      revision: 1,
+      activePlayerId: 'local-player',
+      turnDeadline: 0,
+    }));
+    expect(controller.consumeAnimationDiscard()).toBe(true);
+
+    // The renderer's discard path calls this after snapping to that board.
+    controller.completeTurnAnimation();
+    expect(transport.sent).toContainEqual(expect.objectContaining({
+      type: 'turn-ready', matchId: 'match-1', revision: 1,
+    }));
+  });
+
   // Regression (problem 2 in the sync spec): a fresh turn's opponentColumnCursor
   // starts null and only a move would set it — so the ghost was invisible
   // until the opponent actually moved. The paired duel-status must place it
@@ -974,7 +995,16 @@ describe('SharedBoardSessionController action hardening', () => {
       turnsRemaining: 6,
       revision: 1,
     }));
+    // Becoming the next player is not enough: the turn opens only after the
+    // animation queue reports completion. The renderer calls this same method
+    // when it abandons a stale/backgrounded animation and snaps to the board.
     controller.playTurn(2);
+    expect(transport.sent.filter(m => m.type === 'play-turn')).toHaveLength(1);
+    controller.completeTurnAnimation();
+    controller.playTurn(2);
+    expect(transport.sent.some(m => m.type === 'turn-ready')).toBe(true);
+    controller.completeTurnAnimation(); // activationRevision was consumed; no duplicate ready
+    expect(transport.sent.filter(m => m.type === 'turn-ready')).toHaveLength(1);
     expect(transport.sent.filter(m => m.type === 'play-turn')).toHaveLength(2);
   });
 
