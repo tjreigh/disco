@@ -379,7 +379,8 @@ export class SharedBoardGame {
       // cascade from either player's last drop is still animating), fall
       // back to Animating so the local ghost doesn't linger at a stale
       // column with nothing to act on.
-      const showLocalGhost = view.phase === 'playing' && view.isMyTurn && !this.#animQueue;
+      const showLocalGhost = view.phase === 'playing' && view.isMyTurn
+        && !view.turnSubmissionPending && !this.#animQueue;
       const rendererPhase = view.phase === 'playing' && !showLocalGhost
         ? GamePhase.Animating
         : viewPhaseToGamePhase(view.phase);
@@ -418,7 +419,7 @@ export class SharedBoardGame {
       cursorLane: view.columnCursor,
       laneCount: 7,
       axis: 'col',
-      disabled: !view.isMyTurn,
+      disabled: !view.isMyTurn || view.turnSubmissionPending,
     });
   }
 

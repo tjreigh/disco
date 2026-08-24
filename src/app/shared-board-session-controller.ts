@@ -251,7 +251,7 @@ export class SharedBoardSessionController {
 
   moveCursor(column: number): void {
     const lifecycle = this.#lifecycle;
-    if (lifecycle.kind !== 'playing' || !lifecycle.isMyTurn || lifecycle.paused) return;
+    if (lifecycle.kind !== 'playing' || !lifecycle.isMyTurn || lifecycle.paused || lifecycle.turnSubmissionPending) return;
     if (this.#connection !== 'connected') return;
     const clamped = Math.max(0, Math.min(6, column));
     if (clamped === lifecycle.columnCursor) return;

@@ -8,6 +8,7 @@ export function statusText(
   phase: MultiplayerPhase,
   error: MultiplayerCompatibilityError | null,
   turnActivationPending = false,
+  connectionStale = false,
 ): string {
   if (error !== null) {
     switch (error) {
@@ -18,6 +19,7 @@ export function statusText(
       default: return assertNever(error, 'multiplayer-hud-format: statusText error');
     }
   }
+  if (phase === 'playing' && connectionStale) return 'NO REPLY';
   if (phase === 'playing' && turnActivationPending) return 'SETTLING';
   switch (phase) {
     case 'lobby': return 'LOBBY';
@@ -42,8 +44,10 @@ export function timerLabelText(
 // showing a countdown (or a clamped 0:00) here reads as the game having
 // hung, when the move actually already landed and is just in transit back.
 export function timerText(
-  phase: MultiplayerPhase, remainingMs: number | null, turnSubmissionPending = false, turnActivationPending = false,
+  phase: MultiplayerPhase, remainingMs: number | null,
+  turnSubmissionPending = false, turnActivationPending = false, connectionStale = false,
 ): string {
+  if (phase === 'playing' && turnSubmissionPending && connectionStale) return 'NO REPLY';
   if (phase === 'playing' && turnSubmissionPending) return 'SENT';
   if (phase === 'playing' && turnActivationPending) return '—';
   if (remainingMs === null) return '—';

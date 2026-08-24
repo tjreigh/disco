@@ -970,8 +970,10 @@ describe('SharedBoardSessionController action hardening', () => {
     controller.playTurn(3);
     controller.playTurn(3);
     controller.playTurn(4);
+    controller.moveCursor(4);
     const sends = transport.sent.filter(m => m.type === 'play-turn');
     expect(sends).toHaveLength(1);
+    expect(transport.sent.some(m => m.type === 'move-cursor')).toBe(false);
 
     // A turn-played clears the pending flag so the next real turn can send.
     transport.receive(serverMessage({

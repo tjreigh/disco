@@ -81,6 +81,27 @@ describe('SharedBoardHud', () => {
     expect(document.querySelector('.multiplayer-hud__timer')?.textContent).toBe('SENT');
   });
 
+  test('makes an unanswered submitted move explicit when the connection goes stale', () => {
+    const hud = new SharedBoardHud();
+
+    hud.render({
+      phase: 'playing',
+      remainingMs: 0,
+      localScore: 30,
+      opponentScore: 10,
+      isMyTurn: true,
+      turnSubmissionPending: true,
+      result: null,
+      compatibilityError: null,
+      pingMs: null,
+      connectionStale: true,
+    });
+
+    expect(document.querySelector('.multiplayer-hud__status')?.textContent).toBe('NO REPLY');
+    expect(document.querySelector('.multiplayer-hud__timer-label')?.textContent).toBe('MOVE');
+    expect(document.querySelector('.multiplayer-hud__timer')?.textContent).toBe('NO REPLY');
+  });
+
   test('uses the match status for board settling and leaves the timer neutral', () => {
     const hud = new SharedBoardHud();
 

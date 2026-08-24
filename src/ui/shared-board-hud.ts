@@ -53,12 +53,14 @@ export class SharedBoardHud {
 
   render(view: SharedBoardHudView): void {
     const activationPending = view.turnActivationPending ?? false;
-    this.status.textContent = statusText(view.phase, view.compatibilityError, activationPending);
+    this.status.textContent = statusText(view.phase, view.compatibilityError, activationPending, view.connectionStale);
     this.localValue.textContent = view.localScore.toLocaleString('en-US');
     this.opponentValue.textContent = view.opponentScore.toLocaleString('en-US');
     this.turnAnnouncement.textContent = turnText(view.phase, view.isMyTurn);
     this.timerLabel.textContent = timerLabelText(view.phase, view.turnSubmissionPending, activationPending);
-    this.timer.textContent = timerText(view.phase, view.remainingMs, view.turnSubmissionPending, activationPending);
+    this.timer.textContent = timerText(
+      view.phase, view.remainingMs, view.turnSubmissionPending, activationPending, view.connectionStale,
+    );
     this.pingValue.textContent = pingText(view.pingMs, view.connectionStale);
     this.pingValue.dataset.stale = String(view.connectionStale);
     this.result.textContent = resultText(view.result);
