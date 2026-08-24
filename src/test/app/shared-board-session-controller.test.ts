@@ -75,7 +75,7 @@ function createSession(): {
 
 describe('SharedBoardSessionController', () => {
   test('exposes opponent presence, connection, and ready state from room-state', () => {
-    const { transport, controller } = createSession();
+    const { clock, transport, controller } = createSession();
     expect(controller.view.opponentJoined).toBe(false);
     expect(controller.view.opponentConnected).toBe(false);
 
@@ -613,7 +613,7 @@ describe('SharedBoardSessionController duel-status reconciliation', () => {
   // until the opponent actually moved. The paired duel-status must place it
   // at the opponent's real stored cursor (column 3 by default) immediately.
   test('the opponent ghost appears at column 3 from duel-status, before any opponent-cursor move', () => {
-    const { transport, controller } = createSession();
+    const { clock, transport, controller } = createSession();
     startCountdown(transport);
     assignTurn(transport, { playerId: 'opponent-player', revision: 0 });
     expect(controller.view.opponentColumnCursor).toBeNull();
@@ -963,7 +963,7 @@ describe('SharedBoardSessionController duel-status reconciliation', () => {
 
 describe('SharedBoardSessionController action hardening', () => {
   test('a duplicate local playTurn while a submission is pending sends only once', () => {
-    const { transport, controller } = createSession();
+    const { clock, transport, controller } = createSession();
     startCountdown(transport);
     assignTurn(transport, { playerId: 'local-player', revision: 0 });
 
@@ -1003,6 +1003,8 @@ describe('SharedBoardSessionController action hardening', () => {
     controller.playTurn(2);
     expect(transport.sent.filter(m => m.type === 'play-turn')).toHaveLength(1);
     expect(controller.view.turnActivationPending).toBe(true);
+    clock.value = 320;
+    controller.setActivationDiagnosticsRtt(150);
     controller.completeTurnAnimation();
     expect(controller.view.turnActivationPending).toBe(false);
     controller.playTurn(2);
@@ -1010,6 +1012,16 @@ describe('SharedBoardSessionController action hardening', () => {
     controller.completeTurnAnimation(); // activationRevision was consumed; no duplicate ready
     expect(transport.sent.filter(m => m.type === 'turn-ready')).toHaveLength(1);
     expect(transport.sent.filter(m => m.type === 'play-turn')).toHaveLength(2);
+
+    clock.value = 395;
+    assignTurn(transport, { playerId: 'local-player', revision: 1 });
+    expect(controller.activationDiagnostics).toEqual([{
+      revision: 1,
+      openedBy: 'turn-ready',
+      animationMs: 320,
+      acknowledgementMs: 75,
+      rttMs: 150,
+    }]);
   });
 
   test('turnSubmissionPending is true only while a local move is awaiting the server\'s answer', () => {

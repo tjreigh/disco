@@ -23,6 +23,7 @@ export class MultiplayerPauseMenu {
   onRequestOpen?: () => void;
   onRequestResume?: () => void;
   onRequestForfeit?: () => void;
+  onRequestExportDiagnostics?: () => void;
   onRequestToggleSound?: () => void;
   onRequestToggleAdvancedHud?: () => void;
   onRequestZoomIn?: () => void;
@@ -68,6 +69,10 @@ export class MultiplayerPauseMenu {
     const forfeitButton = mustQuery<HTMLButtonElement>(fragment, '[data-pause-menu-action="forfeit"]');
     forfeitButton.addEventListener('click', () => this.forfeitDialog.open());
     blurOnClick(forfeitButton);
+
+    const exportDiagnosticsButton = mustQuery<HTMLButtonElement>(fragment, '[data-pause-menu-action="export-diagnostics"]');
+    exportDiagnosticsButton.addEventListener('click', () => this.onRequestExportDiagnostics?.());
+    blurOnClick(exportDiagnosticsButton);
 
     mount.append(fragment);
 

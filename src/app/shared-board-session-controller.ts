@@ -99,6 +99,18 @@ export interface PendingTurnResult {
   readonly opponentScoreDelta: number;
 }
 
+export interface DuelTurnActivationDiagnostic {
+  readonly revision: number;
+  readonly openedBy: 'turn-ready' | 'fallback';
+  /** Result receipt to local animation completion; null after a resync snap. */
+  readonly animationMs: number | null;
+  /** Local ready send to authoritative assignment; null for fallback. */
+  readonly acknowledgementMs: number | null;
+  readonly rttMs: number | null;
+}
+
+const MAX_ACTIVATION_DIAGNOSTICS = 50;
+
 type MatchLifecycle =
   | { readonly kind: 'lobby'; localReady: boolean; opponentReady: boolean }
   | { readonly kind: 'countdown'; readonly match: MatchContext }
@@ -159,6 +171,9 @@ export class SharedBoardSessionController {
   // turn-played can log a round-trip latency. Cleared on apply or on any
   // resync that makes the pairing unreliable (see #handleDuelStatus).
   #lastSubmitAt: number | null = null;
+  #activationDiagnostics: DuelTurnActivationDiagnostic[] = [];
+  #pendingActivation: { readonly revision: number; readonly receivedAt: number | null; readyAt: number | null } | null = null;
+  #latestRttMs: number | null = null;
 
   constructor(options: SharedBoardSessionControllerOptions) {
     this.#roomId = options.roomId;
@@ -177,6 +192,14 @@ export class SharedBoardSessionController {
 
   get view(): SharedBoardSessionView {
     return this.#buildView();
+  }
+
+  get activationDiagnostics(): readonly DuelTurnActivationDiagnostic[] {
+    return this.#activationDiagnostics;
+  }
+
+  setActivationDiagnosticsRtt(rttMs: number | null): void {
+    this.#latestRttMs = rttMs;
   }
 
   tick(): void {
@@ -233,6 +256,7 @@ export class SharedBoardSessionController {
     if (this.#connection !== 'connected') return;
     if (this.#definition.session.kind !== 'shared-board-duel@1') return;
     const revision = lifecycle.activationRevision;
+    if (this.#pendingActivation?.revision === revision) this.#pendingActivation.readyAt = this.#clock.now();
     lifecycle.activationRevision = null;
     // Start local presentation immediately when the animation ends. The
     // server starts its authoritative clock when this ordered socket command
@@ -474,6 +498,7 @@ export class SharedBoardSessionController {
 
     const board = message.board;
     const isMyTurn = message.playerId === this.#playerId;
+    this.#recordActivationOpen(message.revision, isMyTurn);
     console.debug('[shared-duel] turn-assigned applied', { revision: message.revision, isMyTurn });
 
     this.#lifecycle = {
@@ -554,6 +579,9 @@ export class SharedBoardSessionController {
     lifecycle.isMyTurn = false;
     lifecycle.turnDeadline = 0;
     lifecycle.activationRevision = message.nextPlayerId === this.#playerId ? message.revision : null;
+    this.#pendingActivation = message.nextPlayerId === this.#playerId
+      ? { revision: message.revision, receivedAt: this.#clock.now(), readyAt: null }
+      : null;
     lifecycle.currentDisc = message.currentDisc;
     lifecycle.nextDisc = message.nextDisc;
     lifecycle.level = message.level;
@@ -630,6 +658,9 @@ export class SharedBoardSessionController {
     lifecycle.activationRevision = message.turnDeadline === 0 && message.activePlayerId === this.#playerId
       ? message.revision
       : null;
+    if (lifecycle.activationRevision !== null && this.#pendingActivation?.revision !== message.revision) {
+      this.#pendingActivation = { revision: message.revision, receivedAt: null, readyAt: null };
+    }
     lifecycle.currentDisc = message.currentDisc;
     lifecycle.nextDisc = message.nextDisc;
     lifecycle.level = message.level;
@@ -665,6 +696,21 @@ export class SharedBoardSessionController {
       localReady: false,
       opponentReady: false,
     };
+  }
+
+  #recordActivationOpen(revision: number, isMyTurn: boolean): void {
+    const pending = this.#pendingActivation;
+    if (!isMyTurn || !pending || pending.revision !== revision) return;
+    const now = this.#clock.now();
+    const diagnostic: DuelTurnActivationDiagnostic = {
+      revision,
+      openedBy: pending.readyAt === null ? 'fallback' : 'turn-ready',
+      animationMs: pending.receivedAt === null || pending.readyAt === null ? null : pending.readyAt - pending.receivedAt,
+      acknowledgementMs: pending.readyAt === null ? null : now - pending.readyAt,
+      rttMs: this.#latestRttMs,
+    };
+    this.#activationDiagnostics = [...this.#activationDiagnostics, diagnostic].slice(-MAX_ACTIVATION_DIAGNOSTICS);
+    this.#pendingActivation = null;
   }
 
   #handleConnection(state: MultiplayerConnectionState): void {

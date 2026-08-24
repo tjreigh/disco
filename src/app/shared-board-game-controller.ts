@@ -93,6 +93,7 @@ export class SharedBoardGame {
     this.#pauseMenu.onRequestOpen = () => this.#session?.requestPause(true);
     this.#pauseMenu.onRequestResume = () => this.#session?.requestPause(false);
     this.#pauseMenu.onRequestForfeit = () => this.#session?.forfeit();
+    this.#pauseMenu.onRequestExportDiagnostics = () => this.#exportDiagnostics();
     this.#pauseMenu.onRequestToggleSound = () => {
       this.#pauseMenu.setSoundEnabled(this.#audio.toggleEnabled());
     };
@@ -347,6 +348,7 @@ export class SharedBoardGame {
     this.#renderControls(view);
     this.#renderHud(view);
     const diagnostics = this.#transport?.diagnostics ?? null;
+    session.setActivationDiagnosticsRtt(diagnostics?.rttMs ?? null);
     this.#sharedBoardHud?.render({
       phase: view.phase,
       remainingMs: view.remainingMs,
@@ -421,6 +423,27 @@ export class SharedBoardGame {
       axis: 'col',
       disabled: !view.isMyTurn || view.turnSubmissionPending,
     });
+  }
+
+  #exportDiagnostics(): void {
+    const session = this.#session;
+    if (!session) return;
+    const view = session.view;
+    const report = {
+      schemaVersion: 1,
+      exportedAt: new Date().toISOString(),
+      mode: view.mode,
+      roomId: view.roomId,
+      matchId: view.matchId,
+      activationDiagnostics: session.activationDiagnostics,
+      connection: this.#transport?.diagnostics ?? null,
+    };
+    const blob = new Blob([`${JSON.stringify(report, null, 2)}\n`], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `disco-duel-diagnostics-${report.exportedAt.replace(/[:.]/g, '-')}.json`;
+    link.click();
+    URL.revokeObjectURL(link.href);
   }
 
   #renderHud(view: SharedBoardSessionView): void {
