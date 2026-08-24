@@ -7,6 +7,7 @@ import { assertNever } from './dom-utils.js';
 export function statusText(
   phase: MultiplayerPhase,
   error: MultiplayerCompatibilityError | null,
+  turnActivationPending = false,
 ): string {
   if (error !== null) {
     switch (error) {
@@ -17,6 +18,7 @@ export function statusText(
       default: return assertNever(error, 'multiplayer-hud-format: statusText error');
     }
   }
+  if (phase === 'playing' && turnActivationPending) return 'SETTLING';
   switch (phase) {
     case 'lobby': return 'LOBBY';
     case 'ready': return 'READY';
@@ -29,7 +31,9 @@ export function statusText(
   }
 }
 
-export function timerLabelText(phase: MultiplayerPhase, turnSubmissionPending = false): string {
+export function timerLabelText(
+  phase: MultiplayerPhase, turnSubmissionPending = false, turnActivationPending = false,
+): string {
   if (phase === 'playing' && turnSubmissionPending) return 'MOVE';
   return phase === 'countdown' ? 'STARTS IN' : phase === 'playing' ? 'TIME LEFT' : 'TIME';
 }
@@ -37,8 +41,11 @@ export function timerLabelText(phase: MultiplayerPhase, turnSubmissionPending = 
 // A submitted move leaves the old deadline stale until the server answers —
 // showing a countdown (or a clamped 0:00) here reads as the game having
 // hung, when the move actually already landed and is just in transit back.
-export function timerText(phase: MultiplayerPhase, remainingMs: number | null, turnSubmissionPending = false): string {
+export function timerText(
+  phase: MultiplayerPhase, remainingMs: number | null, turnSubmissionPending = false, turnActivationPending = false,
+): string {
   if (phase === 'playing' && turnSubmissionPending) return 'SENT';
+  if (phase === 'playing' && turnActivationPending) return '—';
   if (remainingMs === null) return '—';
   if (phase === 'countdown') return String(Math.max(1, Math.ceil(remainingMs / 1_000)));
   if (phase !== 'playing') return '0:00';

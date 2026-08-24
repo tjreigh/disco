@@ -49,6 +49,8 @@ export interface SharedBoardSessionView {
   readonly remainingMs: number | null;
   readonly isMyTurn: boolean;
   readonly turnDeadline: number | null;
+  /** The resolved board is still settling before the server opens the next turn. */
+  readonly turnActivationPending: boolean;
   /** True from a local play-turn send until the server's turn-played/expired (or a resync) answers it — the countdown is stale during this window since the server hasn't set a new deadline yet. */
   readonly turnSubmissionPending: boolean;
   readonly localScore: number;
@@ -753,6 +755,9 @@ export class SharedBoardSessionController {
       remainingMs,
       isMyTurn: lifecycle.kind === 'playing' ? lifecycle.isMyTurn : false,
       turnDeadline: lifecycle.kind === 'playing' ? lifecycle.turnDeadline : null,
+      turnActivationPending: lifecycle.kind === 'playing'
+        && lifecycle.turnDeadline === 0
+        && lifecycle.paused === null,
       turnSubmissionPending: lifecycle.kind === 'playing' && lifecycle.turnSubmissionPending,
       localScore: lifecycle.kind === 'playing' ? lifecycle.localScore : 0,
       opponentScore: lifecycle.kind === 'playing' ? lifecycle.opponentScore : 0,

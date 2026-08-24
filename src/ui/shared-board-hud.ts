@@ -10,6 +10,8 @@ export interface SharedBoardHudView {
   readonly opponentScore: number;
   readonly isMyTurn: boolean;
   readonly turnSubmissionPending: boolean;
+  /** Optional for backwards-compatible HUD callers; session views always provide it. */
+  readonly turnActivationPending?: boolean;
   readonly result: MultiplayerLocalResult | null;
   readonly compatibilityError: MultiplayerCompatibilityError | null;
   readonly pingMs: number | null;
@@ -50,12 +52,13 @@ export class SharedBoardHud {
   }
 
   render(view: SharedBoardHudView): void {
-    this.status.textContent = statusText(view.phase, view.compatibilityError);
+    const activationPending = view.turnActivationPending ?? false;
+    this.status.textContent = statusText(view.phase, view.compatibilityError, activationPending);
     this.localValue.textContent = view.localScore.toLocaleString('en-US');
     this.opponentValue.textContent = view.opponentScore.toLocaleString('en-US');
     this.turnAnnouncement.textContent = turnText(view.phase, view.isMyTurn);
-    this.timerLabel.textContent = timerLabelText(view.phase, view.turnSubmissionPending);
-    this.timer.textContent = timerText(view.phase, view.remainingMs, view.turnSubmissionPending);
+    this.timerLabel.textContent = timerLabelText(view.phase, view.turnSubmissionPending, activationPending);
+    this.timer.textContent = timerText(view.phase, view.remainingMs, view.turnSubmissionPending, activationPending);
     this.pingValue.textContent = pingText(view.pingMs, view.connectionStale);
     this.pingValue.dataset.stale = String(view.connectionStale);
     this.result.textContent = resultText(view.result);

@@ -81,6 +81,30 @@ describe('SharedBoardHud', () => {
     expect(document.querySelector('.multiplayer-hud__timer')?.textContent).toBe('SENT');
   });
 
+  test('uses the match status for board settling and leaves the timer neutral', () => {
+    const hud = new SharedBoardHud();
+
+    hud.render({
+      phase: 'playing',
+      remainingMs: 0,
+      localScore: 30,
+      opponentScore: 10,
+      isMyTurn: false,
+      turnSubmissionPending: false,
+      turnActivationPending: true,
+      result: null,
+      compatibilityError: null,
+      pingMs: null,
+      connectionStale: false,
+    });
+
+    expect(document.querySelector('.multiplayer-hud__status')?.textContent).toBe('SETTLING');
+    expect(document.querySelector('.multiplayer-hud__turn-sr')?.textContent).toBe("OPPONENT'S TURN");
+    expect(document.querySelector('.multiplayer-hud__timer-label')?.textContent).toBe('TIME LEFT');
+    expect(document.querySelector('.multiplayer-hud__timer')?.textContent).toBe('—');
+    expect(document.querySelector('.multiplayer-hud')?.getAttribute('data-turn')).toBe('opponent');
+  });
+
   test('renders lobby/countdown/compatibility-error status text', () => {
     const hud = new SharedBoardHud();
 

@@ -1000,7 +1000,9 @@ describe('SharedBoardSessionController action hardening', () => {
     // when it abandons a stale/backgrounded animation and snaps to the board.
     controller.playTurn(2);
     expect(transport.sent.filter(m => m.type === 'play-turn')).toHaveLength(1);
+    expect(controller.view.turnActivationPending).toBe(true);
     controller.completeTurnAnimation();
+    expect(controller.view.turnActivationPending).toBe(false);
     controller.playTurn(2);
     expect(transport.sent.some(m => m.type === 'turn-ready')).toBe(true);
     controller.completeTurnAnimation(); // activationRevision was consumed; no duplicate ready
