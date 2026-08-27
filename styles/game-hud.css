@@ -73,6 +73,17 @@
   gap: 7px;
   width: min(190px, 44vw);
 }
+/* The enlarged "current" disc grew this cluster past the 80px bottom band,
+   and the band's bottom edge is pinned to the canvas bottom (which is the
+   footer's top edge), so the advanced-stats row ended up flush against the
+   footer. The only slack is the empty entry-pad lane above the band
+   (>= MIN_CELL_SIZE/2 + 8 = 28px tall), so anchor the cluster to the band
+   top and lift it into that lane to restore separation from the footer.
+   Multiplayer keeps its own band alignment and hides the advanced row. */
+.game-hud:not([data-multiplayer="true"]) .game-hud__queue {
+  align-self: start;
+  margin-top: -14px;
+}
 .game-hud__discs {
   display: flex;
   align-items: center;
