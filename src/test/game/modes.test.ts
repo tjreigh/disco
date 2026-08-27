@@ -63,7 +63,9 @@ describe('composed solo rules', () => {
         discValueMin: 1,
         discValueMax: 7,
         initialUnnumberedProbability: 0.2,
-        maxUnnumberedProbability: 0.4,
+        unnumberedProbabilityLevelStep: 0.004,
+        maxUnnumberedProbability: 0.32,
+        kindBalanceStrength: 0.7,
       },
       scoring: {
         kind: 'chain-score@1',
@@ -106,7 +108,8 @@ describe('composed solo rules', () => {
     });
     expect(GRAVITY_RULES.clearing.kind).toBe('gravity-aligned-count-match@1');
     expect(GRAVITY_RULES.failure).toBe(CLASSIC_RULES.failure);
-    expect(GRAVITY_RULES.generation).toBe(CLASSIC_RULES.generation);
+    expect(GRAVITY_RULES.generation).not.toBe(CLASSIC_RULES.generation);
+    expect(unnumberedProbabilityForLevel(GRAVITY_RULES.generation, 21)).toBe(0.4);
     expect(GRAVITY_RULES.scoring).toBe(CLASSIC_RULES.scoring);
     expect(capabilitiesForRules(GRAVITY_RULES)).toEqual({ canTilt: true, canRewind: false });
   });
@@ -169,9 +172,9 @@ describe('composed solo rules', () => {
   test('level and generation progression retain their shipped cadence', () => {
     expect([1, 5, 23, 100].map(level => turnsForLevel(CLASSIC_RULES.progression, level)))
       .toEqual([30, 26, 8, 8]);
-    expect([1, 2, 21, 100].map(level =>
+    expect([1, 2, 21, 31, 100].map(level =>
       unnumberedProbabilityForLevel(CLASSIC_RULES.generation, level)))
-      .toEqual([0.2, 0.21000000000000002, 0.4, 0.4]);
+      .toEqual([0.2, 0.20400000000000001, 0.28, 0.32, 0.32]);
   });
 });
 

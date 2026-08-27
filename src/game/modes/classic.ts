@@ -5,6 +5,7 @@ import {
   SOLO_AUTOSAVE,
   SOLO_RUN_SESSION,
 } from './mode.js';
+import type { GenerationRules } from './mode.js';
 import {
   ADJACENT_CRACK_REVEAL,
   CLASSIC_ADAPTIVE_GENERATION,
@@ -16,6 +17,16 @@ import {
   OVERFLOW_OR_FULL_BOARD_ENDS_RUN,
 } from './modules.js';
 
+// Classic ramps hazards more gently than its adjacent modes. A softer history
+// correction leaves the queue varied while the two-disc run cap prevents
+// unplayable X-disc streaks.
+const CLASSIC_TUNED_GENERATION = {
+  ...CLASSIC_ADAPTIVE_GENERATION,
+  unnumberedProbabilityLevelStep: 0.004,
+  maxUnnumberedProbability: 0.32,
+  kindBalanceStrength: 0.7,
+} as const satisfies GenerationRules;
+
 export const CLASSIC_RULES = defineGameRules({
   id: 'classic',
   version: 1,
@@ -23,7 +34,7 @@ export const CLASSIC_RULES = defineGameRules({
   placement: DOWNWARD_DROP,
   clearing: ORTHOGONAL_COUNT_MATCH,
   revealing: ADJACENT_CRACK_REVEAL,
-  generation: CLASSIC_ADAPTIVE_GENERATION,
+  generation: CLASSIC_TUNED_GENERATION,
   scoring: CLASSIC_CHAIN_SCORING,
   progression: CLASSIC_LEVEL_PRESSURE,
   failure: OVERFLOW_OR_FULL_BOARD_ENDS_RUN,
