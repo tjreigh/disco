@@ -118,14 +118,20 @@
   position: relative;
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 22px;
+  height: 22px;
   overflow: hidden;
   border: 1px solid rgba(0,0,0,.35);
   border-radius: 50%;
   color: #fff;
-  font: 700 15px system-ui, sans-serif;
+  font: 700 12px system-ui, sans-serif;
   box-shadow: 0 2px 5px rgba(0,0,0,.35);
+}
+/* The disc about to be played is the primary HUD cue. */
+.game-hud__disc-slot--current .game-hud__disc {
+  width: 46px;
+  height: 46px;
+  font-size: 22px;
 }
 .game-hud__disc[data-kind="numbered"][data-value="1"] { background: radial-gradient(circle at 35% 35%, rgb(255,165,149), #e74c3c); }
 .game-hud__disc[data-kind="numbered"][data-value="2"] { background: radial-gradient(circle at 35% 35%, rgb(255,215,123), #e67e22); }
@@ -447,7 +453,8 @@
 @media (max-width: 420px) {
   .game-hud__top { height: 96px; }
   .game-hud__bottom { height: 80px; }
-  .game-hud__disc { width: 27px; height: 27px; font-size: 14px; }
+  .game-hud__disc { width: 20px; height: 20px; font-size: 11px; }
+  .game-hud__disc-slot--current .game-hud__disc { width: 40px; height: 40px; font-size: 19px; }
   .game-hud__disc-slot { gap: 4px; font-size: 9px; }
   .game-hud__status { max-width: 54%; }
   .game-hud__hint,

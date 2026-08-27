@@ -33,6 +33,8 @@ describe('GameHud', () => {
     expect(hud.root.querySelectorAll('.game-hud__pip--placeholder')).toHaveLength(10);
     expect(hud.root.querySelector('[data-value="3"]')).toBeTruthy();
     expect(hud.root.querySelector('[data-kind="double-cracked"]')).toBeTruthy();
+    expect(hud.root.querySelector('.game-hud__disc-slot--current [data-value="3"]')).toBeTruthy();
+    expect(hud.root.querySelector('.game-hud__disc-slot--next [data-kind="double-cracked"]')).toBeTruthy();
     expect(hud.root.querySelector('[data-kind="double-cracked"]')!.textContent).toBe('');
     expect(hud.root.querySelector('[data-kind="double-cracked"]')!.querySelectorAll('.game-hud__disc-crack')).toHaveLength(2);
     const controls = Array.from(hud.root.querySelectorAll('.game-hud__hint-action'));
