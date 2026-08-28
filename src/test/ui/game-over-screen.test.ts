@@ -55,8 +55,16 @@ describe('GameOverScreen', () => {
     expect(overlay.textContent).toContain('2,345 above your previous best');
     expect(overlay.textContent).toContain('The board filled with no legal moves left.');
     expect(overlay.textContent).toContain('Best chain this game: 7 waves');
-    expect(overlay.textContent).toContain('High 20,000 · Best chain 6 waves');
-    expect(overlay.textContent).toContain('Average 4,321 over 3 games');
+    expect(overlay.querySelector('[data-record="high"]')?.textContent).toBe('20,000');
+    expect(overlay.querySelector('[data-record="best-label"]')?.textContent).toBe('BEST CHAIN');
+    expect(overlay.querySelector('[data-record="best"]')?.textContent).toBe('6 waves');
+    expect(overlay.querySelector('[data-record="average"]')?.textContent).toBe('4,321');
+    const averageDelta = overlay.querySelector<HTMLElement>('[data-record="average-delta"]')!;
+    // Pre-game average = round((12,963 - 12,345) / 2) = 309; 4,321 - 309 = +4,012.
+    expect(averageDelta.hidden).toBe(false);
+    expect(averageDelta.textContent).toBe('▲ 4,012');
+    expect(averageDelta.className).toContain('game-over-record__delta--up');
+    expect(overlay.querySelector('[data-record="games"]')?.textContent).toBe('over 3 games');
     expect(overlay.textContent).toContain('ADVANCED RUN STATS');
     expect(overlay.textContent).toContain('TIME · DISCS · PER-MINUTE RATES');
     expect(overlay.textContent).toContain('TIME2m');
@@ -105,7 +113,10 @@ describe('GameOverScreen', () => {
     const home = buttons.find(button => button.textContent === 'HOME')!;
     const runStatsToggle = overlay.querySelector<HTMLButtonElement>('.game-over-run-stats__toggle')!;
     expect(overlay.textContent).toContain('Most cleared in one turn: 4');
-    expect(overlay.textContent).toContain('Best turn 4 cleared');
+    expect(overlay.querySelector('[data-record="best-label"]')?.textContent).toBe('BEST TURN');
+    expect(overlay.querySelector('[data-record="best"]')?.textContent).toBe('4 cleared');
+    expect(overlay.querySelector<HTMLElement>('[data-record="average-delta"]')!.hidden).toBe(true);
+    expect(overlay.querySelector('[data-record="games"]')?.textContent).toBe('Your first recorded game');
     expect(overlay.textContent).toContain('The level push overflowed the board.');
     expect(overlay.querySelector<HTMLElement>('.game-over-highlights')!.hidden).toBe(true);
 
@@ -164,5 +175,31 @@ describe('GameOverScreen', () => {
     expect(document.querySelector('[data-run-stat="score-rate"]')?.textContent).toBe('—');
     rewind.click();
     expect(onRewind).toHaveBeenCalledTimes(1);
+  });
+
+  test('marks a game that dragged the running average down', () => {
+    const screen = new GameOverScreen();
+    screen.open({
+      score: 100,
+      stats: {
+        highScore: 5000, longestStreak: 2, averageScore: 900, gamesPlayed: 4,
+        totalScore: 3600, totalPlayTimeMs: 0, totalDiscsDropped: 0, totalDiscsBroken: 0,
+      },
+      isStackMode: false,
+      bestRunRecord: 1,
+      previousHighScore: 5000,
+      previousBestRecord: 2,
+      playTimeMs: 0,
+      discsDropped: 0,
+      discsBroken: 0,
+    });
+
+    const delta = document.querySelector<HTMLElement>('[data-record="average-delta"]')!;
+    // Pre-game average = round((3,600 - 100) / 3) = 1,167; 900 - 1,167 = -267.
+    expect(delta.hidden).toBe(false);
+    expect(delta.textContent).toBe('▼ 267');
+    expect(delta.className).toContain('game-over-record__delta--down');
+    expect(delta.getAttribute('aria-label')).toBe('Average fell 267 from 1,167');
+    expect(document.querySelector('[data-record="games"]')?.textContent).toBe('over 4 games');
   });
 });

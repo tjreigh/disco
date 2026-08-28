@@ -29,8 +29,24 @@
           <div><dt>BROKEN / MIN</dt><dd data-run-stat="broken-rate"></dd></div>
         </dl>
       </section>
-      <p class="game-over-records"></p>
-      <p class="game-over-average"></p>
+      <dl class="game-over-records">
+        <div class="game-over-record">
+          <dt>HIGH SCORE</dt>
+          <dd data-record="high"></dd>
+        </div>
+        <div class="game-over-record">
+          <dt data-record="best-label"></dt>
+          <dd data-record="best"></dd>
+        </div>
+        <div class="game-over-record game-over-record--average">
+          <dt>AVERAGE</dt>
+          <dd>
+            <span data-record="average"></span>
+            <span class="game-over-record__delta" data-record="average-delta" hidden></span>
+          </dd>
+        </div>
+      </dl>
+      <p class="game-over-records-note" data-record="games"></p>
       <div class="game-over-actions">
         <button type="button" class="game-over-button game-over-button--rewind">REWIND</button>
         <button type="button" class="game-over-button game-over-button--primary">NEW GAME</button>

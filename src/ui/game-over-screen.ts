@@ -28,8 +28,12 @@ export class GameOverScreen {
   private readonly scoreContext: HTMLElement;
   private readonly reason: HTMLElement;
   private readonly runRecord: HTMLElement;
-  private readonly records: HTMLElement;
-  private readonly average: HTMLElement;
+  private readonly recordHigh: HTMLElement;
+  private readonly recordBestLabel: HTMLElement;
+  private readonly recordBest: HTMLElement;
+  private readonly recordAverage: HTMLElement;
+  private readonly recordAverageDelta: HTMLElement;
+  private readonly recordGames: HTMLElement;
   private readonly runTime: HTMLElement;
   private readonly runDropped: HTMLElement;
   private readonly runBroken: HTMLElement;
@@ -59,8 +63,12 @@ export class GameOverScreen {
     this.scoreContext = mustQuery(fragment, '.game-over-score-context');
     this.reason = mustQuery(fragment, '.game-over-reason');
     this.runRecord = mustQuery(fragment, '.game-over-run-record');
-    this.records = mustQuery(fragment, '.game-over-records');
-    this.average = mustQuery(fragment, '.game-over-average');
+    this.recordHigh = mustQuery(fragment, '[data-record="high"]');
+    this.recordBestLabel = mustQuery(fragment, '[data-record="best-label"]');
+    this.recordBest = mustQuery(fragment, '[data-record="best"]');
+    this.recordAverage = mustQuery(fragment, '[data-record="average"]');
+    this.recordAverageDelta = mustQuery(fragment, '[data-record="average-delta"]');
+    this.recordGames = mustQuery(fragment, '[data-record="games"]');
     this.runTime = mustQuery(fragment, '[data-run-stat="time"]');
     this.runDropped = mustQuery(fragment, '[data-run-stat="dropped"]');
     this.runBroken = mustQuery(fragment, '[data-run-stat="broken"]');
@@ -106,7 +114,6 @@ export class GameOverScreen {
     reason,
     canRewind = false,
   }: GameOverSummary): void {
-    const recordLabel = isStackMode ? 'Best turn' : 'Best chain';
     const newHighScore = score > previousHighScore;
     const newBestRecord = bestRunRecord > previousBestRecord;
 
@@ -142,9 +149,13 @@ export class GameOverScreen {
     this.runScoreRate.textContent = formatRate(score, playTimeMs);
     this.runDropRate.textContent = formatRate(discsDropped, playTimeMs);
     this.runBrokenRate.textContent = formatRate(discsBroken, playTimeMs);
-    const recordUnit = isStackMode ? 'cleared' : `wave${stats.longestStreak === 1 ? '' : 's'}`;
-    this.records.textContent = `High ${stats.highScore.toLocaleString('en-US')} · ${recordLabel} ${stats.longestStreak.toLocaleString('en-US')} ${recordUnit}`;
-    this.average.textContent = `Average ${stats.averageScore.toLocaleString('en-US')} over ${stats.gamesPlayed.toLocaleString('en-US')} game${stats.gamesPlayed === 1 ? '' : 's'}`;
+    this.recordHigh.textContent = stats.highScore.toLocaleString('en-US');
+    this.recordBestLabel.textContent = isStackMode ? 'BEST TURN' : 'BEST CHAIN';
+    this.recordBest.textContent = isStackMode
+      ? `${stats.longestStreak.toLocaleString('en-US')} cleared`
+      : `${stats.longestStreak.toLocaleString('en-US')} wave${stats.longestStreak === 1 ? '' : 's'}`;
+    this.recordAverage.textContent = stats.averageScore.toLocaleString('en-US');
+    this.applyAverageDelta(stats, score);
     this.rewindButton.hidden = !canRewind;
     this.actions.classList.toggle('game-over-actions--rewind', canRewind);
     this.newGameButton.classList.toggle('game-over-button--primary', !canRewind);
@@ -153,6 +164,41 @@ export class GameOverScreen {
 
   close(): void {
     this.modal.close();
+  }
+
+  /**
+   * Show how the just-finished game moved the running average. `stats` already
+   * counts this game (its score is folded into `totalScore` and `gamesPlayed`),
+   * so the pre-game average is recovered by backing that game out again.
+   */
+  private applyAverageDelta(stats: GameStats, score: number): void {
+    const priorGames = stats.gamesPlayed - 1;
+    this.recordAverageDelta.className = 'game-over-record__delta';
+    if (priorGames <= 0) {
+      this.recordAverageDelta.hidden = true;
+      this.recordAverageDelta.removeAttribute('aria-label');
+      this.recordGames.textContent = 'Your first recorded game';
+      return;
+    }
+    const priorAverage = Math.round((stats.totalScore - score) / priorGames);
+    const delta = stats.averageScore - priorAverage;
+    const magnitude = Math.abs(delta).toLocaleString('en-US');
+    const priorText = priorAverage.toLocaleString('en-US');
+    this.recordGames.textContent = `over ${stats.gamesPlayed.toLocaleString('en-US')} games`;
+    this.recordAverageDelta.hidden = false;
+    if (delta > 0) {
+      this.recordAverageDelta.classList.add('game-over-record__delta--up');
+      this.recordAverageDelta.textContent = `▲ ${magnitude}`;
+      this.recordAverageDelta.setAttribute('aria-label', `Average rose ${magnitude} from ${priorText}`);
+    } else if (delta < 0) {
+      this.recordAverageDelta.classList.add('game-over-record__delta--down');
+      this.recordAverageDelta.textContent = `▼ ${magnitude}`;
+      this.recordAverageDelta.setAttribute('aria-label', `Average fell ${magnitude} from ${priorText}`);
+    } else {
+      this.recordAverageDelta.classList.add('game-over-record__delta--flat');
+      this.recordAverageDelta.textContent = 'no change';
+      this.recordAverageDelta.setAttribute('aria-label', `Average held at ${priorText}`);
+    }
   }
 
   private makeHighlight(label: string): HTMLElement {
