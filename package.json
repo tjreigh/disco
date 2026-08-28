@@ -5,17 +5,17 @@
   "type": "module",
   "scripts": {
     "clean": "rm -rf public",
-    "build": "npm run clean && tsc && node scripts/build-templates.mjs && mkdir -p public/styles && cp styles/*.css public/styles/",
+    "build": "npm run clean && tsc && tsc -p tsconfig.sw.json && node scripts/build-templates.mjs && mkdir -p public/styles public/icons && cp styles/*.css public/styles/ && ( cp icons/*.png icons/*.svg public/icons/ 2>/dev/null || true ) && cp manifest.webmanifest public/manifest.webmanifest && node scripts/build-sw.mjs",
     "watch": "node scripts/dev.mjs watch",
     "serve": "npx --yes serve public -l 3000",
     "dev": "node scripts/dev.mjs dev",
-    "test": "vitest run && node --test scripts/build-templates.test.mjs",
+    "test": "vitest run && node --test scripts/build-templates.test.mjs scripts/build-sw.test.mjs",
     "test:all": "npm test && npm --prefix api test",
     "test:coverage": "vitest run --coverage",
     "test:engine": "vitest run src/test/game/engine.test.ts",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "typecheck": "tsc -p tsconfig.test.json"
+    "typecheck": "tsc -p tsconfig.test.json && tsc -p tsconfig.sw.json --noEmit"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

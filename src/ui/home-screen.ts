@@ -26,6 +26,7 @@ export class HomeScreen {
   private readonly menuControls: MenuControls;
   private readonly multiplayerModesContainer: HTMLElement;
   private readonly multiplayerTagline: HTMLElement;
+  private readonly multiplayerOffline: HTMLElement;
   private releaseInert: (() => void) | null = null;
   private saveLoading = false;
   private selectedModeId: string;
@@ -69,6 +70,7 @@ export class HomeScreen {
     this.footer = mustQuery(mainFragment, '.home-footer');
     this.multiplayerModesContainer = mustQuery(mainFragment, '.home-multiplayer__modes');
     this.multiplayerTagline = mustQuery(mainFragment, '.home-multiplayer__tagline');
+    this.multiplayerOffline = mustQuery(mainFragment, '.home-multiplayer__offline');
 
     const copyright = mustQuery<HTMLElement>(mainFragment, '.home-footer__copyright');
     copyright.textContent = `© ${new Date().getFullYear()} Trevor Reigh`;
@@ -99,6 +101,19 @@ export class HomeScreen {
       if (event.key === 'Enter') join();
     });
     blurOnClick(joinButton);
+
+    // Multiplayer needs a live connection; disable create/join and say so while
+    // the browser reports offline rather than letting a connection attempt hang.
+    const applyMultiplayerConnectivity = (): void => {
+      const offline = !navigator.onLine;
+      this.multiplayerOffline.hidden = !offline;
+      createRoomButton.disabled = offline;
+      joinButton.disabled = offline;
+      roomInput.disabled = offline;
+    };
+    applyMultiplayerConnectivity();
+    window.addEventListener('online', applyMultiplayerConnectivity);
+    window.addEventListener('offline', applyMultiplayerConnectivity);
 
     this.mount.append(mainFragment);
 

@@ -29,6 +29,8 @@ if (initialBuild.status !== 0) {
   process.exit(initialBuild.status ?? 1);
 }
 
+// Watch mode does not rebuild the service worker; editing sw/ during
+// `npm run dev` needs a manual `npm run build`.
 const commands = [
   {
     label: 'TypeScript watcher',

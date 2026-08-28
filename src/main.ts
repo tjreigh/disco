@@ -1,6 +1,10 @@
 import { UiRoot } from './ui/ui-root.js';
 import { ZoomControls } from './ui/zoom-controls.js';
 import { SCORE_RACE_MODE_ID, SHARED_DUEL_MODE_ID } from './shared/multiplayer-contracts.js';
+import { registerServiceWorker } from './platform/service-worker-registration.js';
+
+// Precache the app shell for offline solo play.
+registerServiceWorker();
 
 const params = new URLSearchParams(window.location.search);
 const demoMode = params.has('demo');
