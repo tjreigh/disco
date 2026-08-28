@@ -1,9 +1,47 @@
+// Web Audio SFX. Browsers suspend the AudioContext when the page is backgrounded
+// and don't resume it on return; the listeners below (and a resume in beep())
+// bring it back.
+
+const liveContexts = new Set<AudioContext>();
+
+function isSuspended(ctx: AudioContext): boolean {
+  // 'interrupted' is an iOS-only state not in the lib types.
+  return ctx.state === 'suspended' || (ctx.state as string) === 'interrupted';
+}
+
+function resumeLiveContexts(): void {
+  for (const ctx of liveContexts) {
+    if (isSuspended(ctx)) void ctx.resume?.().catch(() => {});
+  }
+}
+
+let lifecycleBound = false;
+function bindLifecycleOnce(): void {
+  if (lifecycleBound || typeof window === 'undefined' || typeof document === 'undefined') return;
+  lifecycleBound = true;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') resumeLiveContexts();
+  });
+  window.addEventListener('focus', resumeLiveContexts);
+  window.addEventListener('pageshow', resumeLiveContexts);
+}
+
 export class AudioManager {
   private ctx: AudioContext | null = null;
   private enabled = true;
 
   private init(): AudioContext {
-    if (!this.ctx) this.ctx = new AudioContext();
+    if (!this.ctx) {
+      this.ctx = new AudioContext();
+      liveContexts.add(this.ctx);
+      bindLifecycleOnce();
+      // Recover from an iOS audio interruption that ended while we're foreground.
+      this.ctx.addEventListener?.('statechange', () => {
+        if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+          resumeLiveContexts();
+        }
+      });
+    }
     return this.ctx;
   }
 
@@ -11,6 +49,7 @@ export class AudioManager {
     if (!this.enabled) return;
     try {
       const ctx  = this.init();
+      if (ctx.state !== 'running') void ctx.resume?.().catch(() => {});
       const osc  = ctx.createOscillator();
       const env  = ctx.createGain();
       osc.type   = type;
@@ -60,5 +99,12 @@ export class AudioManager {
   toggleEnabled(): boolean {
     this.enabled = !this.enabled;
     return this.enabled;
+  }
+
+  dispose(): void {
+    if (!this.ctx) return;
+    liveContexts.delete(this.ctx);
+    void this.ctx.close?.().catch(() => {});
+    this.ctx = null;
   }
 }

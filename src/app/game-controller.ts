@@ -867,6 +867,7 @@ export class SoloSessionController {
     this.input.destroy();
     this.gameControls.destroy();
     this.gameHud.destroy();
+    this.audio.dispose();
   }
 
   private loop(now: DOMHighResTimeStamp): void {

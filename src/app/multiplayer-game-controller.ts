@@ -120,6 +120,7 @@ export class MultiplayerGame {
     this.transport?.destroy();
     this.roomOverlay.destroy();
     this.pauseMenu.destroy();
+    this.audio.dispose();
   }
 
   private async initialize(): Promise<void> {

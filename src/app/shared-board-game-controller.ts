@@ -210,6 +210,7 @@ export class SharedBoardGame {
     this.#transport = null;
     this.#roomOverlay.destroy();
     this.#pauseMenu.destroy();
+    this.#audio.dispose();
     this.#renderer = null;
     this.#animQueue = null;
     this.#visualBoard = null;

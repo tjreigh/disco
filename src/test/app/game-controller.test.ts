@@ -48,6 +48,7 @@ vi.mock('../../platform/audio-manager.js', () => ({
     playClear = vi.fn();
     playReveal = vi.fn();
     playGameOver = vi.fn();
+    dispose = vi.fn();
     constructor() {
       audioInstances.push(this);
     }
