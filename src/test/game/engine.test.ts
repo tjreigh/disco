@@ -180,7 +180,7 @@ describe('GameEngine', () => {
     const result = engine.drop(0);
     const pushIndex = result.steps.findIndex(step => step.kind === StepKind.Push);
     const clearIndex = result.steps.findIndex((step, index) =>
-      index > pushIndex && step.kind === StepKind.Clear
+      index > pushIndex && step.kind === StepKind.Clear,
     );
 
     expect(pushIndex).toBeGreaterThanOrEqual(0);

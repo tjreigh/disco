@@ -15,7 +15,7 @@ interface Point {
 
 /**
  * Focal-point-preserving pinch update for `transform: translate(pan) scale(s)`
- * around a fixed center `C`. Also captures a plain two-finger pan (F0 -> F1
+ * around a fixed center `C`. Also captures a plain two-finger pan (F0 → F1
  * with no distance change) with no separate step — do not add midpoint
  * movement again on top of this.
  */

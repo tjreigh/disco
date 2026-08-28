@@ -7,7 +7,7 @@ export const DEFAULT_BOARD_ROWS = 7;
 
 export function makeEmptyBoard(cols: number = DEFAULT_BOARD_COLS, rows: number = DEFAULT_BOARD_ROWS): Board {
   return Array.from({ length: rows }, () =>
-    Array<Cell>(cols).fill(null)
+    Array<Cell>(cols).fill(null),
   );
 }
 

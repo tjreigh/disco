@@ -1,6 +1,6 @@
 import { perMinuteRate } from '../game/stats.js';
 
-/** "<1m" / "37m" / "2h" / "2h 14m" — shared by AdvancedStatsDialog and GameOverScreen's run-stats panels. */
+/** "\<1m" / "37m" / "2h" / "2h 14m" — shared by AdvancedStatsDialog and GameOverScreen's run-stats panels. */
 export function formatDuration(milliseconds: number): string {
   const totalMinutes = Math.floor(milliseconds / 60_000);
   if (totalMinutes < 1) return '<1m';

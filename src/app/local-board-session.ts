@@ -564,4 +564,3 @@ export class LocalBoardSession {
     return this.rules.scoring.kind === 'stack-score@1';
   }
 }
-

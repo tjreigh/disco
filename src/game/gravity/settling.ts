@@ -106,7 +106,7 @@ const EPSILON = 1e-9;
  *
  * Because deeper discs are processed first and only ever advance to strictly
  * higher depth, a disc's forward ray can never reach a not-yet-processed
- * disc's original cell (which necessarily has depth <= the current disc's
+ * disc's original cell (which necessarily has depth at most the current disc's
  * starting depth) — so no explicit collision handling with unprocessed discs
  * is needed beyond the `claimed` set for already-placed ones.
  *
@@ -308,7 +308,7 @@ function stepRun(board: Board, row: number, col: number, dRow: number, dCol: num
  * direction a single "layer" of the pile extends in. angleDeg snaps to
  * whichever of 8 directions (4 cardinal + 4 diagonal) is nearest before
  * counting (see snapToEightDirections for why). At angleDeg 0/90/180/270
- * this reduces exactly to {countVerticalRun, countHorizontalRun}
+ * this reduces exactly to {@link countVerticalRun} / {@link countHorizontalRun}
  * (see gravity.test.ts).
  */
 export function gravityRunLengths(

@@ -71,7 +71,7 @@ describe('visual board playback', () => {
       applyStepToVisualBoard(replay, step);
 
       expect(replay).toEqual(board);
-    }
+    },
   );
 
   test('replays step logs back to the engine board across several seeded runs', () => {

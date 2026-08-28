@@ -10,18 +10,25 @@
     "serve": "npx --yes serve public -l 3000",
     "dev": "node scripts/dev.mjs dev",
     "test": "vitest run && node --test scripts/build-templates.test.mjs scripts/build-sw.test.mjs",
-    "test:all": "npm test && npm --prefix api test",
+    "test:all": "npm run lint && npm test && npm --prefix api test",
     "test:coverage": "vitest run --coverage",
     "test:engine": "vitest run src/test/game/engine.test.ts",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "typecheck": "tsc -p tsconfig.test.json && tsc -p tsconfig.sw.json --noEmit"
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "typecheck": "tsc -p tsconfig.test.json && tsc -p tsconfig.sw.json --noEmit && npm run lint"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.61.1",
+    "@stylistic/eslint-plugin": "^5.10.0",
     "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^10.9.1",
+    "eslint-plugin-tsdoc": "^0.5.2",
     "happy-dom": "^20.10.6",
     "typescript": "^5.4.0",
+    "typescript-eslint": "^8.68.0",
     "vitest": "^4.1.10"
   }
 }
