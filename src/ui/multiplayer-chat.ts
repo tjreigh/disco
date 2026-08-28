@@ -111,9 +111,12 @@ export class MultiplayerChat {
   }
 
   /**
-   * History is bounded, so a new entry can replace the oldest entry without
-   * changing the array length. The previous final entry remains in a normal
-   * rollover; everything after it is genuinely new and can affect unread.
+   * The chat entries appended since the last render.
+   *
+   * @remarks
+   * History is bounded, so a new entry can replace the oldest without changing
+   * the array length. The previous final entry remains in a normal rollover;
+   * everything after it is genuinely new and can affect unread state.
    */
   private entriesSinceLastRender(messages: readonly ChatLogEntry[]): readonly ChatLogEntry[] {
     if (!this.lastRenderedEntry) return messages;

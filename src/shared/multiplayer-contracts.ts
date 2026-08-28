@@ -261,19 +261,19 @@ export type MultiplayerServerMessage =
     });
 
 /**
- * The JSON protocol keeps transport metadata separate from the command or
- * event a person is trying to inspect. The room and player on a client
- * command come from the authenticated socket, so they are intentionally not
- * repeated in every command body.
+ * Removes the transport-envelope keys from each member of a message union.
+ *
+ * @remarks
+ * Transport metadata (room, player) comes from the authenticated socket, so it
+ * isn't repeated in each command body. {@link MultiplayerClientMessage} and
+ * {@link MultiplayerServerMessage} are the transport-neutral forms used inside
+ * the application and room services.
  *
  * Client example:
  * `{ "protocolVersion": 4, "command": { "type": "play-turn", "matchId": "m1", "column": 3 } }`
  *
  * Server example:
  * `{ "protocolVersion": 4, "room": { "id": "ABCD", "mode": ... }, "event": { "type": "room-state", ... } }`
- *
- * `MultiplayerClientMessage` and `MultiplayerServerMessage` above are the
- * transport-neutral forms used inside the application and room services.
  */
 type WithoutEnvelope<Message, Keys extends PropertyKey> = Message extends unknown
   ? Omit<Message, Keys>

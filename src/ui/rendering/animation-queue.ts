@@ -64,10 +64,14 @@ function pointAlongPath(waypoints: readonly { x: number; y: number }[], t: numbe
   return waypoints[waypoints.length - 1]!;
 }
 
-// Sequences PhysicsSteps one at a time, converting each into a set of
-// concurrent RichDiscAnimations. When all animations for a step reach
-// progress=1, the queue advances to the next step. When all steps are done,
-// onComplete is called.
+/**
+ * Sequences {@link PhysicsStep}s one at a time, converting each into a set of
+ * concurrent {@link RichDiscAnimation}s.
+ *
+ * @remarks
+ * When every animation for a step reaches `progress === 1` the queue advances to
+ * the next step; when every step is done, `onComplete` is called.
+ */
 export class AnimationQueue {
   private steps: PhysicsStep[];
   private stepIndex = 0;
@@ -328,20 +332,28 @@ export function tickScoreIndicators(
   });
 }
 
-// Interpolates the Y canvas position for an animation using easeOutCubic,
-// giving a natural deceleration as the disc approaches its destination. When
-// the animation has waypoints (a bent path), the eased progress walks the
-// actual polyline instead of a straight line between the endpoints.
+/**
+ * Interpolates an animation's Y canvas position with easeOutCubic, so the disc
+ * decelerates as it approaches its destination.
+ *
+ * @remarks
+ * When the animation has waypoints (a bent path), the eased progress walks the
+ * actual polyline instead of a straight line between the endpoints.
+ */
 export function interpolateY(anim: RichDiscAnimation): number {
   const t = easeOutCubic(anim.progress);
   if (anim.waypoints && anim.waypoints.length > 2) return pointAlongPath(anim.waypoints, t).y;
   return anim.fromY + (anim.toY - anim.fromY) * t;
 }
 
-// During a Push step the whole settled board must shift in lockstep with the
-// sliding new row/column; these return the shared offset (0 when no push is
-// active, or when the active push doesn't move along that axis — a
-// top/bottom push only ever produces a Y offset, left/right only ever X).
+/**
+ * Shared board offset during a Push step, when the settled board slides in
+ * lockstep with the incoming row or column.
+ *
+ * @remarks
+ * 0 when no push is active, or when the push doesn't move on this axis
+ * (top/bottom → Y only, left/right → X only).
+ */
 export function pushBoardOffsetX(anims: readonly RichDiscAnimation[]): number {
   const push = anims.find(a => a.phase === AnimPhase.Pushing);
   if (!push || push.fromX === push.toX) return 0;
@@ -360,8 +372,10 @@ export function interpolateX(anim: RichDiscAnimation): number {
   return anim.fromX + (anim.toX - anim.fromX) * t;
 }
 
-// Creates one floating "+N" popup per cleared position, all sharing the same
-// per-disc value — every disc cleared in one chain step earns the same amount.
+/**
+ * Creates one floating "+N" popup per cleared position, all sharing the same
+ * per-disc value — every disc cleared in one chain step earns the same amount.
+ */
 export function spawnScorePopups(
   cleared: readonly GridPos[],
   value: number,
@@ -376,10 +390,15 @@ export function spawnScorePopups(
 
 const POPUP_DRIFT_PX = 28;
 
-// Advances each popup's progress/alpha/yOffset and drops any that have fully
-// faded. Popups live independently of AnimationQueue's per-step active[]
-// array so one from an earlier chain level can keep fading while a later
-// level's flash begins.
+/**
+ * Advances each popup's progress, alpha, and yOffset, dropping any that have
+ * fully faded.
+ *
+ * @remarks
+ * Popups live independently of {@link AnimationQueue}'s per-step active list, so
+ * one from an earlier chain level can keep fading while a later level's flash
+ * begins.
+ */
 export function tickScorePopups(
   popups: readonly ScorePopup[],
   now: DOMHighResTimeStamp,
@@ -398,13 +417,16 @@ export function tickScorePopups(
   return next;
 }
 
-// Marks the instant a Gravity tilt commits, so the renderer can sweep the
-// ambient wash from the old direction to the new one and flash an edge-glow
-// bar instead of both snapping invisibly on the first post-commit frame.
-// Independent of AnimationQueue and ticked each frame by game-controller's
-// loop(), exactly like the score popup/indicator spawn+tick pair. A short
-// fixed duration (in line with PUSH_MS / FLASH_MS+CLEAR_MS) — independent of
-// how long the underlying physics animation runs.
+/**
+ * Marks the instant a Gravity tilt commits, so the renderer can sweep the
+ * ambient wash to the new direction and flash an edge-glow bar instead of
+ * snapping both on the first post-commit frame.
+ *
+ * @remarks
+ * Ticked each frame by game-controller's loop, independent of
+ * {@link AnimationQueue}. Short fixed duration (~`PUSH_MS`), regardless of how
+ * long the physics animation runs.
+ */
 export function spawnGravityShiftCue(
   fromAngle: number,
   toAngle: number,
@@ -417,12 +439,15 @@ export function spawnGravityShiftCue(
   };
 }
 
-// Advances the cue's progress, eased interpolated angle, and sine-pulse alpha;
-// returns null once expired (mirroring how tickScorePopups prunes). The angle
-// takes the shortest signed path from fromAngle to toAngle so a sweep crossing
-// 0° (e.g. 315° → 0°) rotates forward through 0, not the long way back through
-// 180. alpha peaks at sin(π·progress) — the same single-pulse idiom the
-// Flashing phase uses — so the cue fades in, peaks, and fades out.
+/**
+ * Advances the cue's progress, eased angle, and sine-pulse alpha; returns `null`
+ * once expired (like {@link tickScorePopups} pruning).
+ *
+ * @remarks
+ * The angle takes the shortest signed path from `fromAngle` to `toAngle` — a
+ * sweep past 0° (e.g. 315° → 0°) rotates forward through 0, not back through
+ * 180°. Alpha is a single `sin(π·progress)` pulse: fade in, peak, fade out.
+ */
 export function tickGravityShiftCue(
   cue: GravityShiftCue | null,
   now: DOMHighResTimeStamp,

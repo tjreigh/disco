@@ -42,11 +42,14 @@ export function makeRandomDisc(spawn: DiscSpawnConfig = CLASSIC_SPAWN, random: R
   return makeDisc(value, kind);
 }
 
-// Always produces a DoubleCracked disc — used for row pushes where every
-// incoming disc should require reveals before it can clear. Numbered discs in
-// a push row could trigger immediate chain clears, which would feel unearned.
-// SingleCracked is never spawned directly; it only exists as the result of a
-// DoubleCracked disc degrading once from an adjacent clear.
+/**
+ * Creates a DoubleCracked disc.
+ *
+ * @remarks
+ * Used for row pushes, where a Numbered disc could trigger an unearned chain
+ * clear. SingleCracked is never spawned directly — only a DoubleCracked
+ * degrading via an adjacent clear produces one.
+ */
 export function makeCrackedDisc(spawn: DiscSpawnConfig = CLASSIC_SPAWN): Disc {
   return makeCrackedDiscWithRandom(spawn, Math.random);
 }
@@ -286,7 +289,7 @@ export class PlayableDiscGenerator {
   }
 }
 
-// Builds the DiscFactory closures a GameEngine needs from a mode's spawn config.
+/** Builds the DiscFactory closures a GameEngine needs from a mode's spawn config. */
 export function createDiscFactories(
   rules: GameRulesConfig,
   playableRandom: RandomSource = () => Math.random(),

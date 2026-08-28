@@ -29,8 +29,12 @@ function numbered(value: number): Disc {
 }
 
 /**
- * Three compact, independent setups share one real Classic board:
- * column 0 clears normally; column 2 reveals a cracked neighbor; columns 5–6 chain.
+ * Builds the attract-loop demo scenario: three compact, independent setups on
+ * one real Classic board.
+ *
+ * @remarks
+ * Column 0 clears normally; column 2 reveals a cracked neighbor; columns 5–6
+ * chain.
  */
 export function createDemoScenario(): DemoScenario {
   const board = makeEmptyBoard(CLASSIC_RULES.board.cols, CLASSIC_RULES.board.rows);

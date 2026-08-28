@@ -15,9 +15,13 @@ export function cloneBoard(b: Board): Board {
   return b.map(row => [...row]);
 }
 
-// Deep-clones a board by creating new disc objects via spread. Used to snapshot
-// the board before physics runs so the visual board starts at the correct pre-drop
-// state and can be advanced step-by-step as animations complete.
+/**
+ * Deep-clones a board with fresh disc objects.
+ *
+ * @remarks
+ * Snapshots the pre-physics board so the visual board can be advanced step by
+ * step as animations complete.
+ */
 export function deepCloneBoard(b: Board): Board {
   return b.map(row => row.map(cell => cell != null ? {
     ...cell,
@@ -84,11 +88,14 @@ export function isColumnFull(board: Board, col: number): boolean {
   return board[0]![col] !== null;
 }
 
-// A genuine full-board scan rather than a row-0 shortcut: for Classic, gravity
-// always fully compacts every column, so "row 0 full" happens to imply "board
-// full" — but a continuous-angle settle (Gravity mode) can leave gaps near
-// corners even with an edge row packed, so that shortcut isn't valid in general.
-/** True when every cell on the board is occupied (no legal drop remains, on any mode). */
+/**
+ * True when every cell is occupied (no legal drop remains, any mode).
+ *
+ * @remarks
+ * A full scan, not a row-0 shortcut: Classic gravity compacts every column so
+ * "row 0 full" implies "board full", but a continuous-angle settle can leave
+ * corner gaps under a packed edge row.
+ */
 export function isBoardFull(board: Board): boolean {
   return board.every(row => row.every(cell => cell !== null));
 }

@@ -45,8 +45,13 @@ export function gridRows(): number {
   return _gridRows;
 }
 
-// Recomputes the cell size to fit the game stage. The viewport fallback keeps
-// layout helpers usable before the DOM shell exists and in isolated tests.
+/**
+ * Recomputes the cell size to fit the game stage.
+ *
+ * @remarks
+ * The viewport fallback keeps layout helpers usable before the DOM shell exists
+ * and in isolated tests.
+ */
 export function updateCellSize(bounds?: LayoutBounds): void {
   _layoutWidth = Math.max(0, bounds?.width ?? window.innerWidth);
   _layoutHeight = Math.max(0, bounds?.height ?? window.innerHeight);
@@ -59,8 +64,13 @@ export function updateCellSize(bounds?: LayoutBounds): void {
 
 export function cellSize(): number { return _cellSize; }
 
-// Centers the grid horizontally within the stage. Keeping the real remainder
-// (including values below 8px) prevents the canvas from exceeding a narrow stage.
+/**
+ * Horizontal padding that centers the grid within the stage.
+ *
+ * @remarks
+ * Keeps the real remainder (including values below 8px) so the canvas can't
+ * exceed a narrow stage.
+ */
 export function gridPadding(): number {
   return Math.max(0, Math.floor((_layoutWidth - _cellSize * (gridCols() + ENTRY_PAD_CELLS * 2)) / 2));
 }
@@ -78,9 +88,13 @@ export function canvasLogicalHeight(): number {
   return _hudTopHeight + gridH() + (_cellSize * ENTRY_PAD_CELLS + GRID_PAD_V) * 2 + _hudBottomHeight;
 }
 
-// Returns the canvas pixel coordinate of the center of a grid cell.
-// Negative row values are valid: row -1 is one cell-height above the grid,
-// used as the starting Y position for the drop animation.
+/**
+ * Canvas pixel X coordinate of the center of grid column `col`.
+ *
+ * @remarks
+ * The paired {@link cellCenterY} accepts negative rows: row -1 sits one
+ * cell-height above the grid and is the drop animation's starting Y.
+ */
 export function cellCenterX(col: number): number {
   return gridOriginX() + col * _cellSize + _cellSize / 2;
 }
@@ -89,11 +103,11 @@ export function cellCenterY(row: number): number {
   return gridOriginY() + row * _cellSize + _cellSize / 2;
 }
 
-// Aliases kept for call-site clarity; both delegate to the functions above.
+/** Directional alias for {@link cellCenterY}, kept for call-site clarity. */
 export function cellCenterYFromTop(row: number): number { return cellCenterY(row); }
 export function cellCenterXFromLeft(col: number): number { return cellCenterX(col); }
 
-// Converts a client X coordinate to a grid column index, or null if outside the grid.
+/** Converts a client X coordinate to a grid column index, or `null` if outside the grid. */
 export function pixelToCol(canvasRect: DOMRect, clientX: number): number | null {
   // Derive the rendered cell width from the rect rather than using _cellSize
   // directly, in case CSS scaling is ever applied to the canvas element.
@@ -105,9 +119,14 @@ export function pixelToCol(canvasRect: DOMRect, clientX: number): number | null 
   return col >= 0 && col < gridCols() ? col : null;
 }
 
-// Converts a client Y coordinate to a grid row index, or null if outside the
-// grid. Mirrors pixelToCol — needed for lane selection when gravity mode's
-// entry edge is left/right (lanes are rows, not columns).
+/**
+ * Converts a client Y coordinate to a grid row index, or `null` if outside the
+ * grid.
+ *
+ * @remarks
+ * Mirrors {@link pixelToCol} — needed for lane selection when Gravity mode's
+ * entry edge is left or right (lanes are rows, not columns).
+ */
 export function pixelToRow(canvasRect: DOMRect, clientY: number): number | null {
   const renderedGridH = canvasRect.height * (gridH() / canvasLogicalHeight());
   const renderedOriginY = canvasRect.height * (gridOriginY() / canvasLogicalHeight());

@@ -28,6 +28,11 @@ export interface GridPos {
   col: number;
 }
 
-// Lives here (not gravity/settling.ts) so events.ts can reference it on
-// PushStep without settling.ts <-> events.ts becoming a circular import.
+/**
+ * The edge a disc entered through — the edge gravity currently pulls toward.
+ *
+ * @remarks
+ * Declared here, not in `gravity/settling.ts`, so `events.ts` can use it on
+ * {@link PushStep} without a `settling.ts` ↔ `events.ts` cycle.
+ */
 export type EntryEdge = 'top' | 'right' | 'bottom' | 'left';

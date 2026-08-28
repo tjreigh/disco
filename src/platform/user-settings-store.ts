@@ -2,9 +2,13 @@ import { browserStorage } from './browser-storage.js';
 
 export const USER_SETTINGS_STORAGE_KEY = 'disco.user-settings';
 
-// Shared with ZoomControls' gesture clamp, which already imports this module
-// for UserSettingsStore itself — defining the range here (rather than in
-// zoom-controls.ts and importing it back) avoids a circular import.
+/**
+ * Minimum zoom scale.
+ *
+ * @remarks
+ * Defined here, not in `zoom-controls.ts`, so ZoomControls' pinch clamp can
+ * share the range without a circular import.
+ */
 export const MIN_ZOOM = 1;
 export const MAX_ZOOM = 2.5;
 

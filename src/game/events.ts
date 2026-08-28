@@ -30,14 +30,15 @@ export interface ClearStep {
 
 export interface FallStep {
   kind: StepKind.Fall;
-  // `path` is the full waypoint sequence a disc actually traveled to reach
-  // `to` (starting with `from`), when known — e.g. settleContinuous's
-  // continuous-angle packing can route a disc around obstacles across
-  // several internal passes before it reaches its true resting cell.
-  // Animation should follow `path` when present instead of a straight line
-  // from `from` to `to`. Omitted where there's nothing to distinguish (a
-  // single straight hop, or a settle function — like the classic per-lane
-  // one — that never produces anything but a straight line).
+  /**
+   * Disc movements for this step. Each move's optional `path` is the waypoint
+   * sequence the disc actually travelled (starting with `from`), when known.
+   *
+   * @remarks
+   * {@link settleContinuous} can route a disc around obstacles across several
+   * passes; animation should follow `path` when present. Omitted for a plain
+   * straight hop, or a settle function that only ever moves discs straight.
+   */
   moves: Array<{ from: GridPos; to: GridPos; disc: Disc; path?: GridPos[] }>;
 }
 
@@ -53,10 +54,14 @@ export interface RevealStep {
 
 export interface PushStep {
   kind: StepKind.Push;
-  // The edge the new discs entered from — the edge gravity currently pulls
-  // TOWARD (Classic always 'bottom'; Gravity mode's floor edge, which
-  // changes with the tilt). 'top'/'bottom' means newDiscs is a new ROW
-  // (indexed by column); 'left'/'right' means a new COLUMN (indexed by row).
+  /**
+   * The edge the new discs entered from — the edge gravity currently pulls
+   * toward (Classic: always `bottom`; Gravity: the current floor edge).
+   *
+   * @remarks
+   * `top`/`bottom` → `newDiscs` is a row indexed by column; `left`/`right` → a
+   * column indexed by row.
+   */
   edge: EntryEdge;
   newDiscs: Disc[];
 }

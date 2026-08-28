@@ -38,9 +38,14 @@ export function timerLabelText(phase: MultiplayerPhase, turnSubmissionPending = 
   return phase === 'countdown' ? 'STARTS IN' : phase === 'playing' ? 'TIME LEFT' : 'TIME';
 }
 
-// A submitted move leaves the old deadline stale until the server answers —
-// showing a countdown (or a clamped 0:00) here reads as the game having
-// hung, when the move actually already landed and is just in transit back.
+/**
+ * The timer readout for both multiplayer HUDs.
+ *
+ * @remarks
+ * A submitted move leaves the deadline stale until the server replies; a
+ * countdown or clamped 0:00 then looks like the game hung, when the move already
+ * landed and is just in transit back.
+ */
 export function timerText(
   phase: MultiplayerPhase, remainingMs: number | null,
   turnSubmissionPending = false, turnActivationPending = false, connectionStale = false,

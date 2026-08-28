@@ -10,8 +10,12 @@ import { ModalController } from './modal-controller.js';
 
 const MODE_DOUBLE_CLICK_MS = 400;
 
-// DOM overlay for mode selection. It mounts into the shared UI layer and
-// covers the canvas entirely while open.
+/**
+ * Full-screen DOM overlay for mode selection.
+ *
+ * @remarks
+ * Mounts into the shared UI layer and covers the canvas entirely while open.
+ */
 export class HomeScreen {
   private readonly overlay: HTMLElement;
   private readonly authBar: HTMLElement;

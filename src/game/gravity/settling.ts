@@ -249,28 +249,23 @@ const EIGHT_DIRECTIONS: readonly [number, number][] = [
   [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1],
 ];
 
-// A continuous angle has no consistent, symmetric notion of "the next cell
-// in this line" on a discrete grid except at multiples of 45deg — a fuzz
-// test proved this by finding two discs that were "obviously" part of the
-// same physical line each computing a DIFFERENT run length for it, because
-// Math.round(k*d) isn't linear in k, so independent per-cell ray marching
-// drifts apart at generic angles. Only cardinal and diagonal directions have
-// an exact, rounding-free grid step (dRow,dCol both in {-1,0,1}).
-//
-// This turned out to matter beyond just the run check: settling at any angle
-// that ISN'T one of these 8 only approximately resembles a clean line — e.g.
-// a 5-disc pile settled at 40deg (well inside the "nearest is 45deg" range,
-// not even near a boundary) comes out kinked, with two discs sharing a row
-// partway up instead of a single-file diagonal, because the true continuous
-// packing only lines up exactly with the diagonal lattice at exactly 45deg.
-// A player watching that pile reasonably reads it as "a line" and is
-// confused when it doesn't clear as one. So GameEngine snaps the gravity
-// ANGLE itself (not just the run check) to one of these 8 directions at the
-// moment a tilt/drop actually commits — see GravitySystem.prepareTiltCommit and
-// snapAngleToEightDirections — so the pile only ever physically packs into
-// one of these 8 exact shapes, which always matches what the run check
-// (below) expects. Aiming/dragging is still continuous for feel; only the
-// angle actually used to settle is quantized.
+/**
+ * Snaps a continuous gravity angle to the nearest of 8 directions
+ * (0/45/90/.../315).
+ *
+ * @remarks
+ * Only cardinal and diagonal directions have an exact, rounding-free grid step
+ * (`dRow`, `dCol` both in `{-1, 0, 1}`); at other angles `Math.round(k*d)` isn't
+ * linear in `k`, so per-cell ray marching drifts and two discs "obviously" on
+ * one line compute different run lengths (a fuzz test found this).
+ *
+ * It also affects settling itself: a 5-disc pile at 40° (well inside the
+ * "nearest is 45°" range) packs kinked rather than as a clean diagonal, which a
+ * player reads as a line that won't clear. So the engine quantizes the settle
+ * angle at commit time (`GravitySystem.prepareTiltCommit`) — only these 8 shapes
+ * are ever produced, always matching the run check. Aiming stays continuous for
+ * feel.
+ */
 export function snapAngleToEightDirections(angleDeg: number): number {
   const normalized = ((angleDeg % 360) + 360) % 360;
   return (Math.round(normalized / 45) * 45) % 360;

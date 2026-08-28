@@ -161,8 +161,11 @@ export const STACK_ADAPTIVE_GENERATION: GenerationRules = {
 };
 
 /**
- * Seed/history/level are the complete playable-deal inputs. Live board state
- * is deliberately excluded so equal seeds and turn counts receive equal deals.
+ * Score Race generation: a history-balanced deal from seed, turn history, and
+ * level only.
+ *
+ * @remarks
+ * Board state is excluded so equal seeds and turn counts get equal deals.
  */
 export const SCORE_RACE_HISTORY_GENERATION: GenerationRules = {
   kind: 'history-balanced@1',

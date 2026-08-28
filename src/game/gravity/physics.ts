@@ -11,8 +11,11 @@ import {
   entryPositionForLane, isLaneFull, offBoardEntryPosition, settleContinuous,
 } from './settling.js';
 
-// A Gravity drop enters through the selected edge, then settles the entire
-// board once under the committed angle before resolving normal clear chains.
+/**
+ * Physics steps for a Gravity-mode drop: the disc enters through the selected
+ * edge, the whole board settles once under the committed angle, then clear
+ * chains resolve.
+ */
 export function computeGravityDropSteps(
   board: Board,
   disc: Disc,
@@ -62,8 +65,13 @@ export function computeGravityDropSteps(
   return steps;
 }
 
-// Tilt-only resolution is retained as a physics primitive for scripted and
-// diagnostic callers even though normal Gravity turns always include a drop.
+/**
+ * Physics steps for a tilt with no drop.
+ *
+ * @remarks
+ * A primitive for scripted and diagnostic callers; normal Gravity turns always
+ * include a drop.
+ */
 export function computeGravityTiltSteps(
   board: Board,
   finalAngleDeg: number,

@@ -12,24 +12,28 @@ export function prefersReducedMotion(): boolean {
   return reducedMotionQuery.matches;
 }
 
-// Canvas input ignores keys while a tabbable control owns focus.
+/** Blurs the element after each click, so a focused control doesn't hold canvas keyboard input. */
 export function blurOnClick<E extends HTMLElement>(element: E): E {
   element.addEventListener('click', () => element.blur());
   return element;
 }
 
-// Return keyboard input to gameplay after an action focuses a control.
+/** Returns keyboard input to gameplay after an action left a control focused. */
 export function releaseGameplayFocus(): void {
   if (document.activeElement instanceof HTMLElement && document.activeElement.tabIndex >= 0) {
     document.activeElement.blur();
   }
 }
 
-// UI classes clone their static markup out of a <template id="tpl-..."> that
-// the build stitches into index.html from src/ui/**/*.template.html (see
-// scripts/build-templates.mjs). A missing id means the template file and the
-// class that expects it have drifted apart — a build-time bug, not a runtime
-// condition callers should have to handle.
+/**
+ * Clones the content of a `<template id="tpl-...">` that the build stitched into
+ * `index.html`.
+ *
+ * @remarks
+ * The markup comes from the per-component `.template.html` files under `src/ui`,
+ * via `scripts/build-templates.mjs`. A missing id means the template and its
+ * consumer class have drifted apart — a build bug — so this throws.
+ */
 export function cloneTemplate(id: string): DocumentFragment {
   const template = document.getElementById(id);
   if (!(template instanceof HTMLTemplateElement)) {
@@ -38,15 +42,21 @@ export function cloneTemplate(id: string): DocumentFragment {
   return template.content.cloneNode(true) as DocumentFragment;
 }
 
-// Throws instead of returning `T | null` so call sites extracting refs out of
-// a cloned template fragment don't need a `!` assertion for every field.
+/**
+ * Like `querySelector`, but throws when nothing matches instead of returning
+ * `null`.
+ *
+ * @remarks
+ * Lets call sites pulling refs out of a cloned template fragment skip a `!`
+ * assertion on every field.
+ */
 export function mustQuery<T extends Element>(root: ParentNode, selector: string): T {
   const element = root.querySelector<T>(selector);
   if (!element) throw new Error(`mustQuery: no element matching "${selector}"`);
   return element;
 }
 
-// Makes closed-union switches exhaustive at compile time.
+/** Makes a closed-union switch exhaustive at compile time; throws if actually reached. */
 export function assertNever(value: never, context: string): never {
   throw new Error(`${context}: unhandled case ${JSON.stringify(value)}`);
 }

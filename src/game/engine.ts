@@ -53,10 +53,12 @@ export interface TurnResult {
 }
 
 /**
- * board/score/dropCount are test affordances for constructing an engine in a
- * specific mid-game shape — not a resume API. level and turnsRemaining are
- * deliberately not accepted here: an engine always starts at level 1, and the
- * turn budget is derived from the mode, not injected.
+ * Construction options for a {@link GameEngine}.
+ *
+ * @remarks
+ * `board` / `score` / `dropCount` construct a specific mid-game shape for tests
+ * — not a resume API. `level` and `turnsRemaining` aren't accepted: an engine
+ * always starts at level 1 with a mode-derived turn budget.
  */
 export interface GameEngineOptions {
   rules?: GameRulesConfig;

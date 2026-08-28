@@ -18,13 +18,14 @@ import { pointsForChain } from './scoring/formulas.js';
 /** Compacts a board toward a gravity direction, producing a Fall step of every disc that moved. */
 export type SettleFn = (board: Board) => FallStep;
 
-// Returns every position that should clear this pass.
-// A disc clears according to the mode's isClearable predicate (for Classic:
-// its value equals the contiguous horizontal or vertical run containing it).
-// Gaps separate runs; remote discs do not keep an isolated 1 alive.
-// The scan is a single row-major pass over every (row, col) exactly once, so a
-// disc qualifying via both its row-run and its column-run still produces at
-// most one push into `result` — there is no duplicate source to guard against.
+/**
+ * One position the clear-check scan flagged as eligible to clear this pass.
+ *
+ * @remarks
+ * Eligibility follows the mode's `isClearable` predicate (Classic: value equals
+ * the contiguous row or column run). The scan is one row-major pass over every
+ * cell, so a disc qualifying via both axes still produces just one entry.
+ */
 export interface ClearCheck {
   pos: GridPos;
   discId: number;
@@ -83,21 +84,21 @@ export function commitBoard(target: Board, source: Board): void {
   }
 }
 
-// Resolves every clear/reveal/fall chain on a board that has already changed.
-// This is shared by normal drops and row pushes: a push changes every column's
-// disc count, so leaving it unresolved makes an eligible disc clear during the
-// next, potentially unrelated, drop.
-//
-// Steps/frames invariant (relied on by the UI to map playback position to
-// trace.frames): every PhysicsStep produced across a turn, except Bonus, pairs
-// with exactly one trace.frames entry. Drop, Clear, and Push steps always push
-// a frame unconditionally right alongside them (Drop and Push happen outside
-// this function, in computeDropSteps and the engine's push handling, but the
-// same rule applies there). Reveal and Fall steps are each pushed under the
-// same `length > 0` guard as their frame below, so the step and its frame
-// either both fire or neither does. Bonus steps — the board-clear bonus here
-// and the engine's level bonus — never emit a frame, since a bonus doesn't
-// change the board and so has nothing new to render.
+/**
+ * Resolves every clear/reveal/fall chain on a board that has already changed.
+ *
+ * @remarks
+ * Shared by drops and row pushes — a push changes every column's disc count, so
+ * leaving it unresolved lets an eligible disc clear during the next, unrelated,
+ * drop.
+ *
+ * Steps/frames invariant (the UI maps playback position to `trace.frames` via
+ * it): every {@link PhysicsStep} except Bonus pairs with exactly one
+ * `trace.frames` entry. Drop/Clear/Push always push a frame alongside the step
+ * (Drop and Push outside this function, same rule). Reveal and Fall push step
+ * and frame under one shared `length > 0` guard. Bonus steps never emit a frame
+ * — nothing on the board changed.
+ */
 export function resolveClearSteps(
   scratch: Board, rules: GameRulesConfig, trace?: PhysicsTrace,
   settle: SettleFn = applyGravity, angleDeg = 0, startingChainLevel = 0,
@@ -170,11 +171,15 @@ export function computeClearSteps(
   return steps;
 }
 
-// Runs all physics for one drop synchronously on a scratch board, produces an
-// ordered PhysicsStep[] for animation playback, then commits the final state
-// back to the caller's board. The caller's board is therefore settled before
-// any animation starts — if the tab loses focus mid-animation, the board is
-// already correct when the page resumes.
+/**
+ * Runs all physics for one drop on a scratch board, returns an ordered
+ * {@link PhysicsStep} array for playback, and commits the final state to the
+ * caller's board.
+ *
+ * @remarks
+ * The board is settled before any animation starts, so losing focus
+ * mid-animation leaves it already correct.
+ */
 export function computeDropSteps(
   board: Board,
   disc: Disc,
@@ -224,17 +229,16 @@ function edgeHasDisc(board: Board, edge: EntryEdge): boolean {
   }
 }
 
-// Pushes a new row (or column) of cracked discs in from whichever edge
-// gravity currently pulls TOWARD — Classic (angleDeg 0, entry edge 'top')
-// always enters from the bottom, same as before; Gravity mode's floor edge
-// changes with the tilt, same as a drop's entry edge does, via
-// entryEdgeForAngle/oppositeEdge. Game over is flagged if the OPPOSITE edge
-// (where a drop enters, and where a full pile would spill off the board) has
-// any disc before the shift — those discs would be pushed off and lost,
-// which counts as overflow. This is deliberately a direct edge-occupancy
-// check, not the terminal-board failure rule (which is a full-board
-// scan serving a different, more general purpose elsewhere) — a push's
-// overflow condition is specifically about the one edge THIS push discards.
+/**
+ * Pushes a new row (or column) of cracked discs in from the edge gravity
+ * currently pulls toward.
+ *
+ * @remarks
+ * Classic always enters from the bottom; Gravity's floor edge follows the tilt
+ * (`entryEdgeForAngle` / `oppositeEdge`). Game over if the opposite edge already
+ * holds a disc before the shift — it would be pushed off and lost. A direct
+ * edge-occupancy check, not the full-board failure rule.
+ */
 export function computePushStep(
   board: Board,
   discFactory: DiscFactory = makeCrackedDisc,
