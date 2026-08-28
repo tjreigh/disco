@@ -33,9 +33,7 @@ export function statusText(
   }
 }
 
-export function timerLabelText(
-  phase: MultiplayerPhase, turnSubmissionPending = false, turnActivationPending = false,
-): string {
+export function timerLabelText(phase: MultiplayerPhase, turnSubmissionPending = false): string {
   if (phase === 'playing' && turnSubmissionPending) return 'MOVE';
   return phase === 'countdown' ? 'STARTS IN' : phase === 'playing' ? 'TIME LEFT' : 'TIME';
 }

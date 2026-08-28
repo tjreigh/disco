@@ -57,7 +57,7 @@ export class SharedBoardHud {
     this.localValue.textContent = view.localScore.toLocaleString('en-US');
     this.opponentValue.textContent = view.opponentScore.toLocaleString('en-US');
     this.turnAnnouncement.textContent = turnText(view.phase, view.isMyTurn);
-    this.timerLabel.textContent = timerLabelText(view.phase, view.turnSubmissionPending, activationPending);
+    this.timerLabel.textContent = timerLabelText(view.phase, view.turnSubmissionPending);
     this.timer.textContent = timerText(
       view.phase, view.remainingMs, view.turnSubmissionPending, activationPending, view.connectionStale,
     );
