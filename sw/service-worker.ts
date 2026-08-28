@@ -17,14 +17,41 @@ const PRECACHE_MANIFEST = __DISCO_PRECACHE_MANIFEST__;
 const CACHE_NAME = 'disco-precache-' + __DISCO_SW_VERSION__;
 const PRECACHE_PATHS = new Set(PRECACHE_MANIFEST.map(entry => entry.url));
 
-// Every navigation is served this document — Disco has no client-side routing.
-const APP_SHELL_URL = '/index.html';
+// Disco has no client-side routing: every navigation is served this one
+// document. The manifest lists it as "/index.html" (its path under public/),
+// but the production host (Cloudflare) serves it at "/" and 307-redirects
+// "/index.html" -> "/". So it is keyed in the cache as "/index.html" and
+// requested from "/".
+const APP_SHELL_KEY = '/index.html';
+const APP_SHELL_URL = '/';
 
 // Precache in small batches rather than one big Promise.all, to be gentle on
 // the origin.
 const PRECACHE_BATCH_SIZE = 6;
 
+// A Response whose `redirected` flag is true cannot be returned from
+// respondWith() for a navigation request — the browser fails the navigation
+// with net::ERR_FAILED. Copy any precache fetch that followed a redirect into a
+// fresh, non-redirected Response before it is stored or served.
+async function withoutRedirect(response: Response): Promise<Response> {
+  if (!response.redirected) return response;
+  const body = await response.blob();
+  const headers = new Headers(response.headers);
+  headers.delete('content-length');
+  headers.delete('content-encoding');
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 sw.addEventListener('install', event => {
+  // Take over immediately. A predecessor worker that serves a broken response
+  // bricks every page, and a bricked page can never post SKIP_WAITING, so this
+  // worker must be able to replace it without the page's cooperation.
+  void sw.skipWaiting();
+
   event.waitUntil(
     (async () => {
       const cache = await caches.open(CACHE_NAME);
@@ -32,18 +59,16 @@ sw.addEventListener('install', event => {
         const batch = PRECACHE_MANIFEST.slice(i, i + PRECACHE_BATCH_SIZE);
         await Promise.all(
           batch.map(async entry => {
+            const requestUrl = entry.url === APP_SHELL_KEY ? APP_SHELL_URL : entry.url;
             // 'reload' bypasses the HTTP cache so nothing stale is precached.
-            const response = await fetch(new Request(entry.url, { cache: 'reload' }));
+            const response = await fetch(new Request(requestUrl, { cache: 'reload' }));
             if (!response.ok) {
-              throw new Error(`precache fetch failed for ${entry.url}: ${response.status}`);
+              throw new Error(`precache fetch failed for ${requestUrl}: ${response.status}`);
             }
-            await cache.put(entry.url, response);
+            await cache.put(entry.url, await withoutRedirect(response));
           }),
         );
       }
-      // No skipWaiting() here: a first install activates on its own, while an
-      // update waits until the page posts SKIP_WAITING (see below). That's what
-      // lets the client offer a non-blocking "reload to update" toast.
     })(),
   );
 });
@@ -78,7 +103,7 @@ sw.addEventListener('fetch', event => {
   if (new URL(request.url).origin !== sw.location.origin) return;
 
   if (request.mode === 'navigate') {
-    event.respondWith(cacheFirst(APP_SHELL_URL, request));
+    event.respondWith(navigate());
     return;
   }
 
@@ -91,20 +116,21 @@ sw.addEventListener('fetch', event => {
   event.respondWith(networkFirst(request));
 });
 
+// Every navigation is answered with the app shell: from cache if precached,
+// otherwise straight from the network (fetching the shell itself, since an
+// unknown deep path would 404).
+async function navigate(): Promise<Response> {
+  const cache = await caches.open(CACHE_NAME);
+  const cached = await cache.match(APP_SHELL_KEY);
+  if (cached) return cached;
+  return withoutRedirect(await fetch(new Request(APP_SHELL_URL, { cache: 'no-store' })));
+}
+
 async function cacheFirst(cacheKey: string, request: Request): Promise<Response> {
   const cache = await caches.open(CACHE_NAME);
   const cached = await cache.match(cacheKey);
   if (cached) return cached;
-  try {
-    return await fetch(request);
-  } catch (error) {
-    // Fall back to the shell for navigations if the cache was evicted offline.
-    if (request.mode === 'navigate') {
-      const shell = await cache.match(APP_SHELL_URL);
-      if (shell) return shell;
-    }
-    throw error;
-  }
+  return fetch(request);
 }
 
 async function networkFirst(request: Request): Promise<Response> {
