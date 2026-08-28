@@ -357,7 +357,7 @@
   position: fixed;
   z-index: 42;
   right: max(16px, env(safe-area-inset-right));
-  bottom: env(safe-area-inset-bottom);
+  bottom: 0;
   left: max(16px, env(safe-area-inset-left));
   display: flex;
   align-items: center;
@@ -366,6 +366,10 @@
   width: auto;
   max-width: 760px;
   min-height: var(--app-footer-height);
+  /* Extend the opaque bar through the bottom safe area so scrolled content
+     (and iOS overscroll) can't show under it. Content stays above the home
+     indicator via the padding. */
+  padding-bottom: env(safe-area-inset-bottom);
   margin-inline: auto;
   border-top: 1px solid rgba(72, 101, 129, .5);
   background: var(--color-app-background);
