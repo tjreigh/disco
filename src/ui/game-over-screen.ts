@@ -18,6 +18,8 @@ export interface GameOverSummary {
   discsBroken: number;
   reason?: GameOverReason;
   canRewind?: boolean;
+  /** Ration run summary: levels finished inside the band. */
+  ration?: { balancedLevels: number };
 }
 
 /** Accessible end-of-game actions layered above the canvas presentation. */
@@ -37,6 +39,8 @@ export class GameOverScreen {
   private readonly runTime: HTMLElement;
   private readonly runDropped: HTMLElement;
   private readonly runBroken: HTMLElement;
+  private readonly runRatio: HTMLElement;
+  private readonly runBalanced: HTMLElement;
   private readonly runScoreRate: HTMLElement;
   private readonly runDropRate: HTMLElement;
   private readonly runBrokenRate: HTMLElement;
@@ -72,6 +76,8 @@ export class GameOverScreen {
     this.runTime = mustQuery(fragment, '[data-run-stat="time"]');
     this.runDropped = mustQuery(fragment, '[data-run-stat="dropped"]');
     this.runBroken = mustQuery(fragment, '[data-run-stat="broken"]');
+    this.runRatio = mustQuery(fragment, '[data-run-stat="ratio"]');
+    this.runBalanced = mustQuery(fragment, '[data-run-stat="balanced"]');
     this.runScoreRate = mustQuery(fragment, '[data-run-stat="score-rate"]');
     this.runDropRate = mustQuery(fragment, '[data-run-stat="drop-rate"]');
     this.runBrokenRate = mustQuery(fragment, '[data-run-stat="broken-rate"]');
@@ -113,6 +119,7 @@ export class GameOverScreen {
     discsBroken,
     reason,
     canRewind = false,
+    ration,
   }: GameOverSummary): void {
     const newHighScore = score > previousHighScore;
     const newBestRecord = bestRunRecord > previousBestRecord;
@@ -136,7 +143,9 @@ export class GameOverScreen {
       ? 'The level push overflowed the board.'
       : reason === 'board-full'
         ? 'The board filled with no legal moves left.'
-        : 'The run has ended.';
+        : reason === 'imbalance'
+          ? 'Clears fell out of balance too many levels.'
+          : 'The run has ended.';
     this.runRecord.textContent = bestRunRecord > 0
       ? isStackMode
         ? `Most cleared in one turn: ${bestRunRecord.toLocaleString('en-US')}`
@@ -146,6 +155,16 @@ export class GameOverScreen {
     this.runTime.textContent = formatDuration(playTimeMs);
     this.runDropped.textContent = discsDropped.toLocaleString('en-US');
     this.runBroken.textContent = discsBroken.toLocaleString('en-US');
+    this.runRatio.textContent = discsDropped > 0
+      ? (discsBroken / discsDropped).toFixed(2)
+      : '—';
+    this.runBalanced.textContent = ration
+      ? String(ration.balancedLevels)
+      : '—';
+    const rationRow = this.runRatio.parentElement;
+    const balancedRow = this.runBalanced.parentElement;
+    if (rationRow) rationRow.hidden = !ration;
+    if (balancedRow) balancedRow.hidden = !ration;
     this.runScoreRate.textContent = formatRate(score, playTimeMs);
     this.runDropRate.textContent = formatRate(discsDropped, playTimeMs);
     this.runBrokenRate.textContent = formatRate(discsBroken, playTimeMs);

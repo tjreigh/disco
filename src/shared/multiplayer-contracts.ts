@@ -348,7 +348,7 @@ export function isWireEntryEdge(value: unknown): value is WireEntryEdge {
 }
 
 /** Mirrors src/game/events.ts's BonusKind. */
-export const WIRE_BONUS_KINDS = ['level', 'board-clear', 'stack'] as const;
+export const WIRE_BONUS_KINDS = ['level', 'board-clear', 'stack', 'balanced'] as const;
 export type WireBonusKind = (typeof WIRE_BONUS_KINDS)[number];
 const WIRE_BONUS_KIND_SET: ReadonlySet<string> = new Set(WIRE_BONUS_KINDS);
 export function isWireBonusKind(value: unknown): value is WireBonusKind {

@@ -63,6 +63,12 @@ export interface GameState {
   turnsPerLevel: number;
   /** Turns left within the current level's budget. */
   turnsRemaining: number;
+  /** Numbered discs cleared so far in the current level (Ration mode only). */
+  breaksThisLevel: number;
+  /** Ration imbalance meter; the run ends when this reaches the mode threshold. */
+  entropy: number;
+  /** Levels finished inside the Ration band (Ration mode only). */
+  balancedLevels: number;
   /** Only present for Gravity mode. */
   gravity?: GravityState | undefined;
   /** Only present for rewind-capable modes. */

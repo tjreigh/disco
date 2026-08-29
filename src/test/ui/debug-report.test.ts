@@ -35,6 +35,9 @@ describe('buildDebugReport', () => {
       level: 1,
       turnsPerLevel: 30,
       turnsRemaining: 20,
+      breaksThisLevel: 0,
+      entropy: 0,
+      balancedLevels: 0,
     };
 
     const firstTurn: TurnResult = {
@@ -101,6 +104,9 @@ describe('buildDebugReport', () => {
       level: 1,
       turnsPerLevel: 10,
       turnsRemaining: 10,
+      breaksThisLevel: 0,
+      entropy: 0,
+      balancedLevels: 0,
     };
 
     const history = Array.from({ length: 60 }, (_, index): TurnResult => ({

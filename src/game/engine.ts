@@ -18,6 +18,9 @@ import {
 import { pointsForStack } from './scoring/formulas.js';
 import { CLASSIC_RULES } from './modes/index.js';
 import {
+  rationEntropyGain,
+  rationLevelJudgment,
+  rationRules,
   rewindModifier,
   turnCostForInstability,
   turnsForLevel,
@@ -82,6 +85,10 @@ export interface ScriptedGameStateOptions {
   dropCount?: number;
   level?: number;
   turnsRemaining?: number;
+  /** Ration-mode scripted scenarios only. */
+  breaksThisLevel?: number;
+  entropy?: number;
+  balancedLevels?: number;
   /** Gravity-mode scripted scenarios only: starting angle, defaulting to the mode's initialAngleDeg (e.g. a tutorial step that wants the board pre-tilted). Ignored for modes without gravity. */
   gravityAngleDeg?: number;
 }
@@ -153,6 +160,9 @@ export class GameEngine {
       level: 1,
       turnsPerLevel: turnsForLevel(this.rules.progression, 1),
       turnsRemaining: turnsForLevel(this.rules.progression, 1),
+      breaksThisLevel: 0,
+      entropy: 0,
+      balancedLevels: 0,
       gravity: this.gravitySystem.initialState(),
       paradox: this.paradoxSystem.initialState(),
     };
@@ -190,6 +200,11 @@ export class GameEngine {
         turnsPerLevel: this.state.turnsPerLevel,
         turnsRemaining: this.state.turnsRemaining,
         ...(this.state.gravity ? { gravity: { angle: this.state.gravity.angle } } : {}),
+        ...(rationRules(this.rules) ? {
+          breaksThisLevel: this.state.breaksThisLevel,
+          entropy: this.state.entropy,
+          balancedLevels: this.state.balancedLevels,
+        } : {}),
       },
       generation: {
         source: 'seeded',
@@ -265,6 +280,9 @@ export class GameEngine {
     this.state.level = save.state.level;
     this.state.turnsPerLevel = save.state.turnsPerLevel;
     this.state.turnsRemaining = save.state.turnsRemaining;
+    this.state.breaksThisLevel = save.state.breaksThisLevel ?? 0;
+    this.state.entropy = save.state.entropy ?? 0;
+    this.state.balancedLevels = save.state.balancedLevels ?? 0;
     this.state.gravity = this.gravitySystem.restoredState(save.state.gravity?.angle);
     this.state.paradox = save.paradox ? { instability: save.paradox.instability } : undefined;
     if (this.state.paradox) {
@@ -519,6 +537,8 @@ export class GameEngine {
     // turn. A level-boundary push is part of that same resolution, whether it
     // continues an existing chain or initiates the turn's first clear.
     const stackSize = entryStackSize + pushStackSize;
+    const ration = rationRules(this.rules);
+    if (ration) this.state.breaksThisLevel += stackSize;
     if (this.rules.scoring.kind === 'stack-score@1' && stackSize > 0) {
       steps.push({
         kind: StepKind.Bonus,
@@ -527,12 +547,45 @@ export class GameEngine {
       });
     }
 
+    // Ration judges the level's clear total against its band here so the
+    // resulting bonuses are part of this turn's score, then lets the entropy
+    // outcome feed the game-over decision below. Missing the band forfeits the
+    // level bonus; finishing inside it keeps it, adds the balanced bonus, and
+    // recovers entropy.
+    let imbalanceGameOver = false;
     if (levelComplete && !pushOverflow) {
-      steps.push({
-        kind: StepKind.Bonus,
-        bonusKind: 'level',
-        pointsAwarded: this.rules.scoring.levelBonus,
-      });
+      if (ration) {
+        const judgment = rationLevelJudgment(
+          ration,
+          this.state.level,
+          this.state.breaksThisLevel,
+          this.state.turnsPerLevel,
+        );
+        if (judgment.balanced) {
+          steps.push({
+            kind: StepKind.Bonus,
+            bonusKind: 'level',
+            pointsAwarded: this.rules.scoring.levelBonus,
+          });
+          steps.push({
+            kind: StepKind.Bonus,
+            bonusKind: 'balanced',
+            pointsAwarded: ration.balancedLevelBonus,
+          });
+          this.state.entropy = Math.max(0, this.state.entropy - ration.entropyRecoveryPerLevel);
+          this.state.balancedLevels++;
+        } else {
+          const gained = rationEntropyGain(ration, judgment.deviation);
+          this.state.entropy = Math.min(ration.entropyThreshold, this.state.entropy + gained);
+          if (this.state.entropy >= ration.entropyThreshold) imbalanceGameOver = true;
+        }
+      } else {
+        steps.push({
+          kind: StepKind.Bonus,
+          bonusKind: 'level',
+          pointsAwarded: this.rules.scoring.levelBonus,
+        });
+      }
     }
 
     const scoreAwarded = steps.reduce(
@@ -558,9 +611,14 @@ export class GameEngine {
     //    resolution above, so a board that momentarily fills mid-turn and then
     //    clears is NOT terminal, and a level bonus awarded on a level-completing
     //    turn (pushed into `steps` above) still counts — both intended.
-    const gameOverReason: GameOverReason | undefined = this.rules.failure.gameOverReason(
+    const terminalReason = this.rules.failure.gameOverReason(
       pushOverflow,
       this.state.board,
+    );
+    // A terminal board wins over Ration imbalance: the run is over either way,
+    // but the player should see why the board itself killed it.
+    const gameOverReason: GameOverReason | undefined = terminalReason ?? (
+      imbalanceGameOver ? 'imbalance' : undefined
     );
     const gameOver = gameOverReason !== undefined;
     this.state.phase = gameOver ? GamePhase.GameOver : GamePhase.WaitingForDrop;
@@ -571,6 +629,7 @@ export class GameEngine {
       this.state.level++;
       this.state.turnsPerLevel = turnsForLevel(this.rules.progression, this.state.level);
       this.state.turnsRemaining = this.state.turnsPerLevel;
+      this.state.breaksThisLevel = 0;
     }
 
     // Keep the already-previewed discs stable. Only the new tail disc uses the
@@ -676,6 +735,9 @@ export class GameEngine {
     this.state.level = level;
     this.state.turnsPerLevel = turnsForLevel(this.rules.progression, level);
     this.state.turnsRemaining = options.turnsRemaining ?? this.state.turnsPerLevel;
+    this.state.breaksThisLevel = options.breaksThisLevel ?? 0;
+    this.state.entropy = options.entropy ?? 0;
+    this.state.balancedLevels = options.balancedLevels ?? 0;
     // Re-derive gravity state for whichever mode is now active — a scripted
     // scenario can switch modes (e.g. a tutorial), and the previous mode's
     // gravity state (or lack of one) must not leak into this one.
@@ -839,6 +901,11 @@ export class GameEngine {
     this.state.level = checkpoint.level;
     this.state.turnsPerLevel = checkpoint.turnsPerLevel;
     this.state.turnsRemaining = checkpoint.turnsRemaining;
+    // Ration never coexists with rewind, so a restored checkpoint always starts
+    // fresh counters; a future combined mode would snapshot them on the checkpoint.
+    this.state.breaksThisLevel = 0;
+    this.state.entropy = 0;
+    this.state.balancedLevels = 0;
     this.state.gravity = checkpoint.gravity ? { ...checkpoint.gravity } : undefined;
     this.state.paradox = checkpoint.paradox ? { ...checkpoint.paradox } : undefined;
   }
@@ -855,6 +922,9 @@ export class GameEngine {
     this.state.level = 1;
     this.state.turnsPerLevel = turnsForLevel(this.rules.progression, 1);
     this.state.turnsRemaining = this.state.turnsPerLevel;
+    this.state.breaksThisLevel = 0;
+    this.state.entropy = 0;
+    this.state.balancedLevels = 0;
     this.state.gravity = this.gravitySystem.initialState();
     this.state.paradox = this.paradoxSystem.initialState();
   }

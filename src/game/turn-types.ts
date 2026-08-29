@@ -7,5 +7,5 @@ export type RejectedTurnReason =
   | 'tilt-required';
 
 /** Intentionally duplicated across the isolated game and shared API builds. */
-export const GAME_OVER_REASONS = ['push-overflow', 'board-full'] as const;
+export const GAME_OVER_REASONS = ['push-overflow', 'board-full', 'imbalance'] as const;
 export type GameOverReason = (typeof GAME_OVER_REASONS)[number];

@@ -11,6 +11,8 @@ import {
   MULTIPLAYER_MODES,
   PARADOX_MODE,
   PARADOX_RULES,
+  RATION_MODE,
+  RATION_RULES,
   SCORE_RACE_MODE,
   SCORE_RACE_RULES,
   SHARED_DUEL_MODE,
@@ -37,6 +39,8 @@ import {
   SHARED_DUEL_TURN_TIMEOUT_MS,
 } from '../../shared/multiplayer-contracts.js';
 import { GAME_OVER_REASONS } from '../../game/turn-types.js';
+import { BONUS_KINDS } from '../../game/events.js';
+import { WIRE_BONUS_KINDS } from '../../shared/multiplayer-contracts.js';
 import { GAME_OVER_REASONS as SHARED_GAME_OVER_REASONS } from '../../shared/game-values.js';
 import {
   capabilitiesForRules,
@@ -129,6 +133,36 @@ describe('composed solo rules', () => {
     expect(temporalEchoProbability(PARADOX_RULES, 9)).toBe(0.3);
   });
 
+  test('Ration composes Classic play with a per-level break band and lower x-disc rate', () => {
+    expect(RATION_RULES.board).toBe(CLASSIC_RULES.board);
+    expect(RATION_RULES.placement).toBe(CLASSIC_RULES.placement);
+    expect(RATION_RULES.clearing).toBe(CLASSIC_RULES.clearing);
+    expect(RATION_RULES.revealing).toBe(CLASSIC_RULES.revealing);
+    expect(RATION_RULES.failure).toBe(CLASSIC_RULES.failure);
+    expect(RATION_RULES.scoring).toBe(CLASSIC_RULES.scoring);
+    // Ration shortens its levels to get more frequent band checkpoints.
+    expect(RATION_RULES.progression).toMatchObject({
+      kind: 'level-pressure@1',
+      initialTurnsPerLevel: 15,
+      turnsPerLevelStep: 1,
+      minTurnsPerLevel: 10,
+    });
+    expect(RATION_RULES.modifiers).toEqual([]);
+    expect(RATION_RULES.ration).toMatchObject({
+      kind: 'ration-band@1',
+      initialBandCenter: 0.92,
+      minBandCenter: 0.6,
+      bandHalfWidth: 0.11,
+      entropyThreshold: 4,
+      balancedLevelBonus: 2_500,
+    });
+    expect(unnumberedProbabilityForLevel(RATION_RULES.generation, 1)).toBe(0.12);
+    expect(unnumberedProbabilityForLevel(RATION_RULES.generation, 21)).toBe(0.25);
+    expect(RATION_MODE.rules).toBe(RATION_RULES);
+    expect(RATION_MODE.hasTutorial).toBe(false);
+    expect(getSoloMode('ration')).toBe(RATION_MODE);
+  });
+
   test('Score Race composes familiar play with board-independent generation', () => {
     expect(SCORE_RACE_RULES).toMatchObject({
       id: 'score-race',
@@ -199,6 +233,7 @@ describe('mode definitions and registries', () => {
       GRAVITY_MODE,
       STACK_MODE,
       PARADOX_MODE,
+      RATION_MODE,
     ]);
     expect(MULTIPLAYER_MODES).toEqual([SCORE_RACE_MODE, SHARED_DUEL_MODE]);
     expect(GAME_RULESETS).toEqual([
@@ -206,6 +241,7 @@ describe('mode definitions and registries', () => {
       GRAVITY_RULES,
       STACK_RULES,
       PARADOX_RULES,
+      RATION_RULES,
       SCORE_RACE_RULES,
       SHARED_DUEL_RULES,
     ]);
@@ -387,4 +423,11 @@ describe('multiplayer mode identity stays in sync with the wire protocol constan
 // silently accepted) by the multiplayer wire parser.
 test('game-over reason vocabulary stays in sync between src/game and src/shared', () => {
   expect([...GAME_OVER_REASONS].sort()).toEqual([...SHARED_GAME_OVER_REASONS].sort());
+});
+
+// Same reasoning for the bonus-kind vocabulary: src/game/events.ts and
+// src/shared/multiplayer-contracts.ts each keep their own copy because the
+// isolated builds cannot import from each other.
+test('bonus-kind vocabulary stays in sync between src/game and src/shared', () => {
+  expect([...BONUS_KINDS].sort()).toEqual([...WIRE_BONUS_KINDS].sort());
 });

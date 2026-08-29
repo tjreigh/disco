@@ -202,4 +202,50 @@ describe('GameOverScreen', () => {
     expect(delta.getAttribute('aria-label')).toBe('Average fell 267 from 1,167');
     expect(document.querySelector('[data-record="games"]')?.textContent).toBe('over 4 games');
   });
+
+  test('shows the imbalance reason and the Ration ratio and balanced run stats', () => {
+    const screen = new GameOverScreen();
+    screen.open({
+      score: 1000,
+      stats: {
+        highScore: 1000, longestStreak: 3, averageScore: 1000, gamesPlayed: 1, totalScore: 1000,
+        totalPlayTimeMs: 0, totalDiscsDropped: 0, totalDiscsBroken: 0,
+      },
+      isStackMode: false,
+      bestRunRecord: 1,
+      previousHighScore: 1000,
+      previousBestRecord: 3,
+      playTimeMs: 60_000,
+      discsDropped: 30,
+      discsBroken: 24,
+      reason: 'imbalance',
+      ration: { balancedLevels: 3 },
+    });
+
+    const overlay = document.querySelector<HTMLElement>('.game-over-screen')!;
+    expect(overlay.textContent).toContain('Clears fell out of balance too many levels.');
+    const ratioRow = overlay.querySelector('[data-run-stat="ratio"]')!.parentElement!;
+    const balancedRow = overlay.querySelector('[data-run-stat="balanced"]')!.parentElement!;
+    expect(ratioRow.hidden).toBe(false);
+    expect(balancedRow.hidden).toBe(false);
+    expect(overlay.querySelector('[data-run-stat="ratio"]')?.textContent).toBe('0.80');
+    expect(overlay.querySelector('[data-run-stat="balanced"]')?.textContent).toBe('3');
+
+    screen.open({
+      score: 1000,
+      stats: {
+        highScore: 1000, longestStreak: 3, averageScore: 1000, gamesPlayed: 1, totalScore: 1000,
+        totalPlayTimeMs: 0, totalDiscsDropped: 0, totalDiscsBroken: 0,
+      },
+      isStackMode: false,
+      bestRunRecord: 1,
+      previousHighScore: 1000,
+      previousBestRecord: 3,
+      playTimeMs: 60_000,
+      discsDropped: 30,
+      discsBroken: 24,
+    });
+    expect(ratioRow.hidden).toBe(true);
+    expect(balancedRow.hidden).toBe(true);
+  });
 });

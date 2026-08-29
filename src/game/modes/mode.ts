@@ -107,6 +107,35 @@ export interface FailureRules {
   ) => GameOverReason | undefined;
 }
 
+/**
+ * Ration's per-level clear budget. Each level's breaks (numbered discs cleared)
+ * must land inside a band of breaks-per-drop; deviations feed an Entropy meter
+ * that ends the run at a threshold. `levelDrops` is the level's turn budget.
+ */
+export interface RationRules {
+  readonly kind: 'ration-band@1';
+  /** Band center at level 1, in breaks-per-drop. */
+  readonly initialBandCenter: number;
+  /** How far the band center descends each level, in breaks-per-drop. */
+  readonly bandCenterLevelStep: number;
+  /** Floor for the band center, in breaks-per-drop. */
+  readonly minBandCenter: number;
+  /** Half-width of the band around its center, in breaks-per-drop. */
+  readonly bandHalfWidth: number;
+  /** Entropy value that ends the run. */
+  readonly entropyThreshold: number;
+  /** Entropy recovered per level finished inside the band. */
+  readonly entropyRecoveryPerLevel: number;
+  /** Base entropy gained for missing the band. */
+  readonly entropyMissBase: number;
+  /** Additional entropy per band-unit of deviation, in breaks-per-drop. */
+  readonly entropyPerDeviationUnit: number;
+  /** Cap on entropy gained from a single missed level. */
+  readonly maxEntropyGainPerLevel: number;
+  /** Points awarded for finishing a level inside the band. */
+  readonly balancedLevelBonus: number;
+}
+
 /** Enables deterministic rewind through a bounded history of stable turns. */
 export interface RewindRuleModifier {
   readonly kind: 'rewind-instability@1';
@@ -140,6 +169,8 @@ export interface GameRulesConfig {
   readonly progression: ProgressionRules;
   readonly failure: FailureRules;
   readonly modifiers: readonly RuleModifier[];
+  /** Present only for Ration mode. */
+  readonly ration?: RationRules;
 }
 
 export interface SoloSessionRules {
@@ -329,6 +360,38 @@ export function defineGameRules(config: GameRulesConfig): GameRulesConfig {
   if (usesGravityPlacement && modifierKinds.has('rewind-instability@1')) {
     throw new Error(`Rules ${config.id}@${config.version} cannot combine Gravity and rewind`);
   }
+  if (config.ration && modifierKinds.has('rewind-instability@1')) {
+    throw new Error(`Rules ${config.id}@${config.version} cannot combine Ration and rewind`);
+  }
+
+  const ration = config.ration;
+  if (ration) {
+    for (const [label, value] of [
+      ['Ration band center', ration.initialBandCenter],
+      ['Ration band center step', ration.bandCenterLevelStep],
+      ['Ration band floor', ration.minBandCenter],
+      ['Ration band half-width', ration.bandHalfWidth],
+      ['Ration deviation unit', ration.entropyPerDeviationUnit],
+    ] as const) {
+      if (!Number.isFinite(value) || value <= 0) {
+        throw new Error(`${label} for ${config.id} must be positive`);
+      }
+    }
+    for (const [label, value] of [
+      ['Ration entropy threshold', ration.entropyThreshold],
+      ['Ration entropy recovery', ration.entropyRecoveryPerLevel],
+      ['Ration entropy miss base', ration.entropyMissBase],
+      ['Ration max entropy gain', ration.maxEntropyGainPerLevel],
+      ['Ration balanced bonus', ration.balancedLevelBonus],
+    ] as const) {
+      if (!Number.isSafeInteger(value) || value < 0) {
+        throw new Error(`${label} for ${config.id} must be a non-negative integer`);
+      }
+    }
+    if (ration.entropyThreshold < 1) {
+      throw new Error(`Ration entropy threshold for ${config.id} must be at least 1`);
+    }
+  }
 
   return deepFreeze(config);
 }
@@ -436,4 +499,75 @@ export function unnumberedProbabilityForLevel(
     rules.maxUnnumberedProbability,
     rules.initialUnnumberedProbability + rules.unnumberedProbabilityLevelStep * levelOffset,
   );
+}
+
+export function rationRules(rules: Pick<GameRulesConfig, 'ration'>): RationRules | undefined {
+  return rules.ration;
+}
+
+export interface RationBand {
+  readonly minBreaksPerDrop: number;
+  readonly maxBreaksPerDrop: number;
+}
+
+export function rationBandForLevel(rules: RationRules, level: number): RationBand {
+  const center = Math.max(
+    rules.minBandCenter,
+    rules.initialBandCenter - rules.bandCenterLevelStep * (Math.max(1, level) - 1),
+  );
+  return {
+    minBreaksPerDrop: center - rules.bandHalfWidth,
+    maxBreaksPerDrop: center + rules.bandHalfWidth,
+  };
+}
+
+/**
+ * Absolute break range for a level. Rounded inward (`ceil` lower, `floor`
+ * upper) so it exactly matches the ratio judgment: integer breaks are balanced
+ * precisely when they fall inside this range. The upper bound is intentionally
+ * not clamped to `levelDrops`, because carry-over board material lets a level
+ * break more discs than it drops.
+ */
+export function rationBreakBand(
+  rules: RationRules,
+  level: number,
+  levelDrops: number,
+): { minBreaks: number; maxBreaks: number } {
+  const band = rationBandForLevel(rules, level);
+  return {
+    minBreaks: Math.max(0, Math.ceil(band.minBreaksPerDrop * levelDrops)),
+    maxBreaks: Math.floor(band.maxBreaksPerDrop * levelDrops),
+  };
+}
+
+export interface RationJudgment {
+  readonly balanced: boolean;
+  /** Distance from the band in breaks-per-drop; 0 when balanced. */
+  readonly deviation: number;
+}
+
+export function rationLevelJudgment(
+  rules: RationRules,
+  level: number,
+  levelBreaks: number,
+  levelDrops: number,
+): RationJudgment {
+  const ratio = levelDrops <= 0 ? 0 : levelBreaks / levelDrops;
+  const band = rationBandForLevel(rules, level);
+  if (ratio >= band.minBreaksPerDrop && ratio <= band.maxBreaksPerDrop) {
+    return { balanced: true, deviation: 0 };
+  }
+  return {
+    balanced: false,
+    deviation: ratio < band.minBreaksPerDrop
+      ? band.minBreaksPerDrop - ratio
+      : ratio - band.maxBreaksPerDrop,
+  };
+}
+
+/** Entropy gained for missing the band by `deviation` breaks-per-drop. */
+export function rationEntropyGain(rules: RationRules, deviation: number): number {
+  if (deviation <= 0) return 0;
+  const gained = rules.entropyMissBase + Math.floor(deviation / rules.entropyPerDeviationUnit);
+  return Math.min(rules.maxEntropyGainPerLevel, gained);
 }

@@ -91,6 +91,7 @@ describe('shipped solo mode behavior manifest', () => {
       { modeId: 'gravity', rulesVersion: 1 },
       { modeId: 'stack', rulesVersion: 1 },
       { modeId: 'paradox', rulesVersion: 1 },
+      { modeId: 'ration', rulesVersion: 1 },
     ]);
   });
 

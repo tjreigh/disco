@@ -9,7 +9,7 @@ import { z } from 'zod';
 // solo mode without adding it here reproduces audit-2 finding #1:
 // signed-in players in the new mode get 400s on every stats sync.
 // api/test/mode-ids.test.ts asserts this list against the live registry.
-export const modeIdSchema = z.enum(['classic', 'gravity', 'stack', 'paradox']);
+export const modeIdSchema = z.enum(['classic', 'gravity', 'stack', 'paradox', 'ration']);
 
 export const statsSchema = z.object({
   modeId: modeIdSchema,

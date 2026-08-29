@@ -482,8 +482,13 @@ export class LocalBoardSession {
         return;
       }
       this.displayedScore += step.pointsAwarded;
+      const bonusLabel = step.bonusKind === 'level'
+        ? 'LEVEL BONUS'
+        : step.bonusKind === 'balanced'
+          ? 'BALANCED'
+          : 'BOARD CLEAR';
       this.scoreIndicators.push(spawnScoreIndicator(
-        step.bonusKind === 'level' ? 'LEVEL BONUS' : 'BOARD CLEAR',
+        bonusLabel,
         `+${step.pointsAwarded.toLocaleString('en-US')}`,
         now,
       ));

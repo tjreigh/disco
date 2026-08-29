@@ -1,5 +1,5 @@
 import type { SoloModeDefinition } from '../game/modes/mode.js';
-import { rewindModifier, turnCostForInstability } from '../game/modes/mode.js';
+import { rationBreakBand, rationRules, rewindModifier, turnCostForInstability } from '../game/modes/mode.js';
 import type { GameState } from '../game/state.js';
 import { GamePhase } from '../game/state.js';
 import type { PhysicsStep } from '../game/events.js';
@@ -560,6 +560,7 @@ export class SoloSessionController {
   private openGameOverSummary(canRewind = this.session.canRewind()): void {
     const view = this.session.view;
     const displayedStats = canRewind ? this.projectedFinalStats() : this.stats;
+    const ration = rationRules(this.mode.rules);
     this.gameOverScreen.open({
       score: this.state.score,
       stats: displayedStats,
@@ -571,6 +572,7 @@ export class SoloSessionController {
       discsDropped: this.state.dropCount,
       discsBroken: this.discsBrokenThisGame,
       canRewind,
+      ...(ration ? { ration: { balancedLevels: this.state.balancedLevels } } : {}),
       ...(view.lastGameOverReason ? { reason: view.lastGameOverReason } : {}),
     });
   }
@@ -920,6 +922,23 @@ export class SoloSessionController {
             },
           }
         : {}),
+      ...(() => {
+        const ration = rationRules(this.mode.rules);
+        return ration
+          ? {
+              ration: {
+                breaksThisLevel: this.state.breaksThisLevel,
+                ...rationBreakBand(ration, this.state.level, this.state.turnsPerLevel),
+                levelDrops: this.state.turnsPerLevel,
+                entropy: this.state.entropy,
+                entropyThreshold: ration.entropyThreshold,
+                entropyRecoveryPerLevel: ration.entropyRecoveryPerLevel,
+                entropyMissBase: ration.entropyMissBase,
+                maxEntropyGainPerLevel: ration.maxEntropyGainPerLevel,
+              },
+            }
+          : {};
+      })(),
       hasGravity: this.mode.rules.placement.kind === 'stage-and-tilt@1',
       hasRewind: rewindModifier(this.mode.rules) !== undefined,
       isRewindPreview: Boolean(rewindPreview),

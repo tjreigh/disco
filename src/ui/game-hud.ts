@@ -56,6 +56,21 @@ export interface GameHudState {
     stack: number;
     points: number;
   } | null;
+  /** Ration balance meter state. Omit for non-Ration modes. */
+  ration?: {
+    breaksThisLevel: number;
+    minBreaks: number;
+    maxBreaks: number;
+    levelDrops: number;
+    entropy: number;
+    entropyThreshold: number;
+    /** Entropy recovered per level finished inside the band. */
+    entropyRecoveryPerLevel: number;
+    /** Minimum entropy added for missing the band. */
+    entropyMissBase: number;
+    /** Cap on entropy added by a single missed level. */
+    maxEntropyGainPerLevel: number;
+  };
 }
 
 interface ControlHint {
@@ -94,6 +109,12 @@ export class GameHud {
   private readonly instability: HTMLElement;
   private readonly instabilityValue: HTMLElement;
   private readonly pressure: HTMLElement;
+  private readonly ration: HTMLElement;
+  private readonly rationReadout: HTMLElement;
+  private readonly rationBand: HTMLElement;
+  private readonly rationMarker: HTMLElement;
+  private readonly entropyValue: HTMLElement;
+  private readonly entropyPips: HTMLElement;
   private readonly gravitySr: HTMLElement;
   private readonly gravityArc: SVGPathElement;
   private readonly gravityArrow: SVGLineElement;
@@ -103,6 +124,9 @@ export class GameHud {
   private nextDiscRenderKey = '';
   private hintRenderKey = '';
   private advancedRenderKey = '';
+  private entropyRenderKey = '';
+  private lastEntropy: number | undefined;
+  private rationFeedbackTimer = 0;
 
   constructor(container?: HTMLElement | null) {
     const fragment = cloneTemplate('tpl-game-hud');
@@ -133,6 +157,12 @@ export class GameHud {
     this.instability = mustQuery(fragment, '.game-hud__instability');
     this.instabilityValue = mustQuery(fragment, '.game-hud__instability-value');
     this.pressure = mustQuery(fragment, '.game-hud__pressure');
+    this.ration = mustQuery(fragment, '.game-hud__ration');
+    this.rationReadout = mustQuery(fragment, '[data-ui-ref="ration-readout"]');
+    this.rationBand = mustQuery(fragment, '[data-ui-ref="ration-band"]');
+    this.rationMarker = mustQuery(fragment, '[data-ui-ref="ration-marker"]');
+    this.entropyValue = mustQuery(fragment, '[data-ui-ref="entropy-value"]');
+    this.entropyPips = mustQuery(fragment, '.game-hud__entropy-pips');
     this.hint = mustQuery(fragment, '.game-hud__hint');
     this.stackReceipt = mustQuery(fragment, '.game-hud__stack-receipt');
     this.stackReceiptTotal = mustQuery(fragment, '.game-hud__stack-receipt-total');
@@ -260,6 +290,16 @@ export class GameHud {
       this.instability.classList.remove('game-hud__instability--pressured');
       this.instability.classList.remove('game-hud__instability--critical');
     }
+    if (state.ration) {
+      this.renderRation(state.ration);
+    } else {
+      this.ration.hidden = true;
+      delete this.ration.dataset.status;
+      this.ration.classList.remove('game-hud__ration--recovered', 'game-hud__ration--imbalanced');
+      this.entropyValue.textContent = '';
+      this.entropyRenderKey = '';
+      this.lastEntropy = undefined;
+    }
     // Same defensive guard as GameControls: an inconsistent caller must not
     // pulse attention cues outside a gravity Aiming phase.
     const attention = state.phase === GamePhase.Aiming && state.hasGravity && Boolean(state.needsTilt);
@@ -272,6 +312,7 @@ export class GameHud {
   }
 
   destroy(): void {
+    window.clearTimeout(this.rationFeedbackTimer);
     this.root.remove();
   }
 
@@ -332,6 +373,76 @@ export class GameHud {
     }
     discElement.setAttribute('aria-hidden', 'true');
     slot.append(caption, discElement);
+  }
+
+  private renderRation(ration: NonNullable<GameHudState['ration']>): void {
+    const {
+      breaksThisLevel,
+      minBreaks,
+      maxBreaks,
+      levelDrops,
+      entropy,
+      entropyThreshold,
+      entropyRecoveryPerLevel,
+      entropyMissBase,
+      maxEntropyGainPerLevel,
+    } = ration;
+    const scale = Math.max(1, levelDrops);
+    const bandLeft = Math.min(1, Math.max(0, minBreaks / scale)) * 100;
+    const bandRight = Math.min(1, Math.max(0, maxBreaks / scale)) * 100;
+    const markerLeft = Math.min(1, Math.max(0, breaksThisLevel / scale)) * 100;
+    this.rationBand.style.left = `${bandLeft}%`;
+    this.rationBand.style.width = `${Math.max(0, bandRight - bandLeft)}%`;
+    this.rationMarker.style.left = `${markerLeft}%`;
+    this.rationReadout.textContent = `${breaksThisLevel} / ${minBreaks}–${maxBreaks}`;
+    const status = breaksThisLevel < minBreaks
+      ? 'under'
+      : breaksThisLevel > maxBreaks
+        ? 'over'
+        : 'balanced';
+    this.ration.dataset.status = status;
+    this.ration.setAttribute(
+      'aria-label',
+      `Level balance ${breaksThisLevel} breaks, target ${minBreaks} to ${maxBreaks}, currently ${
+        status === 'under' ? 'below' : status === 'over' ? 'above' : 'inside'
+      } the band. Entropy ${entropy} of ${entropyThreshold}. A balanced level recovers ${
+        entropyRecoveryPerLevel
+      }; a missed level adds ${entropyMissBase} to ${maxEntropyGainPerLevel} entropy.`,
+    );
+    this.renderEntropyPips(entropy, entropyThreshold);
+    this.renderEntropyTransition(entropy);
+    this.ration.hidden = false;
+  }
+
+  /** Pulse the Ration cluster when a level judgment moves the entropy meter. */
+  private renderEntropyTransition(entropy: number): void {
+    const previous = this.lastEntropy;
+    this.lastEntropy = entropy;
+    if (previous === undefined || entropy === previous) return;
+    window.clearTimeout(this.rationFeedbackTimer);
+    this.ration.classList.remove('game-hud__ration--recovered', 'game-hud__ration--imbalanced');
+    // Force a reflow so a second change in the same frame restarts the pulse.
+    void this.ration.offsetWidth;
+    this.ration.classList.add(
+      entropy < previous ? 'game-hud__ration--recovered' : 'game-hud__ration--imbalanced',
+    );
+    this.rationFeedbackTimer = window.setTimeout(() => {
+      this.ration.classList.remove('game-hud__ration--recovered', 'game-hud__ration--imbalanced');
+    }, 700);
+  }
+
+  private renderEntropyPips(entropy: number, threshold: number): void {
+    const pips = Math.max(1, Math.floor(threshold));
+    const renderKey = `${entropy}:${pips}`;
+    if (renderKey === this.entropyRenderKey) return;
+    this.entropyRenderKey = renderKey;
+    this.entropyValue.textContent = `${entropy}/${pips}`;
+    this.entropyPips.replaceChildren();
+    for (let index = 0; index < pips; index++) {
+      const pip = document.createElement('i');
+      pip.className = `game-hud__entropy-pip${index < entropy ? ' game-hud__entropy-pip--filled' : ''}`;
+      this.entropyPips.append(pip);
+    }
   }
 
   private renderAdvancedStats(stats: GameHudState['advancedStats']): void {

@@ -144,6 +144,55 @@ describe('GameHud', () => {
     expect(hud.root.dataset.rewindPreview).toBe('true');
   });
 
+  test('renders the Ration balance and entropy meters and hides them otherwise', () => {
+    const hud = new GameHud();
+    const base = {
+      phase: GamePhase.WaitingForDrop, score: 0,
+      currentDisc: disc(3), nextDisc: disc(4),
+      level: 2, initialTurnsPerLevel: 30, turnsPerLevel: 29, turnsRemaining: 10,
+      hasGravity: false,
+    };
+    const ration = {
+      breaksThisLevel: 17, minBreaks: 23, maxBreaks: 27, levelDrops: 29,
+      entropy: 1, entropyThreshold: 4,
+      entropyRecoveryPerLevel: 1, entropyMissBase: 1, maxEntropyGainPerLevel: 3,
+    };
+    hud.render({ ...base, ration });
+
+    const rationEl = hud.root.querySelector<HTMLElement>('.game-hud__ration')!;
+    expect(rationEl.hidden).toBe(false);
+    expect(rationEl.dataset.status).toBe('under');
+    expect(rationEl.querySelector('[data-ui-ref="ration-readout"]')?.textContent).toBe('17 / 23–27');
+    expect(rationEl.querySelector('[data-ui-ref="entropy-value"]')?.textContent).toBe('1/4');
+    expect(rationEl.querySelector('.game-hud__ration-label')?.textContent).toBe('BALANCE');
+    expect(rationEl.querySelectorAll('.game-hud__entropy-pip')).toHaveLength(4);
+    expect(rationEl.querySelectorAll('.game-hud__entropy-pip--filled')).toHaveLength(1);
+    expect(rationEl.getAttribute('aria-label')).toContain('target 23 to 27');
+    expect(rationEl.getAttribute('aria-label')).toContain('Entropy 1 of 4');
+    expect(rationEl.getAttribute('aria-label'))
+      .toContain('A balanced level recovers 1; a missed level adds 1 to 3 entropy.');
+    expect(rationEl.classList.contains('game-hud__ration--imbalanced')).toBe(false);
+
+    hud.render({ ...base, ration: { ...ration, breaksThisLevel: 25 } });
+    expect(rationEl.dataset.status).toBe('balanced');
+
+    hud.render({ ...base, ration: { ...ration, breaksThisLevel: 30 } });
+    expect(rationEl.dataset.status).toBe('over');
+
+    // Entropy rising between frames marks a missed level judgment.
+    hud.render({ ...base, ration: { ...ration, entropy: 2 } });
+    expect(rationEl.classList).toContain('game-hud__ration--imbalanced');
+    // Entropy falling marks a balanced level judgment.
+    hud.render({ ...base, ration: { ...ration, entropy: 1 } });
+    expect(rationEl.classList).toContain('game-hud__ration--recovered');
+    expect(rationEl.classList).not.toContain('game-hud__ration--imbalanced');
+
+    hud.render({ ...base });
+    expect(rationEl.hidden).toBe(true);
+    expect(rationEl.dataset.status).toBeUndefined();
+    expect(rationEl.classList.contains('game-hud__ration--recovered')).toBe(false);
+  });
+
   test('keeps unchanged turn and queue DOM stable across animation frames', () => {
     const hud = new GameHud();
     const state = {

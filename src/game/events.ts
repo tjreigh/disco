@@ -66,7 +66,8 @@ export interface PushStep {
   newDiscs: Disc[];
 }
 
-export type BonusKind = 'level' | 'board-clear' | 'stack';
+export const BONUS_KINDS = ['level', 'board-clear', 'stack', 'balanced'] as const;
+export type BonusKind = (typeof BONUS_KINDS)[number];
 
 export interface BonusStep {
   kind: StepKind.Bonus;

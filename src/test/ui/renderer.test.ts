@@ -106,6 +106,9 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     level: 1,
     turnsPerLevel: 30,
     turnsRemaining: 30,
+    breaksThisLevel: 0,
+    entropy: 0,
+    balancedLevels: 0,
     ...overrides,
   };
 }

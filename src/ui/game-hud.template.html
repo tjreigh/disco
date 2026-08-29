@@ -1,15 +1,32 @@
 <template id="tpl-game-hud">
   <section class="game-hud" aria-label="Game status" hidden>
     <div class="game-hud__top">
-      <div class="game-hud__summary">
-        <span class="game-hud__score" aria-label="Score"></span>
-        <span class="game-hud__records" aria-label="Records"></span>
-        <span class="game-hud__turns" aria-label="Turns remaining">
-          <span data-ui-ref="turns-label"></span>
-          <span class="game-hud__pips" aria-hidden="true"></span>
+      <div class="game-hud__top-grid">
+        <div class="game-hud__summary">
+          <span class="game-hud__score" aria-label="Score"></span>
+          <span class="game-hud__records" aria-label="Records"></span>
+          <span class="game-hud__turns" aria-label="Turns remaining">
+            <span data-ui-ref="turns-label"></span>
+          </span>
+          <span class="game-hud__level" aria-label="Level"></span>
+        </div>
+        <span class="game-hud__ration">
+          <span class="game-hud__ration-meter game-hud__ration-meter--balance">
+            <span class="game-hud__ration-label">BALANCE</span>
+            <span class="game-hud__ration-value" data-ui-ref="ration-readout"></span>
+            <span class="game-hud__ration-track" aria-hidden="true">
+              <span class="game-hud__ration-band" data-ui-ref="ration-band"></span>
+              <span class="game-hud__ration-marker" data-ui-ref="ration-marker"></span>
+            </span>
+          </span>
+          <span class="game-hud__ration-meter game-hud__ration-meter--entropy">
+            <span class="game-hud__ration-label">ENTROPY</span>
+            <span class="game-hud__ration-value" data-ui-ref="entropy-value"></span>
+            <span class="game-hud__entropy-pips" aria-hidden="true"></span>
+          </span>
         </span>
-        <span class="game-hud__level" aria-label="Level"></span>
       </div>
+      <span class="game-hud__pips" aria-hidden="true"></span>
       <span class="game-hud__gravity">
         <svg class="game-hud__gravity-dial" viewBox="0 0 80 80" aria-hidden="true">
           <circle class="game-hud__gravity-attention-ring" cx="40" cy="40" r="36" fill="none" stroke-width="2.5"></circle>

@@ -20,6 +20,9 @@ function gameState(phase = GamePhase.Menu): GameState {
     level: 1,
     turnsPerLevel: 10,
     turnsRemaining: 10,
+    breaksThisLevel: 0,
+    entropy: 0,
+    balancedLevels: 0,
   };
 }
 

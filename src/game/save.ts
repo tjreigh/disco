@@ -30,6 +30,10 @@ export interface SavedGameState {
   level: number;
   turnsPerLevel: number;
   turnsRemaining: number;
+  /** Ration-mode counters; absent in non-Ration and legacy saves. */
+  breaksThisLevel?: number;
+  entropy?: number;
+  balancedLevels?: number;
   gravity?: {
     angle: number;
   };
@@ -203,7 +207,7 @@ function parseState(value: unknown, rules: GameRulesConfig, allowGameOver = fals
   if (!isObject(value) || !hasOnlyKeys(value, [
     'phase', 'board', 'cursorCol', 'score', 'dropCount', 'level',
     'turnsPerLevel', 'turnsRemaining',
-  ], ['gravity'])) return null;
+  ], ['gravity', 'breaksThisLevel', 'entropy', 'balancedLevels'])) return null;
   if ((value.phase !== 'waiting' && (!allowGameOver || value.phase !== 'game-over'))
     || !isNonNegativeInteger(value.cursorCol)
     || !isNonNegativeInteger(value.score)
@@ -211,12 +215,21 @@ function parseState(value: unknown, rules: GameRulesConfig, allowGameOver = fals
     || !isPositiveInteger(value.level)
     || !isPositiveInteger(value.turnsPerLevel)
     || !isNonNegativeInteger(value.turnsRemaining)
-    || (value.phase === 'waiting' && value.turnsRemaining === 0)) return null;
+    || (value.phase === 'waiting' && value.turnsRemaining === 0)
+    || (value.breaksThisLevel !== undefined && !isNonNegativeInteger(value.breaksThisLevel))
+    || (value.entropy !== undefined && !isNonNegativeInteger(value.entropy))
+    || (value.balancedLevels !== undefined && !isNonNegativeInteger(value.balancedLevels))) return null;
 
   const expectedTurns = turnsForLevel(rules.progression, value.level);
   if (value.turnsPerLevel !== expectedTurns || value.turnsRemaining > value.turnsPerLevel) return null;
   const board = parseBoard(value.board, rules);
   if (!board) return null;
+
+  const rationCounters = {
+    ...(value.breaksThisLevel !== undefined ? { breaksThisLevel: value.breaksThisLevel } : {}),
+    ...(value.entropy !== undefined ? { entropy: value.entropy } : {}),
+    ...(value.balancedLevels !== undefined ? { balancedLevels: value.balancedLevels } : {}),
+  };
 
   if (rules.placement.kind === 'stage-and-tilt@1') {
     if (!isObject(value.gravity) || !hasOnlyKeys(value.gravity, ['angle'])) return null;
@@ -229,7 +242,7 @@ function parseState(value: unknown, rules: GameRulesConfig, allowGameOver = fals
     return {
       phase: value.phase, board, cursorCol: value.cursorCol, score: value.score,
       dropCount: value.dropCount, level: value.level, turnsPerLevel: value.turnsPerLevel,
-      turnsRemaining: value.turnsRemaining, gravity: { angle },
+      turnsRemaining: value.turnsRemaining, gravity: { angle }, ...rationCounters,
     };
   }
 
@@ -237,7 +250,7 @@ function parseState(value: unknown, rules: GameRulesConfig, allowGameOver = fals
   return {
     phase: value.phase, board, cursorCol: value.cursorCol, score: value.score,
     dropCount: value.dropCount, level: value.level, turnsPerLevel: value.turnsPerLevel,
-    turnsRemaining: value.turnsRemaining,
+    turnsRemaining: value.turnsRemaining, ...rationCounters,
   };
 }
 

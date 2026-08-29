@@ -23,7 +23,11 @@
 .game-hud__top {
   top: calc(50% - var(--game-canvas-height, 0px) / 2);
   height: 96px;
-  padding: 10px max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 10px max(16px, env(safe-area-inset-right), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2)) 0 max(16px, env(safe-area-inset-left), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2));
 }
 .game-hud__bottom {
   top: calc(50% + var(--game-canvas-height, 0px) / 2 - 80px);
@@ -34,12 +38,21 @@
   padding-left: max(16px, env(safe-area-inset-left), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2));
   padding-right: max(16px, env(safe-area-inset-right), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2));
 }
+/* Two columns: the regular top-HUD summary on the left and the mode card
+   (Ration's meters) on the right, both aligned to the grid edges. */
+.game-hud__top-grid {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  width: 100%;
+  min-width: 0;
+}
 .game-hud__summary {
   display: grid;
-  justify-items: center;
+  justify-items: start;
   align-content: start;
   gap: 0;
-  height: 100%;
   font: 700 13px ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .game-hud__score { margin-bottom: 5px; font-size: 24px; line-height: 1.1; color: #ffffff; }
@@ -57,6 +70,7 @@
   justify-items: start;
   width: var(--game-grid-width, 504px);
   max-width: min(var(--game-grid-width, 504px), calc(100vw - 32px));
+  margin-top: 4px;
   padding-inline: 1px;
 }
 .game-hud__pip {
@@ -183,7 +197,7 @@
 .game-hud__instability {
   position: absolute;
   top: max(12px, env(safe-area-inset-top));
-  left: max(16px, env(safe-area-inset-left), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2));
+  right: max(16px, env(safe-area-inset-right), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2));
   display: inline-grid;
   justify-items: center;
   gap: 2px;
@@ -208,6 +222,108 @@
   letter-spacing: .1em;
 }
 .game-hud__instability[hidden] { display: none; }
+.game-hud__ration {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 0 0 auto;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 6px 12px 7px;
+  background: rgba(11, 32, 52, .92);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.game-hud__ration[hidden] { display: none; }
+.game-hud__ration-meter {
+  display: grid;
+  grid-template-columns: auto auto;
+  column-gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+.game-hud__ration-label {
+  grid-column: 1;
+  color: #718096;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  line-height: 1;
+  white-space: nowrap;
+}
+.game-hud__ration-value {
+  grid-column: 2;
+  overflow: hidden;
+  color: #e2e8f0;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.game-hud__ration-track {
+  grid-column: 1 / -1;
+  position: relative;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: rgba(113, 128, 150, .3);
+}
+.game-hud__ration-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 999px;
+  background: rgba(129, 230, 179, .3);
+}
+.game-hud__ration-marker {
+  position: absolute;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border: 1px solid rgba(0, 0, 0, .55);
+  border-radius: 50%;
+  background: #e2e8f0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .5);
+  transform: translate(-50%, -50%);
+}
+.game-hud__ration[data-status="under"] .game-hud__ration-meter--balance .game-hud__ration-marker { background: #38bdf8; }
+.game-hud__ration[data-status="balanced"] .game-hud__ration-meter--balance .game-hud__ration-marker { background: #34d399; }
+.game-hud__ration[data-status="over"] .game-hud__ration-meter--balance .game-hud__ration-marker { background: #fb7185; }
+.game-hud__ration[data-status="over"] .game-hud__ration-meter--balance .game-hud__ration-value { color: #fda4af; }
+.game-hud__ration[data-status="balanced"] .game-hud__ration-meter--balance .game-hud__ration-value { color: #6ee7b7; }
+.game-hud__entropy-pips {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 4px;
+  margin-top: 5px;
+}
+.game-hud__entropy-pip {
+  display: block;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(113, 128, 150, .4);
+}
+.game-hud__entropy-pip--filled { background: #fb7185; }
+.game-hud__ration--recovered { animation: ration-recovered 600ms ease-out; }
+.game-hud__ration--imbalanced { animation: ration-imbalanced 600ms ease-out; }
+@keyframes ration-recovered {
+  0% { border-color: #34d399; box-shadow: 0 0 0 0 rgba(52, 211, 153, .55); }
+  100% { border-color: var(--color-border); box-shadow: 0 0 0 14px rgba(52, 211, 153, 0); }
+}
+@keyframes ration-imbalanced {
+  0% { border-color: #fb7185; box-shadow: 0 0 0 0 rgba(251, 113, 133, .6); }
+  100% { border-color: var(--color-border); box-shadow: 0 0 0 14px rgba(251, 113, 133, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .game-hud__ration--recovered,
+  .game-hud__ration--imbalanced { animation: none; }
+  .game-hud__ration--recovered { border-color: #34d399; }
+  .game-hud__ration--imbalanced { border-color: #fb7185; }
+}
 .multiplayer-hud {
   position: absolute;
   top: calc(50% - var(--game-canvas-height, 0px) / 2 + 5px);
@@ -370,6 +486,8 @@
   justify-items: end;
   gap: 4px;
   max-width: 58%;
+  min-width: 0;
+  flex: 0 1 auto;
   text-align: right;
 }
 .game-hud[data-stack-mode="true"] .game-hud__status {
@@ -444,15 +562,24 @@
 @media (max-width: 720px), (pointer: coarse) {
   .game-hud__summary {
     font-size: 12px;
+    min-width: 0;
   }
   .game-hud__score {
     font-size: 22px;
   }
   .game-hud__status { max-width: 58%; }
-  .game-hud__instability {
-    right: max(16px, env(safe-area-inset-right), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2));
-    left: auto;
+  .game-hud__top-grid { gap: 10px; }
+  .game-hud__records {
+    max-width: 32vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
+  .game-hud__ration { gap: 10px; padding: 4px 8px 5px; border-radius: 8px; }
+  .game-hud__ration-label { font-size: 7px; }
+  .game-hud__ration-value { font-size: 11px; }
+  .game-hud__ration-track { height: 6px; }
+  .game-hud__ration-meter { column-gap: 6px; }
+  .game-hud__entropy-pip { height: 6px; }
   .multiplayer-hud { padding: 4px 8px; }
   .multiplayer-hud__metric { padding: 0 8px; }
   .multiplayer-hud__label { font-size: 8px; }
@@ -479,6 +606,7 @@
   }
   .game-hud__instability-value { font-size: 8px; }
   .game-hud__pressure { font-size: 6px; }
+  .game-hud__ration-label { display: none; }
   .multiplayer-hud {
     max-width: calc(100% - 16px);
     padding: 3px 6px;
