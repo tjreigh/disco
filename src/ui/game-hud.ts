@@ -193,6 +193,7 @@ export class GameHud {
     this.root.dataset.stackMode = String(Boolean(state.isStackMode));
     this.root.dataset.rewindMode = String(Boolean(state.hasRewind));
     this.root.dataset.rewindPreview = String(Boolean(state.isRewindPreview));
+    this.root.dataset.rationMode = String(Boolean(state.ration));
     this.score.textContent = state.score.toLocaleString('en-US');
     this.level.textContent = `Level ${state.level}`;
     const highScoreValue = state.highScore ?? 0;

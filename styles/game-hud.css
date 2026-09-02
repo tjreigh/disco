@@ -23,11 +23,18 @@
 .game-hud__top {
   top: calc(50% - var(--game-canvas-height, 0px) / 2);
   height: 96px;
+  padding: 10px max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left));
+}
+/* Ration's mode card needs the summary pinned to the left of a two-column row
+   and both columns flush with the grid edges. Every other mode keeps the
+   long-standing centered top HUD. */
+.game-hud[data-ration-mode="true"] .game-hud__top {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   justify-content: flex-start;
-  padding: 10px max(16px, env(safe-area-inset-right), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2)) 0 max(16px, env(safe-area-inset-left), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2));
+  padding-right: max(16px, env(safe-area-inset-right), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2));
+  padding-left: max(16px, env(safe-area-inset-left), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2));
 }
 .game-hud__bottom {
   top: calc(50% + var(--game-canvas-height, 0px) / 2 - 80px);
@@ -38,22 +45,28 @@
   padding-left: max(16px, env(safe-area-inset-left), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2));
   padding-right: max(16px, env(safe-area-inset-right), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2));
 }
-/* Two columns: the regular top-HUD summary on the left and the mode card
-   (Ration's meters) on the right, both aligned to the grid edges. */
 .game-hud__top-grid {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+/* Ration only: two columns — the regular top-HUD summary on the left and the
+   mode card (Ration's meters) on the right, both aligned to the grid edges. */
+.game-hud[data-ration-mode="true"] .game-hud__top-grid {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  width: 100%;
-  min-width: 0;
 }
 .game-hud__summary {
   display: grid;
-  justify-items: start;
+  justify-items: center;
   align-content: start;
   gap: 0;
   font: 700 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.game-hud[data-ration-mode="true"] .game-hud__summary {
+  justify-items: start;
 }
 .game-hud__score { margin-bottom: 5px; font-size: 24px; line-height: 1.1; color: #ffffff; }
 .game-hud[data-multiplayer="true"] .game-hud__score,
@@ -70,8 +83,17 @@
   justify-items: start;
   width: var(--game-grid-width, 504px);
   max-width: min(var(--game-grid-width, 504px), calc(100vw - 32px));
-  margin-top: 4px;
   padding-inline: 1px;
+}
+/* Ration lays the summary out as the left column of a two-column row, so this
+   grid-width pip strip can't sit in that column's flow. Pin it along the
+   bottom of the top band instead, flush with the grid's left edge. Every
+   other mode keeps it in flow under the turn label, centered by
+   .game-hud__turns. */
+.game-hud[data-ration-mode="true"] .game-hud__pips {
+  position: absolute;
+  left: max(16px, env(safe-area-inset-left), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2));
+  bottom: 6px;
 }
 .game-hud__pip {
   flex: 0 0 auto;
@@ -197,6 +219,9 @@
 .game-hud__instability {
   position: absolute;
   top: max(12px, env(safe-area-inset-top));
+  /* Ration's card owns the right edge, so instability stays right there and on
+     narrow screens everywhere; wide non-Ration layouts move it back to the
+     left edge (see the wide-viewport media query below). */
   right: max(16px, env(safe-area-inset-right), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2));
   display: inline-grid;
   justify-items: center;
@@ -496,6 +521,10 @@
 }
 @media (min-width: 721px) and (pointer: fine) {
   .game-hud[data-rewind-mode="true"] .game-hud__status { max-width: 70%; }
+  .game-hud:not([data-ration-mode="true"]) .game-hud__instability {
+    right: auto;
+    left: max(16px, env(safe-area-inset-left), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2));
+  }
 }
 .game-hud__stack-receipt {
   display: grid;
@@ -569,7 +598,7 @@
   }
   .game-hud__status { max-width: 58%; }
   .game-hud__top-grid { gap: 10px; }
-  .game-hud__records {
+  .game-hud[data-ration-mode="true"] .game-hud__records {
     max-width: 32vw;
     overflow: hidden;
     text-overflow: ellipsis;
