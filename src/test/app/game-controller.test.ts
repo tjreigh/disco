@@ -551,6 +551,57 @@ describe('normal drop flow', () => {
     expect(stateAfterAnimation.phase).toBe(GamePhase.WaitingForDrop);
   });
 
+  test('backgrounding mid-animation resumes playback in place instead of snapping it done and firing a stray sound', () => {
+    let clock = 1_000;
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => clock);
+    const setVisibility = (state: 'visible' | 'hidden'): void => {
+      Object.defineProperty(document, 'visibilityState', { value: state, configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+    };
+
+    try {
+      const { game } = createGame();
+      lastOf(homeScreenInstances).onSelectMode(CLASSIC_MODE);
+      frame(clock);
+
+      const input = lastOf(inputHandlerInstances);
+      const audio = lastOf(audioInstances);
+      const renderer = lastOf(rendererInstances);
+
+      input.onIntent({ kind: 'drop', col: 3 });
+      frame(clock); // step starts here: drop sound + anim anchored at `clock`
+      expect(lastDraw(renderer).state.phase).toBe(GamePhase.Animating);
+      expect(audio.playDrop).toHaveBeenCalledTimes(1);
+
+      // Tab hidden for ten minutes of wall-clock, then shown again. rAF was
+      // frozen the whole time; performance.now() was not.
+      setVisibility('hidden');
+      clock += 10 * 60_000;
+      setVisibility('visible');
+
+      // First frame back carries the full time jump as its rAF timestamp.
+      frame(clock);
+
+      // The drop is still animating (not snapped to done) and no follow-on step
+      // sound fired on return.
+      expect(lastDraw(renderer).state.phase).toBe(GamePhase.Animating);
+      expect(audio.playDrop).toHaveBeenCalledTimes(1);
+      expect(audio.playClear).not.toHaveBeenCalled();
+
+      // It completes normally once real frames advance again.
+      for (let i = 0; i < 30; i++) {
+        clock += 1_000;
+        frame(clock);
+      }
+      expect(lastDraw(renderer).state.phase).toBe(GamePhase.WaitingForDrop);
+
+      game.destroy();
+    } finally {
+      now.mockRestore();
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    }
+  });
+
   test('Advanced HUD counts broken discs once per completed clear animation step', () => {
     const { game } = createGame();
     const homeScreen = lastOf(homeScreenInstances);

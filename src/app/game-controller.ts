@@ -72,6 +72,10 @@ export class SoloSessionController {
   private tutorialStepIndex = 0;
   private saveExitPending = false;
   private readonly playTime = new PlayTimeTracker();
+  // Reason-counted so overlapping pauses (menu opened while backgrounded, etc.)
+  // freeze the session once and resume it only when the last reason clears —
+  // LocalBoardSession.pause()/resume() is a single freeze/thaw, not a stack.
+  private readonly playbackPauseReasons = new Set<string>();
   private readonly userSettings = new UserSettingsStore();
   private advancedHudEnabled = this.userSettings.get().advancedHud;
   private discsBrokenThisGame = 0;
@@ -82,9 +86,17 @@ export class SoloSessionController {
   };
   private readonly handleVisibilityChange = (): void => {
     if (document.visibilityState === 'visible') {
+      // Resume the animation queue too, not just the play-time clock. rAF is
+      // frozen while hidden but performance.now() keeps advancing, so without
+      // this the first frame back sees a huge time jump and snaps the current
+      // animation straight to done (skipping frames, firing its next step's
+      // sound out of context). resumePlayback() shifts the queue forward by the
+      // hidden span so it continues seamlessly.
+      this.resumePlayback('backgrounded');
       this.playTime.resume('backgrounded');
       this.refreshSavesForMenu();
     } else {
+      this.pausePlayback('backgrounded');
       this.playTime.pause('backgrounded');
       this.updateSavedRunMetrics();
     }
@@ -655,7 +667,7 @@ export class SoloSessionController {
     }
     const preview = this.session.previewRewind();
     if (!preview) return;
-    this.pausePlayback();
+    this.pausePlayback('rewind');
     this.playTime.pause('rewind');
     this.gameOverScreen.close();
     this.rewindDialog.show(preview);
@@ -675,7 +687,7 @@ export class SoloSessionController {
     this.pendingRewind = false;
     if (this.state.phase === GamePhase.GameOver) this.openGameOverSummary(true);
     else {
-      this.resumePlayback();
+      this.resumePlayback('rewind');
       this.playTime.resume('rewind');
     }
   }
@@ -772,7 +784,7 @@ export class SoloSessionController {
 
   private openGameMenu(): void {
     if (this.state.phase === GamePhase.Menu) return;
-    this.pausePlayback();
+    this.pausePlayback('menu');
     this.playTime.pause('menu');
     this.updateSavedRunMetrics();
     this.homeScreen.setSoundEnabled(this.audio.isEnabled());
@@ -780,7 +792,7 @@ export class SoloSessionController {
   }
 
   private resumeGame(): void {
-    this.resumePlayback();
+    this.resumePlayback('menu');
     this.playTime.resume('menu');
     this.homeScreen.closeGameMenu();
   }
@@ -849,12 +861,18 @@ export class SoloSessionController {
     this.setGameOver();
   }
 
-  private pausePlayback(): void {
-    this.session.pause();
+  private pausePlayback(reason: string): void {
+    // session.pause() defaults its timestamp to performance.now(); resume()
+    // shifts the animation queue forward by the elapsed span, so the first
+    // reason's pause() and the last reason's resume() must bracket the whole
+    // frozen period for the shift to come out right.
+    if (this.playbackPauseReasons.size === 0) this.session.pause();
+    this.playbackPauseReasons.add(reason);
   }
 
-  private resumePlayback(): void {
-    this.session.resume();
+  private resumePlayback(reason: string): void {
+    if (!this.playbackPauseReasons.delete(reason)) return;
+    if (this.playbackPauseReasons.size === 0) this.session.resume();
   }
 
   destroy(): void {
