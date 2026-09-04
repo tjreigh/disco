@@ -30,11 +30,15 @@ function makeFakeGain() {
 describe('AudioManager', () => {
   let createOscillator: ReturnType<typeof vi.fn>;
   let createGain: ReturnType<typeof vi.fn>;
+  let resume: ReturnType<typeof vi.fn>;
+  let contextState: AudioContextState | 'interrupted';
   let audioContextCtor: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     createOscillator = vi.fn(() => makeFakeOscillator());
     createGain = vi.fn(() => makeFakeGain());
+    resume = vi.fn(() => Promise.resolve());
+    contextState = 'running';
     // AudioManager does `new AudioContext()`, so this stub must be invocable
     // as a constructor. An arrow function can't be (vitest just swallows the
     // resulting TypeError inside beep()'s try/catch, silently under-counting
@@ -46,6 +50,11 @@ describe('AudioManager', () => {
         createGain,
         currentTime: 0,
         destination: {},
+        get state() {
+          return contextState;
+        },
+        resume,
+        addEventListener: vi.fn(),
       };
     });
     vi.stubGlobal('AudioContext', audioContextCtor);
@@ -125,5 +134,38 @@ describe('AudioManager', () => {
     });
     const manager = new AudioManager();
     expect(() => manager.playDrop()).not.toThrow();
+  });
+
+  test('does not schedule oscillators while the context is suspended', () => {
+    contextState = 'suspended';
+    const manager = new AudioManager();
+
+    manager.playDrop();
+    manager.playClear(1);
+    manager.playReveal();
+
+    // A suspended context has a frozen currentTime; anything started here would
+    // pile onto one timestamp and fire as a burst when the context resumes.
+    expect(createOscillator).not.toHaveBeenCalled();
+    // ...but each call still nudges the context toward resuming.
+    expect(resume).toHaveBeenCalled();
+  });
+
+  test('resumes and schedules normally once the context is running again', () => {
+    contextState = 'suspended';
+    const manager = new AudioManager();
+    manager.playDrop();
+    expect(createOscillator).not.toHaveBeenCalled();
+
+    contextState = 'running';
+    manager.playDrop();
+    expect(createOscillator).toHaveBeenCalledTimes(1);
+  });
+
+  test('treats the iOS-only "interrupted" state as not runnable', () => {
+    contextState = 'interrupted';
+    const manager = new AudioManager();
+    manager.playDrop();
+    expect(createOscillator).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,7 @@
 // Web Audio SFX. Browsers suspend the AudioContext when the page is backgrounded
-// and don't resume it on return; the listeners below (and a resume in beep())
-// bring it back.
+// and don't reliably resume it on return; the listeners below bring it back, and
+// beep() refuses to schedule into a context that isn't running (see the comment
+// there for why a suspended context turns queued sounds into a burst).
 
 const liveContexts = new Set<AudioContext>();
 
@@ -24,6 +25,14 @@ function bindLifecycleOnce(): void {
   });
   window.addEventListener('focus', resumeLiveContexts);
   window.addEventListener('pageshow', resumeLiveContexts);
+  // A user gesture is the only path that reliably un-suspends an AudioContext on
+  // mobile (and on desktop when the tab was shown without a focus event). These
+  // stay bound: the context can re-suspend on every background, so one-shot
+  // unlocking isn't enough. All passive, all cheap.
+  const onGesture = (): void => resumeLiveContexts();
+  window.addEventListener('pointerdown', onGesture, { passive: true });
+  window.addEventListener('keydown', onGesture, { passive: true });
+  window.addEventListener('touchstart', onGesture, { passive: true });
 }
 
 export class AudioManager {
@@ -35,6 +44,9 @@ export class AudioManager {
       this.ctx = new AudioContext();
       liveContexts.add(this.ctx);
       bindLifecycleOnce();
+      // A freshly constructed context starts 'suspended' under the autoplay
+      // policy; nudge it now so the first sound has a chance to land.
+      if (isSuspended(this.ctx)) void this.ctx.resume?.().catch(() => {});
       // Recover from an iOS audio interruption that ended while we're foreground.
       this.ctx.addEventListener?.('statechange', () => {
         if (typeof document === 'undefined' || document.visibilityState === 'visible') {
@@ -49,7 +61,15 @@ export class AudioManager {
     if (!this.enabled) return;
     try {
       const ctx  = this.init();
-      if (ctx.state !== 'running') void ctx.resume?.().catch(() => {});
+      if (ctx.state !== 'running') {
+        // Don't schedule into a suspended context. Its currentTime is frozen, so
+        // every oscillator we'd start here stacks onto the same timestamp and
+        // then fires simultaneously the moment the context resumes — the "burst
+        // of sounds after navigating back" bug. Kick a resume and drop this one;
+        // SFX are ephemeral and a late beep is worse than a missing one.
+        void ctx.resume?.().catch(() => {});
+        return;
+      }
       const osc  = ctx.createOscillator();
       const env  = ctx.createGain();
       osc.type   = type;
