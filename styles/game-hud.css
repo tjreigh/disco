@@ -68,6 +68,7 @@
 .game-hud[data-ration-mode="true"] .game-hud__summary {
   justify-items: start;
 }
+.game-hud[data-ration-mode="true"] .game-hud__level { margin-top: 21px; }
 .game-hud__score { margin-bottom: 5px; font-size: 24px; line-height: 1.1; color: #ffffff; }
 .game-hud[data-multiplayer="true"] .game-hud__score,
 .game-hud[data-multiplayer="true"] .game-hud__records { visibility: hidden; }
@@ -250,6 +251,7 @@
 .game-hud__ration {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 16px;
   flex: 0 0 auto;
   min-width: 0;
@@ -316,6 +318,7 @@
 .game-hud__ration[data-status="under"] .game-hud__ration-meter--balance .game-hud__ration-marker { background: #38bdf8; }
 .game-hud__ration[data-status="balanced"] .game-hud__ration-meter--balance .game-hud__ration-marker { background: #34d399; }
 .game-hud__ration[data-status="over"] .game-hud__ration-meter--balance .game-hud__ration-marker { background: #fb7185; }
+.game-hud__ration[data-status="building"] .game-hud__ration-meter--balance .game-hud__ration-marker { background: #94a3b8; }
 .game-hud__ration[data-status="over"] .game-hud__ration-meter--balance .game-hud__ration-value { color: #fda4af; }
 .game-hud__ration[data-status="balanced"] .game-hud__ration-meter--balance .game-hud__ration-value { color: #6ee7b7; }
 .game-hud__entropy-pips {
@@ -333,6 +336,23 @@
   background: rgba(113, 128, 150, .4);
 }
 .game-hud__entropy-pip--filled { background: #fb7185; }
+.game-hud__ration-checkpoint {
+  display: flex;
+  flex: 1 0 100%;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 5px;
+  border-top: 1px solid rgba(113, 128, 150, .28);
+}
+.game-hud__ration-checkpoint-value {
+  color: #93c5fd;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 .game-hud__ration--recovered { animation: ration-recovered 600ms ease-out; }
 .game-hud__ration--imbalanced { animation: ration-imbalanced 600ms ease-out; }
 @keyframes ration-recovered {
@@ -609,6 +629,8 @@
   .game-hud__ration-track { height: 6px; }
   .game-hud__ration-meter { column-gap: 6px; }
   .game-hud__entropy-pip { height: 6px; }
+  .game-hud__ration-checkpoint { padding-top: 4px; }
+  .game-hud__ration-checkpoint-value { font-size: 8px; }
   .multiplayer-hud { padding: 4px 8px; }
   .multiplayer-hud__metric { padding: 0 8px; }
   .multiplayer-hud__label { font-size: 8px; }

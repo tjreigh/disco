@@ -154,6 +154,7 @@ describe('GameHud', () => {
     };
     const ration = {
       recentBreaks: 17, minBreaks: 23, maxBreaks: 27, windowDrops: 29, windowProgress: 29,
+      dropsUntilCheckpoint: 3,
       entropy: 1, entropyThreshold: 4,
       entropyRecoveryPerLevel: 1, entropyMissBase: 1, maxEntropyGainPerLevel: 3,
     };
@@ -162,7 +163,8 @@ describe('GameHud', () => {
     const rationEl = hud.root.querySelector<HTMLElement>('.game-hud__ration')!;
     expect(rationEl.hidden).toBe(false);
     expect(rationEl.dataset.status).toBe('under');
-    expect(rationEl.querySelector('[data-ui-ref="ration-readout"]')?.textContent).toBe('17 / 23–27 · 29/29');
+    expect(rationEl.querySelector('[data-ui-ref="ration-readout"]')?.textContent).toBe('17 / 23–27');
+    expect(rationEl.querySelector('[data-ui-ref="ration-checkpoint"]')?.textContent).toBe('IN 3 DROPS');
     expect(rationEl.querySelector('[data-ui-ref="entropy-value"]')?.textContent).toBe('1/4');
     expect(rationEl.querySelector('.game-hud__ration-label')?.textContent).toBe('BALANCE');
     expect(rationEl.querySelectorAll('.game-hud__entropy-pip')).toHaveLength(4);
@@ -172,6 +174,14 @@ describe('GameHud', () => {
     expect(rationEl.getAttribute('aria-label'))
       .toContain('A balanced checkpoint recovers 1; a missed checkpoint adds 1 to 3 entropy.');
     expect(rationEl.classList.contains('game-hud__ration--imbalanced')).toBe(false);
+
+    hud.render({
+      ...base,
+      ration: { ...ration, recentBreaks: 4, windowProgress: 4, dropsUntilCheckpoint: 8 },
+    });
+    expect(rationEl.dataset.status).toBe('building');
+    expect(rationEl.querySelector('[data-ui-ref="ration-checkpoint"]')?.textContent).toBe('BUILD 4/29');
+    expect(rationEl.getAttribute('aria-label')).toContain('Building the 29-drop balance window');
 
     hud.render({ ...base, ration: { ...ration, recentBreaks: 25 } });
     expect(rationEl.dataset.status).toBe('balanced');

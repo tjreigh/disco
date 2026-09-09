@@ -63,6 +63,8 @@ export interface GameHudState {
     maxBreaks: number;
     windowDrops: number;
     windowProgress: number;
+    /** Drops remaining before the first or next rolling-ledger evaluation. */
+    dropsUntilCheckpoint: number;
     entropy: number;
     entropyThreshold: number;
     /** Entropy recovered per balanced ledger checkpoint. */
@@ -114,6 +116,7 @@ export class GameHud {
   private readonly rationReadout: HTMLElement;
   private readonly rationBand: HTMLElement;
   private readonly rationMarker: HTMLElement;
+  private readonly rationCheckpoint: HTMLElement;
   private readonly entropyValue: HTMLElement;
   private readonly entropyPips: HTMLElement;
   private readonly gravitySr: HTMLElement;
@@ -162,6 +165,7 @@ export class GameHud {
     this.rationReadout = mustQuery(fragment, '[data-ui-ref="ration-readout"]');
     this.rationBand = mustQuery(fragment, '[data-ui-ref="ration-band"]');
     this.rationMarker = mustQuery(fragment, '[data-ui-ref="ration-marker"]');
+    this.rationCheckpoint = mustQuery(fragment, '[data-ui-ref="ration-checkpoint"]');
     this.entropyValue = mustQuery(fragment, '[data-ui-ref="entropy-value"]');
     this.entropyPips = mustQuery(fragment, '.game-hud__entropy-pips');
     this.hint = mustQuery(fragment, '.game-hud__hint');
@@ -384,6 +388,7 @@ export class GameHud {
       maxBreaks,
       windowDrops,
       windowProgress,
+      dropsUntilCheckpoint,
       entropy,
       entropyThreshold,
       entropyRecoveryPerLevel,
@@ -397,8 +402,12 @@ export class GameHud {
     this.rationBand.style.left = `${bandLeft}%`;
     this.rationBand.style.width = `${Math.max(0, bandRight - bandLeft)}%`;
     this.rationMarker.style.left = `${markerLeft}%`;
-    this.rationReadout.textContent = `${recentBreaks} / ${minBreaks}–${maxBreaks} · ${windowProgress}/${windowDrops}`;
-    const status = windowProgress < windowDrops
+    this.rationReadout.textContent = `${recentBreaks} / ${minBreaks}–${maxBreaks}`;
+    const buildingWindow = windowProgress < windowDrops;
+    this.rationCheckpoint.textContent = buildingWindow
+      ? `BUILD ${windowProgress}/${windowDrops}`
+      : `IN ${dropsUntilCheckpoint} ${dropsUntilCheckpoint === 1 ? 'DROP' : 'DROPS'}`;
+    const status = buildingWindow
       ? 'building'
       : recentBreaks < minBreaks
       ? 'under'
@@ -408,9 +417,12 @@ export class GameHud {
     this.ration.dataset.status = status;
     this.ration.setAttribute(
       'aria-label',
-      `Rolling balance ${recentBreaks} breaks in the last ${windowProgress} of ${windowDrops} drops, target ${minBreaks} to ${maxBreaks}, currently ${
-        status === 'building' ? 'building toward' : status === 'under' ? 'below' : status === 'over' ? 'above' : 'inside'
-      } the band. Entropy ${entropy} of ${entropyThreshold}. A balanced checkpoint recovers ${
+      `${buildingWindow
+        ? `Building the ${windowDrops}-drop balance window: ${windowProgress} drops recorded. First evaluation in ${dropsUntilCheckpoint} ${dropsUntilCheckpoint === 1 ? 'drop' : 'drops'}.`
+        : `Rolling balance ${recentBreaks} breaks in the last ${windowDrops} drops, target ${minBreaks} to ${maxBreaks}, currently ${
+          status === 'under' ? 'below' : status === 'over' ? 'above' : 'inside'
+        } the band. Next evaluation in ${dropsUntilCheckpoint} ${dropsUntilCheckpoint === 1 ? 'drop' : 'drops'}.`}
+       Entropy ${entropy} of ${entropyThreshold}. A balanced checkpoint recovers ${
         entropyRecoveryPerLevel
       }; a missed checkpoint adds ${entropyMissBase} to ${maxEntropyGainPerLevel} entropy.`,
     );

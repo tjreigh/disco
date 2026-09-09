@@ -953,21 +953,29 @@ export class SoloSessionController {
         : {}),
       ...(() => {
         const ration = rationRules(this.mode.rules);
-        return ration
-          ? {
-              ration: {
-                recentBreaks: this.state.rationBreakHistory.reduce((total, breaks) => total + breaks, 0),
-                ...rationBreakBand(ration, this.state.level, ration.rollingWindowDrops),
-                windowDrops: ration.rollingWindowDrops,
-                windowProgress: this.state.rationBreakHistory.length,
-                entropy: this.state.entropy,
-                entropyThreshold: ration.entropyThreshold,
-                entropyRecoveryPerLevel: ration.entropyRecoveryPerLevel,
-                entropyMissBase: ration.entropyMissBase,
-                maxEntropyGainPerLevel: ration.maxEntropyGainPerLevel,
-              },
-            }
-          : {};
+        if (!ration) return {};
+        const windowProgress = this.state.rationBreakHistory.length;
+        const buildingWindow = windowProgress < ration.rollingWindowDrops;
+        const dropsSinceCheckpoint = this.state.dropCount % ration.checkpointDrops;
+        const dropsUntilCheckpoint = buildingWindow
+          ? ration.rollingWindowDrops - windowProgress
+          : dropsSinceCheckpoint === 0
+            ? ration.checkpointDrops
+            : ration.checkpointDrops - dropsSinceCheckpoint;
+        return {
+          ration: {
+            recentBreaks: this.state.rationBreakHistory.reduce((total, breaks) => total + breaks, 0),
+            ...rationBreakBand(ration, this.state.level, ration.rollingWindowDrops),
+            windowDrops: ration.rollingWindowDrops,
+            windowProgress,
+            dropsUntilCheckpoint,
+            entropy: this.state.entropy,
+            entropyThreshold: ration.entropyThreshold,
+            entropyRecoveryPerLevel: ration.entropyRecoveryPerLevel,
+            entropyMissBase: ration.entropyMissBase,
+            maxEntropyGainPerLevel: ration.maxEntropyGainPerLevel,
+          },
+        };
       })(),
       hasGravity: this.mode.rules.placement.kind === 'stage-and-tilt@1',
       hasRewind: rewindModifier(this.mode.rules) !== undefined,
