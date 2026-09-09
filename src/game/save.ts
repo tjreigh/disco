@@ -32,6 +32,8 @@ export interface SavedGameState {
   turnsRemaining: number;
   /** Ration-mode counters; absent in non-Ration and legacy saves. */
   breaksThisLevel?: number;
+  rationBreakHistory?: number[];
+  rationPurgeUsed?: boolean;
   entropy?: number;
   balancedLevels?: number;
   gravity?: {
@@ -207,7 +209,7 @@ function parseState(value: unknown, rules: GameRulesConfig, allowGameOver = fals
   if (!isObject(value) || !hasOnlyKeys(value, [
     'phase', 'board', 'cursorCol', 'score', 'dropCount', 'level',
     'turnsPerLevel', 'turnsRemaining',
-  ], ['gravity', 'breaksThisLevel', 'entropy', 'balancedLevels'])) return null;
+  ], ['gravity', 'breaksThisLevel', 'rationBreakHistory', 'rationPurgeUsed', 'entropy', 'balancedLevels'])) return null;
   if ((value.phase !== 'waiting' && (!allowGameOver || value.phase !== 'game-over'))
     || !isNonNegativeInteger(value.cursorCol)
     || !isNonNegativeInteger(value.score)
@@ -217,6 +219,10 @@ function parseState(value: unknown, rules: GameRulesConfig, allowGameOver = fals
     || !isNonNegativeInteger(value.turnsRemaining)
     || (value.phase === 'waiting' && value.turnsRemaining === 0)
     || (value.breaksThisLevel !== undefined && !isNonNegativeInteger(value.breaksThisLevel))
+    || (value.rationBreakHistory !== undefined
+      && (!Array.isArray(value.rationBreakHistory)
+        || value.rationBreakHistory.some(item => !isNonNegativeInteger(item))))
+    || (value.rationPurgeUsed !== undefined && typeof value.rationPurgeUsed !== 'boolean')
     || (value.entropy !== undefined && !isNonNegativeInteger(value.entropy))
     || (value.balancedLevels !== undefined && !isNonNegativeInteger(value.balancedLevels))) return null;
 
@@ -227,6 +233,8 @@ function parseState(value: unknown, rules: GameRulesConfig, allowGameOver = fals
 
   const rationCounters = {
     ...(value.breaksThisLevel !== undefined ? { breaksThisLevel: value.breaksThisLevel } : {}),
+    ...(value.rationBreakHistory !== undefined ? { rationBreakHistory: [...value.rationBreakHistory] } : {}),
+    ...(value.rationPurgeUsed !== undefined ? { rationPurgeUsed: value.rationPurgeUsed } : {}),
     ...(value.entropy !== undefined ? { entropy: value.entropy } : {}),
     ...(value.balancedLevels !== undefined ? { balancedLevels: value.balancedLevels } : {}),
   };

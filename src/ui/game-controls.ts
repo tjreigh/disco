@@ -7,6 +7,8 @@ export interface GameControlsState {
   hasGravity: boolean;
   hasRewind?: boolean;
   canRewind?: boolean;
+  hasPurge?: boolean;
+  canPurge?: boolean;
   cursorLane: number;
   laneCount: number;
   axis: 'col' | 'row';
@@ -29,6 +31,7 @@ export class GameControls {
   private readonly cancelButton: HTMLButtonElement;
   private readonly confirmButton: HTMLButtonElement;
   private readonly rewindButton: HTMLButtonElement;
+  private readonly purgeButton: HTMLButtonElement;
   private readonly onIntent: (intent: InputIntent) => void;
 
   constructor(onIntent: (intent: InputIntent) => void, container?: HTMLElement | null) {
@@ -44,6 +47,7 @@ export class GameControls {
     this.cancelButton = mustQuery(fragment, '[data-control="cancel"]');
     this.confirmButton = mustQuery(fragment, '[data-control="confirm"]');
     this.rewindButton = mustQuery(fragment, '[data-control="rewind"]');
+    this.purgeButton = mustQuery(fragment, '[data-control="purge"]');
 
     this.previousButton.addEventListener('click', () => {
       this.onIntent({ kind: 'move', col: this.lastState.cursorLane - 1 });
@@ -68,6 +72,9 @@ export class GameControls {
     });
     this.rewindButton.addEventListener('click', () => {
       this.onIntent({ kind: 'rewind' });
+    });
+    this.purgeButton.addEventListener('click', () => {
+      this.onIntent({ kind: 'purge' });
     });
 
     (container ?? document.querySelector<HTMLElement>('.shell-region--bottom') ?? document.body).append(fragment);
@@ -101,6 +108,8 @@ export class GameControls {
     this.dropButton.hidden = !waiting;
     this.rewindButton.hidden = !waiting || !state.hasRewind;
     this.rewindButton.disabled = !waiting || !state.canRewind || Boolean(state.disabled);
+    this.purgeButton.hidden = !waiting || !state.hasPurge;
+    this.purgeButton.disabled = !waiting || !state.canPurge || Boolean(state.disabled);
     this.counterClockwiseButton.hidden = !aiming;
     this.clockwiseButton.hidden = !aiming;
     this.cancelButton.hidden = !aiming;

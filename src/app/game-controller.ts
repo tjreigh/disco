@@ -427,6 +427,15 @@ export class SoloSessionController {
       return;
     }
 
+    if (intent.kind === 'purge') {
+      if (this.state.phase !== GamePhase.WaitingForDrop || this.activeTutorial) return;
+      if (this.session.purge(this.state.cursorCol)) {
+        this.writeCurrentSave();
+        this.debug.refresh();
+      }
+      return;
+    }
+
     // A Gravity turn stages a lane first. Q/E then rotates that staged drop;
     // there is no standalone tilt action outside Aiming.
     if (intent.kind === 'tilt') {
@@ -900,6 +909,8 @@ export class SoloSessionController {
       hasGravity: this.mode.rules.placement.kind === 'stage-and-tilt@1',
       hasRewind: rewindModifier(this.mode.rules) !== undefined,
       canRewind: this.session.canRewind(),
+      hasPurge: rationRules(this.mode.rules) !== undefined,
+      canPurge: this.session.canPurge(this.state.cursorCol),
       cursorLane: this.state.cursorCol,
       laneCount: view.laneCount,
       axis: view.axis,
@@ -945,9 +956,10 @@ export class SoloSessionController {
         return ration
           ? {
               ration: {
-                breaksThisLevel: this.state.breaksThisLevel,
-                ...rationBreakBand(ration, this.state.level, this.state.turnsPerLevel),
-                levelDrops: this.state.turnsPerLevel,
+                recentBreaks: this.state.rationBreakHistory.reduce((total, breaks) => total + breaks, 0),
+                ...rationBreakBand(ration, this.state.level, ration.rollingWindowDrops),
+                windowDrops: ration.rollingWindowDrops,
+                windowProgress: this.state.rationBreakHistory.length,
                 entropy: this.state.entropy,
                 entropyThreshold: ration.entropyThreshold,
                 entropyRecoveryPerLevel: ration.entropyRecoveryPerLevel,

@@ -29,6 +29,8 @@ function quietCrackedFactory() {
 /** Constant-budget Ration test mode with a fixed band and classic entropy tuning. */
 function rationTestMode(overrides: {
   budget?: number;
+  rollingWindowDrops?: number;
+  checkpointDrops?: number;
   band?: { center: number; halfWidth: number };
   entropy?: Partial<Pick<RationRules,
     | 'entropyThreshold'
@@ -40,6 +42,8 @@ function rationTestMode(overrides: {
   >>;
 } = {}) {
   const budget = overrides.budget ?? 1;
+  const rollingWindowDrops = overrides.rollingWindowDrops ?? 1;
+  const checkpointDrops = overrides.checkpointDrops ?? 1;
   const center = overrides.band?.center ?? 0.75;
   const halfWidth = overrides.band?.halfWidth ?? 0.25;
   return testMode({
@@ -51,12 +55,15 @@ function rationTestMode(overrides: {
       bandCenterLevelStep: 0,
       minBandCenter: center,
       bandHalfWidth: halfWidth,
+      rollingWindowDrops,
+      checkpointDrops,
       entropyThreshold: 4,
       entropyRecoveryPerLevel: 1,
       entropyMissBase: 1,
       entropyPerDeviationUnit: 0.1,
       maxEntropyGainPerLevel: 3,
       balancedLevelBonus: 2_500,
+      purgeScorePenalty: 250,
       ...overrides.entropy,
     },
   }, RATION_RULES);
@@ -67,35 +74,35 @@ describe('Ration band math', () => {
 
   test('the band center descends each level and floors at minBandCenter', () => {
     expect(rationBandForLevel(ration, 1)).toEqual({
-      minBreaksPerDrop: 0.92 - 0.11,
-      maxBreaksPerDrop: 0.92 + 0.11,
+      minBreaksPerDrop: 0.85 - 0.2,
+      maxBreaksPerDrop: 0.85 + 0.2,
     });
     expect(rationBandForLevel(ration, 2)).toEqual({
-      minBreaksPerDrop: 0.87 - 0.11,
-      maxBreaksPerDrop: 0.87 + 0.11,
+      minBreaksPerDrop: 0.82 - 0.2,
+      maxBreaksPerDrop: 0.82 + 0.2,
     });
-    expect(rationBandForLevel(ration, 7)).toEqual({
-      minBreaksPerDrop: 0.62 - 0.11,
-      maxBreaksPerDrop: 0.62 + 0.11,
+    expect(rationBandForLevel(ration, 7)).toMatchObject({
+      minBreaksPerDrop: expect.closeTo(0.47),
+      maxBreaksPerDrop: expect.closeTo(0.87),
     });
     expect(rationBandForLevel(ration, 8)).toEqual({
-      minBreaksPerDrop: 0.6 - 0.11,
-      maxBreaksPerDrop: 0.6 + 0.11,
+      minBreaksPerDrop: 0.65 - 0.2,
+      maxBreaksPerDrop: 0.65 + 0.2,
     });
     expect(rationBandForLevel(ration, 100)).toEqual({
-      minBreaksPerDrop: 0.6 - 0.11,
-      maxBreaksPerDrop: 0.6 + 0.11,
+      minBreaksPerDrop: 0.65 - 0.2,
+      maxBreaksPerDrop: 0.65 + 0.2,
     });
   });
 
   test('the integer break range exactly matches the ratio judgment', () => {
-    expect(rationBreakBand(ration, 2, 29)).toEqual({ minBreaks: 23, maxBreaks: 28 });
+    expect(rationBreakBand(ration, 2, 29)).toEqual({ minBreaks: 18, maxBreaks: 29 });
     // Both edges of the rounded range are balanced; one break outside either
     // edge falls out of band.
-    expect(rationLevelJudgment(ration, 2, 23, 29)).toMatchObject({ balanced: true, deviation: 0 });
-    expect(rationLevelJudgment(ration, 2, 28, 29)).toMatchObject({ balanced: true, deviation: 0 });
-    expect(rationLevelJudgment(ration, 2, 22, 29)).toMatchObject({ balanced: false });
-    expect(rationLevelJudgment(ration, 2, 29, 29)).toMatchObject({ balanced: false });
+    expect(rationLevelJudgment(ration, 2, 18, 29)).toMatchObject({ balanced: true, deviation: 0 });
+    expect(rationLevelJudgment(ration, 2, 29, 29)).toMatchObject({ balanced: true, deviation: 0 });
+    expect(rationLevelJudgment(ration, 2, 17, 29)).toMatchObject({ balanced: false });
+    expect(rationLevelJudgment(ration, 2, 30, 29)).toMatchObject({ balanced: false });
   });
 
   test('the upper bound is not clamped to the turn budget (carry-over clears)', () => {
@@ -118,15 +125,15 @@ describe('Ration band math', () => {
     expect(rationBreakBand(narrow, 1, 30)).toEqual({ minBreaks: 33, maxBreaks: 39 });
   });
 
-  test('a fresh level cannot overshoot because the board starts empty', () => {
-    expect(rationBreakBand(ration, 1, 30).maxBreaks).toBeLessThanOrEqual(30);
+  test('the rolling band permits carry-over clears above one break per drop', () => {
+    expect(rationBreakBand(ration, 1, 30).maxBreaks).toBeGreaterThan(30);
   });
 
   test('entropy gain scales with deviation and caps per level', () => {
     expect(rationEntropyGain(ration, 0)).toBe(0);
     expect(rationEntropyGain(ration, 0.05)).toBe(1);
-    expect(rationEntropyGain(ration, 0.5)).toBe(3); // 1 + 5, capped at 3
-    expect(rationEntropyGain(ration, 2.5)).toBe(3);
+    expect(rationEntropyGain(ration, 0.5)).toBe(2); // capped at 2
+    expect(rationEntropyGain(ration, 2.5)).toBe(2);
   });
 });
 
@@ -148,7 +155,7 @@ describe('Ration level judgment in the engine', () => {
     const result = engine.drop(2);
     expect(engine.state.breaksThisLevel).toBe(0);
     expect(engine.state.level).toBe(2);
-    expect(engine.state.balancedLevels).toBe(1);
+    expect(engine.state.balancedLevels).toBe(3);
     expect(result.steps).toContainEqual({
       kind: StepKind.Bonus,
       bonusKind: 'level',
@@ -186,7 +193,7 @@ describe('Ration level judgment in the engine', () => {
     expect(engine.state.level).toBe(2);
   });
 
-  test('a missed level forfeits the level bonus and adds entropy', () => {
+  test('a missed checkpoint keeps the normal level bonus but adds entropy', () => {
     const rules = rationTestMode({ budget: 1, band: { center: 0.75, halfWidth: 0.25 } });
     const engine = new GameEngine({
       rules,
@@ -197,8 +204,8 @@ describe('Ration level judgment in the engine', () => {
     const result = engine.drop(0);
 
     expect(engine.state.breaksThisLevel).toBe(0);
-    expect(result.steps.some(step => step.kind === StepKind.Bonus && step.bonusKind === 'level')).toBe(false);
-    expect(result.scoreAwarded).toBe(0);
+    expect(result.steps.some(step => step.kind === StepKind.Bonus && step.bonusKind === 'level')).toBe(true);
+    expect(result.scoreAwarded).toBe(7_000);
     expect(engine.state.entropy).toBe(3); // 1 + floor(0.5 / 0.1), capped at 3
     expect(engine.state.balancedLevels).toBe(0);
     expect(engine.state.level).toBe(2);
@@ -222,8 +229,58 @@ describe('Ration level judgment in the engine', () => {
     const result = engine.drop(2);
 
     expect(result.stackSize).toBe(3);
-    expect(result.steps.some(step => step.kind === StepKind.Bonus && step.bonusKind === 'level')).toBe(false);
+    expect(result.steps.some(step => step.kind === StepKind.Bonus && step.bonusKind === 'level')).toBe(true);
     expect(engine.state.entropy).toBe(3);
+  });
+
+  test('judges a full rolling ledger at checkpoints instead of level boundaries', () => {
+    const rules = rationTestMode({
+      budget: 10,
+      rollingWindowDrops: 3,
+      checkpointDrops: 3,
+      band: { center: 1, halfWidth: 0.01 },
+    });
+    const engine = new GameEngine({
+      rules,
+      discFactory: numberedFactory(1, 1, 1, 1),
+      crackedDiscFactory: quietCrackedFactory(),
+    });
+
+    engine.drop(0);
+    engine.drop(1);
+    expect(engine.state.entropy).toBe(0);
+    expect(engine.state.balancedLevels).toBe(0);
+
+    const checkpoint = engine.drop(2);
+    expect(engine.state.rationBreakHistory).toEqual([1, 1, 1]);
+    expect(engine.state.balancedLevels).toBe(1);
+    expect(checkpoint.steps).toContainEqual({
+      kind: StepKind.Bonus,
+      bonusKind: 'balanced',
+      pointsAwarded: 2_500,
+    });
+  });
+
+  test('Purging an exposed lane disc costs score without changing the ledger or consuming a drop', () => {
+    const rules = rationTestMode({ budget: 10 });
+    const board = makeEmptyBoard();
+    placeDisc(board, 5, 3, makeDisc(6, DiscKind.Numbered));
+    const engine = new GameEngine({ rules });
+    engine.loadScriptedState({
+      rules,
+      board,
+      currentDisc: makeDisc(2, DiscKind.Numbered),
+      score: 2_500,
+      rationBreakHistory: [1, 0],
+    });
+
+    expect(engine.canPurge(3)).toBe(true);
+    expect(engine.purge(3)).toEqual({ row: 5, col: 3 });
+    expect(engine.state.board[5]![3]).toBeNull();
+    expect(engine.state.score).toBe(2_250);
+    expect(engine.state.dropCount).toBe(0);
+    expect(engine.state.rationBreakHistory).toEqual([1, 0]);
+    expect(engine.canPurge(3)).toBe(false);
   });
 
   test('repeated misses fill the entropy meter and end the run with imbalance', () => {
@@ -297,6 +354,8 @@ describe('Ration save and reload', () => {
       level: 4,
       turnsRemaining: 1,
       breaksThisLevel: 5,
+      rationBreakHistory: [0, 1, 3],
+      rationPurgeUsed: true,
       entropy: 2,
       balancedLevels: 3,
       crackedDiscFactory: quietCrackedFactory(),
@@ -310,6 +369,8 @@ describe('Ration save and reload', () => {
     restored.loadSave(save, rules);
 
     expect(restored.state.breaksThisLevel).toBe(5);
+    expect(restored.state.rationBreakHistory).toEqual([0, 1, 3]);
+    expect(restored.state.rationPurgeUsed).toBe(true);
     expect(restored.state.entropy).toBe(2);
     expect(restored.state.balancedLevels).toBe(3);
     expect(restored.state.level).toBe(4);
@@ -323,12 +384,16 @@ describe('Ration save and reload', () => {
     // Simulate a save produced before the Ration counters existed: the optional
     // keys are absent rather than present-but-zero.
     delete save.state.breaksThisLevel;
+    delete save.state.rationBreakHistory;
+    delete save.state.rationPurgeUsed;
     delete save.state.entropy;
     delete save.state.balancedLevels;
     const restored = new GameEngine({ rules, seed: 7 });
     restored.loadSave(save, rules);
 
     expect(restored.state.breaksThisLevel).toBe(0);
+    expect(restored.state.rationBreakHistory).toEqual([]);
+    expect(restored.state.rationPurgeUsed).toBe(false);
     expect(restored.state.entropy).toBe(0);
     expect(restored.state.balancedLevels).toBe(0);
   });
@@ -347,7 +412,7 @@ describe('Ration save and reload', () => {
     // A never-saved twin plays the whole sequence so the resumed engine can be
     // compared turn by turn against the identical original trajectory.
     const live = new GameEngine({ rules, seed });
-    for (const lane of [...firstPlays, ...restPlays]) live.drop(lane);
+    for (const lane of firstPlays) live.drop(lane);
 
     for (const lane of restPlays) {
       const fromSave = restored.drop(lane);

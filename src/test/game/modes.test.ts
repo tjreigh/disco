@@ -133,7 +133,7 @@ describe('composed solo rules', () => {
     expect(temporalEchoProbability(PARADOX_RULES, 9)).toBe(0.3);
   });
 
-  test('Ration composes Classic play with a per-level break band and lower x-disc rate', () => {
+  test('Ration composes Classic play with a rolling break ledger and lower x-disc rate', () => {
     expect(RATION_RULES.board).toBe(CLASSIC_RULES.board);
     expect(RATION_RULES.placement).toBe(CLASSIC_RULES.placement);
     expect(RATION_RULES.clearing).toBe(CLASSIC_RULES.clearing);
@@ -150,11 +150,14 @@ describe('composed solo rules', () => {
     expect(RATION_RULES.modifiers).toEqual([]);
     expect(RATION_RULES.ration).toMatchObject({
       kind: 'ration-band@1',
-      initialBandCenter: 0.92,
-      minBandCenter: 0.6,
-      bandHalfWidth: 0.11,
-      entropyThreshold: 4,
-      balancedLevelBonus: 2_500,
+      initialBandCenter: 0.85,
+      minBandCenter: 0.65,
+      bandHalfWidth: 0.2,
+      rollingWindowDrops: 12,
+      checkpointDrops: 3,
+      entropyThreshold: 5,
+      balancedLevelBonus: 750,
+      purgeScorePenalty: 250,
     });
     expect(unnumberedProbabilityForLevel(RATION_RULES.generation, 1)).toBe(0.12);
     expect(unnumberedProbabilityForLevel(RATION_RULES.generation, 21)).toBe(0.25);

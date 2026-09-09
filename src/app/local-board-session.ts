@@ -243,6 +243,19 @@ export class LocalBoardSession {
     return result;
   }
 
+  /** Apply Ration's non-turn Purge and immediately synchronize presentation. */
+  purge(lane: number): boolean {
+    if (this.engine.purge(lane) === null) return false;
+    this.visualBoard = deepCloneBoard(this.state.board);
+    this.displayedScore = this.state.score;
+    this.resetStackPresentation();
+    return true;
+  }
+
+  canPurge(lane: number): boolean {
+    return this.engine.canPurge(lane);
+  }
+
   commitTilt(now = performance.now()): TurnResult {
     const previousLevelProgress = this.snapshotLevelProgress();
     const gravity = this.state.gravity;

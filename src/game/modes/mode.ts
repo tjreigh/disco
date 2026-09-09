@@ -108,9 +108,9 @@ export interface FailureRules {
 }
 
 /**
- * Ration's per-level clear budget. Each level's breaks (numbered discs cleared)
- * must land inside a band of breaks-per-drop; deviations feed an Entropy meter
- * that ends the run at a threshold. `levelDrops` is the level's turn budget.
+ * Ration's rolling clear ledger. Recent numbered-disc breaks must stay inside
+ * a band of breaks-per-drop; checkpoint deviations feed an Entropy meter that
+ * ends the run at a threshold. Levels still control pushes and progression.
  */
 export interface RationRules {
   readonly kind: 'ration-band@1';
@@ -122,18 +122,24 @@ export interface RationRules {
   readonly minBandCenter: number;
   /** Half-width of the band around its center, in breaks-per-drop. */
   readonly bandHalfWidth: number;
+  /** Number of most-recent drops included in the balance ledger. */
+  readonly rollingWindowDrops: number;
+  /** Evaluate the full ledger after this many accepted drops. */
+  readonly checkpointDrops: number;
   /** Entropy value that ends the run. */
   readonly entropyThreshold: number;
-  /** Entropy recovered per level finished inside the band. */
+  /** Entropy recovered by a balanced ledger checkpoint. */
   readonly entropyRecoveryPerLevel: number;
-  /** Base entropy gained for missing the band. */
+  /** Base entropy gained for missing a ledger checkpoint. */
   readonly entropyMissBase: number;
   /** Additional entropy per band-unit of deviation, in breaks-per-drop. */
   readonly entropyPerDeviationUnit: number;
-  /** Cap on entropy gained from a single missed level. */
+  /** Cap on entropy gained from a single missed checkpoint. */
   readonly maxEntropyGainPerLevel: number;
-  /** Points awarded for finishing a level inside the band. */
+  /** Points awarded for a balanced ledger checkpoint. */
   readonly balancedLevelBonus: number;
+  /** Score paid to remove the exposed disc in a selected lane once per level. */
+  readonly purgeScorePenalty: number;
 }
 
 /** Enables deterministic rewind through a bounded history of stable turns. */
@@ -371,6 +377,8 @@ export function defineGameRules(config: GameRulesConfig): GameRulesConfig {
       ['Ration band center step', ration.bandCenterLevelStep],
       ['Ration band floor', ration.minBandCenter],
       ['Ration band half-width', ration.bandHalfWidth],
+      ['Ration rolling window', ration.rollingWindowDrops],
+      ['Ration checkpoint interval', ration.checkpointDrops],
       ['Ration deviation unit', ration.entropyPerDeviationUnit],
     ] as const) {
       if (!Number.isFinite(value) || value <= 0) {
@@ -383,6 +391,7 @@ export function defineGameRules(config: GameRulesConfig): GameRulesConfig {
       ['Ration entropy miss base', ration.entropyMissBase],
       ['Ration max entropy gain', ration.maxEntropyGainPerLevel],
       ['Ration balanced bonus', ration.balancedLevelBonus],
+      ['Ration purge score penalty', ration.purgeScorePenalty],
     ] as const) {
       if (!Number.isSafeInteger(value) || value < 0) {
         throw new Error(`${label} for ${config.id} must be a non-negative integer`);
@@ -390,6 +399,13 @@ export function defineGameRules(config: GameRulesConfig): GameRulesConfig {
     }
     if (ration.entropyThreshold < 1) {
       throw new Error(`Ration entropy threshold for ${config.id} must be at least 1`);
+    }
+    if (ration.rollingWindowDrops < ration.checkpointDrops) {
+      throw new Error(`Ration rolling window for ${config.id} must cover at least one checkpoint`);
+    }
+    if (!Number.isSafeInteger(ration.rollingWindowDrops)
+      || !Number.isSafeInteger(ration.checkpointDrops)) {
+      throw new Error(`Ration rolling window and checkpoint interval for ${config.id} must be integers`);
     }
   }
 

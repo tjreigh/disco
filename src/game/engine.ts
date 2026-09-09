@@ -87,6 +87,8 @@ export interface ScriptedGameStateOptions {
   turnsRemaining?: number;
   /** Ration-mode scripted scenarios only. */
   breaksThisLevel?: number;
+  rationBreakHistory?: readonly number[];
+  rationPurgeUsed?: boolean;
   entropy?: number;
   balancedLevels?: number;
   /** Gravity-mode scripted scenarios only: starting angle, defaulting to the mode's initialAngleDeg (e.g. a tutorial step that wants the board pre-tilted). Ignored for modes without gravity. */
@@ -161,6 +163,8 @@ export class GameEngine {
       turnsPerLevel: turnsForLevel(this.rules.progression, 1),
       turnsRemaining: turnsForLevel(this.rules.progression, 1),
       breaksThisLevel: 0,
+      rationBreakHistory: [],
+      rationPurgeUsed: false,
       entropy: 0,
       balancedLevels: 0,
       gravity: this.gravitySystem.initialState(),
@@ -202,6 +206,8 @@ export class GameEngine {
         ...(this.state.gravity ? { gravity: { angle: this.state.gravity.angle } } : {}),
         ...(rationRules(this.rules) ? {
           breaksThisLevel: this.state.breaksThisLevel,
+          rationBreakHistory: this.state.rationBreakHistory,
+          rationPurgeUsed: this.state.rationPurgeUsed,
           entropy: this.state.entropy,
           balancedLevels: this.state.balancedLevels,
         } : {}),
@@ -281,6 +287,8 @@ export class GameEngine {
     this.state.turnsPerLevel = save.state.turnsPerLevel;
     this.state.turnsRemaining = save.state.turnsRemaining;
     this.state.breaksThisLevel = save.state.breaksThisLevel ?? 0;
+    this.state.rationBreakHistory = [...(save.state.rationBreakHistory ?? [])];
+    this.state.rationPurgeUsed = save.state.rationPurgeUsed ?? false;
     this.state.entropy = save.state.entropy ?? 0;
     this.state.balancedLevels = save.state.balancedLevels ?? 0;
     this.state.gravity = this.gravitySystem.restoredState(save.state.gravity?.angle);
@@ -433,6 +441,33 @@ export class GameEngine {
     return this.gravitySystem.previewDropLanding(this.state, lane, this.queue.peek());
   }
 
+  /** Whether the selected Ration lane has an exposed disc that can be purged. */
+  canPurge(lane: number): boolean {
+    const ration = rationRules(this.rules);
+    return ration !== undefined
+      && this.state.phase === GamePhase.WaitingForDrop
+      && !this.state.rationPurgeUsed
+      && this.state.score >= ration.purgeScorePenalty
+      && lane >= 0
+      && lane < this.rules.board.cols
+      && this.state.board.some(row => row[lane] !== null);
+  }
+
+  /**
+   * Remove the topmost disc in a selected Ration lane. It costs score but is
+   * not a drop and therefore never contributes to the rolling balance ledger.
+   */
+  purge(lane: number): GridPos | null {
+    if (!this.canPurge(lane)) return null;
+    const row = this.state.board.findIndex(candidate => candidate[lane] !== null);
+    if (row < 0) return null;
+    const ration = rationRules(this.rules)!;
+    this.state.board[row]![lane] = null;
+    this.state.score -= ration.purgeScorePenalty;
+    this.state.rationPurgeUsed = true;
+    return { row, col: lane };
+  }
+
   // Backs out of an in-progress tilt for free — state.board was never
   // touched during Aiming, so this only needs to restore the angle and phase.
   cancelTilt(): void {
@@ -538,7 +573,13 @@ export class GameEngine {
     // continues an existing chain or initiates the turn's first clear.
     const stackSize = entryStackSize + pushStackSize;
     const ration = rationRules(this.rules);
-    if (ration) this.state.breaksThisLevel += stackSize;
+    if (ration) {
+      this.state.breaksThisLevel += stackSize;
+      this.state.rationBreakHistory.push(stackSize);
+      if (this.state.rationBreakHistory.length > ration.rollingWindowDrops) {
+        this.state.rationBreakHistory.shift();
+      }
+    }
     if (this.rules.scoring.kind === 'stack-score@1' && stackSize > 0) {
       steps.push({
         kind: StepKind.Bonus,
@@ -547,45 +588,42 @@ export class GameEngine {
       });
     }
 
-    // Ration judges the level's clear total against its band here so the
-    // resulting bonuses are part of this turn's score, then lets the entropy
-    // outcome feed the game-over decision below. Missing the band forfeits the
-    // level bonus; finishing inside it keeps it, adds the balanced bonus, and
-    // recovers entropy.
+    // Ration judges a complete rolling ledger every few drops. Level pushes
+    // remain part of board pressure, but they no longer seal a whole level's
+    // fate. The normal level award now remains available to every completed
+    // level; balance is rewarded and penalized at its own checkpoints.
     let imbalanceGameOver = false;
-    if (levelComplete && !pushOverflow) {
-      if (ration) {
-        const judgment = rationLevelJudgment(
-          ration,
-          this.state.level,
-          this.state.breaksThisLevel,
-          this.state.turnsPerLevel,
-        );
-        if (judgment.balanced) {
-          steps.push({
-            kind: StepKind.Bonus,
-            bonusKind: 'level',
-            pointsAwarded: this.rules.scoring.levelBonus,
-          });
-          steps.push({
-            kind: StepKind.Bonus,
-            bonusKind: 'balanced',
-            pointsAwarded: ration.balancedLevelBonus,
-          });
-          this.state.entropy = Math.max(0, this.state.entropy - ration.entropyRecoveryPerLevel);
-          this.state.balancedLevels++;
-        } else {
-          const gained = rationEntropyGain(ration, judgment.deviation);
-          this.state.entropy = Math.min(ration.entropyThreshold, this.state.entropy + gained);
-          if (this.state.entropy >= ration.entropyThreshold) imbalanceGameOver = true;
-        }
-      } else {
+    const rationCheckpoint = ration !== undefined
+      && !pushOverflow
+      && this.state.rationBreakHistory.length === ration.rollingWindowDrops
+      && this.state.dropCount % ration.checkpointDrops === 0;
+    if (rationCheckpoint) {
+      const judgment = rationLevelJudgment(
+        ration,
+        this.state.level,
+        this.state.rationBreakHistory.reduce((total, breaks) => total + breaks, 0),
+        ration.rollingWindowDrops,
+      );
+      if (judgment.balanced) {
         steps.push({
           kind: StepKind.Bonus,
-          bonusKind: 'level',
-          pointsAwarded: this.rules.scoring.levelBonus,
+          bonusKind: 'balanced',
+          pointsAwarded: ration.balancedLevelBonus,
         });
+        this.state.entropy = Math.max(0, this.state.entropy - ration.entropyRecoveryPerLevel);
+        this.state.balancedLevels++;
+      } else {
+        const gained = rationEntropyGain(ration, judgment.deviation);
+        this.state.entropy = Math.min(ration.entropyThreshold, this.state.entropy + gained);
+        if (this.state.entropy >= ration.entropyThreshold) imbalanceGameOver = true;
       }
+    }
+    if (levelComplete && !pushOverflow) {
+      steps.push({
+        kind: StepKind.Bonus,
+        bonusKind: 'level',
+        pointsAwarded: this.rules.scoring.levelBonus,
+      });
     }
 
     const scoreAwarded = steps.reduce(
@@ -630,6 +668,7 @@ export class GameEngine {
       this.state.turnsPerLevel = turnsForLevel(this.rules.progression, this.state.level);
       this.state.turnsRemaining = this.state.turnsPerLevel;
       this.state.breaksThisLevel = 0;
+      this.state.rationPurgeUsed = false;
     }
 
     // Keep the already-previewed discs stable. Only the new tail disc uses the
@@ -736,6 +775,8 @@ export class GameEngine {
     this.state.turnsPerLevel = turnsForLevel(this.rules.progression, level);
     this.state.turnsRemaining = options.turnsRemaining ?? this.state.turnsPerLevel;
     this.state.breaksThisLevel = options.breaksThisLevel ?? 0;
+    this.state.rationBreakHistory = [...(options.rationBreakHistory ?? [])];
+    this.state.rationPurgeUsed = options.rationPurgeUsed ?? false;
     this.state.entropy = options.entropy ?? 0;
     this.state.balancedLevels = options.balancedLevels ?? 0;
     // Re-derive gravity state for whichever mode is now active — a scripted
@@ -904,6 +945,8 @@ export class GameEngine {
     // Ration never coexists with rewind, so a restored checkpoint always starts
     // fresh counters; a future combined mode would snapshot them on the checkpoint.
     this.state.breaksThisLevel = 0;
+    this.state.rationBreakHistory = [];
+    this.state.rationPurgeUsed = false;
     this.state.entropy = 0;
     this.state.balancedLevels = 0;
     this.state.gravity = checkpoint.gravity ? { ...checkpoint.gravity } : undefined;
@@ -923,6 +966,8 @@ export class GameEngine {
     this.state.turnsPerLevel = turnsForLevel(this.rules.progression, 1);
     this.state.turnsRemaining = this.state.turnsPerLevel;
     this.state.breaksThisLevel = 0;
+    this.state.rationBreakHistory = [];
+    this.state.rationPurgeUsed = false;
     this.state.entropy = 0;
     this.state.balancedLevels = 0;
     this.state.gravity = this.gravitySystem.initialState();

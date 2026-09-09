@@ -58,6 +58,17 @@ describe('GameControls', () => {
     expect(rewind.hidden).toBe(true);
   });
 
+  test('Ration play exposes an actionable Purge control', () => {
+    render({ hasPurge: true, canPurge: false });
+    const purge = document.querySelector<HTMLButtonElement>('[data-control="purge"]')!;
+    expect(purge.hidden).toBe(false);
+    expect(purge.disabled).toBe(true);
+
+    render({ hasPurge: true, canPurge: true });
+    purge.click();
+    expect(intents).toEqual([{ kind: 'purge' }]);
+  });
+
   test('gravity aiming exposes tilt controls and keeps row-aware labels', () => {
     render({ phase: GamePhase.Aiming, hasGravity: true, axis: 'row' });
 

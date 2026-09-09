@@ -7,6 +7,7 @@ export type InputIntent =
   | { kind: 'move'; col: number }
   | { kind: 'tilt'; delta: number }
   | { kind: 'cancel' }
+  | { kind: 'purge' }
   | { kind: 'rewind' }
   | { kind: 'restart' };
 
@@ -81,6 +82,12 @@ export class InputHandler {
       if (rewindKey) {
         e.preventDefault();
         this.emit({ kind: 'rewind' });
+        return;
+      }
+
+      if (e.key === 'x' || e.key === 'X') {
+        e.preventDefault();
+        this.emit({ kind: 'purge' });
         return;
       }
 

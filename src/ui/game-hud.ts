@@ -58,15 +58,16 @@ export interface GameHudState {
   } | null;
   /** Ration balance meter state. Omit for non-Ration modes. */
   ration?: {
-    breaksThisLevel: number;
+    recentBreaks: number;
     minBreaks: number;
     maxBreaks: number;
-    levelDrops: number;
+    windowDrops: number;
+    windowProgress: number;
     entropy: number;
     entropyThreshold: number;
-    /** Entropy recovered per level finished inside the band. */
+    /** Entropy recovered per balanced ledger checkpoint. */
     entropyRecoveryPerLevel: number;
-    /** Minimum entropy added for missing the band. */
+    /** Minimum entropy added for a missed ledger checkpoint. */
     entropyMissBase: number;
     /** Cap on entropy added by a single missed level. */
     maxEntropyGainPerLevel: number;
@@ -378,37 +379,40 @@ export class GameHud {
 
   private renderRation(ration: NonNullable<GameHudState['ration']>): void {
     const {
-      breaksThisLevel,
+      recentBreaks,
       minBreaks,
       maxBreaks,
-      levelDrops,
+      windowDrops,
+      windowProgress,
       entropy,
       entropyThreshold,
       entropyRecoveryPerLevel,
       entropyMissBase,
       maxEntropyGainPerLevel,
     } = ration;
-    const scale = Math.max(1, levelDrops);
+    const scale = Math.max(1, windowDrops);
     const bandLeft = Math.min(1, Math.max(0, minBreaks / scale)) * 100;
     const bandRight = Math.min(1, Math.max(0, maxBreaks / scale)) * 100;
-    const markerLeft = Math.min(1, Math.max(0, breaksThisLevel / scale)) * 100;
+    const markerLeft = Math.min(1, Math.max(0, recentBreaks / scale)) * 100;
     this.rationBand.style.left = `${bandLeft}%`;
     this.rationBand.style.width = `${Math.max(0, bandRight - bandLeft)}%`;
     this.rationMarker.style.left = `${markerLeft}%`;
-    this.rationReadout.textContent = `${breaksThisLevel} / ${minBreaks}–${maxBreaks}`;
-    const status = breaksThisLevel < minBreaks
+    this.rationReadout.textContent = `${recentBreaks} / ${minBreaks}–${maxBreaks} · ${windowProgress}/${windowDrops}`;
+    const status = windowProgress < windowDrops
+      ? 'building'
+      : recentBreaks < minBreaks
       ? 'under'
-      : breaksThisLevel > maxBreaks
+      : recentBreaks > maxBreaks
         ? 'over'
         : 'balanced';
     this.ration.dataset.status = status;
     this.ration.setAttribute(
       'aria-label',
-      `Level balance ${breaksThisLevel} breaks, target ${minBreaks} to ${maxBreaks}, currently ${
-        status === 'under' ? 'below' : status === 'over' ? 'above' : 'inside'
-      } the band. Entropy ${entropy} of ${entropyThreshold}. A balanced level recovers ${
+      `Rolling balance ${recentBreaks} breaks in the last ${windowProgress} of ${windowDrops} drops, target ${minBreaks} to ${maxBreaks}, currently ${
+        status === 'building' ? 'building toward' : status === 'under' ? 'below' : status === 'over' ? 'above' : 'inside'
+      } the band. Entropy ${entropy} of ${entropyThreshold}. A balanced checkpoint recovers ${
         entropyRecoveryPerLevel
-      }; a missed level adds ${entropyMissBase} to ${maxEntropyGainPerLevel} entropy.`,
+      }; a missed checkpoint adds ${entropyMissBase} to ${maxEntropyGainPerLevel} entropy.`,
     );
     this.renderEntropyPips(entropy, entropyThreshold);
     this.renderEntropyTransition(entropy);
@@ -572,6 +576,7 @@ function controlHintsFor(
     { controls: '← →', action: 'Move' },
     { controls: '↓ / Click', action: 'Drop' },
   ];
+  if (state.ration) hints.push({ controls: 'X', action: 'Purge lane' });
   if (state.hasRewind) hints.push({ controls: 'Z', action: 'Rewind' });
   if (state.hasRestart !== false) hints.push({ controls: 'R', action: 'New game' });
   return hints;
@@ -593,6 +598,11 @@ function hintFor(state: GameHudState, needsTilt = false, confirmReady = false): 
   }
   if (state.hasRewind) {
     return touch ? 'Tap column to drop · REWIND undoes one turn' : '← → move  ↓ / click drop  Z rewind  R restart';
+  }
+  if (state.ration) {
+    return touch
+      ? 'Tap column to drop · PURGE clears the highlighted lane top'
+      : '← → move  ↓ / click drop  X purge lane top  R restart';
   }
   return touch ? 'Tap column to drop' : '← → move  ↓ / click drop  R restart';
 }

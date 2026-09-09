@@ -401,6 +401,8 @@ export class SharedBoardGame {
         turnsPerLevel: view.turnsPerLevel,
         turnsRemaining: view.turnsRemaining,
         breaksThisLevel: 0,
+        rationBreakHistory: [],
+        rationPurgeUsed: false,
         entropy: 0,
         balancedLevels: 0,
         gravity: undefined,

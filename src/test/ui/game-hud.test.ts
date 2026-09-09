@@ -153,7 +153,7 @@ describe('GameHud', () => {
       hasGravity: false,
     };
     const ration = {
-      breaksThisLevel: 17, minBreaks: 23, maxBreaks: 27, levelDrops: 29,
+      recentBreaks: 17, minBreaks: 23, maxBreaks: 27, windowDrops: 29, windowProgress: 29,
       entropy: 1, entropyThreshold: 4,
       entropyRecoveryPerLevel: 1, entropyMissBase: 1, maxEntropyGainPerLevel: 3,
     };
@@ -162,7 +162,7 @@ describe('GameHud', () => {
     const rationEl = hud.root.querySelector<HTMLElement>('.game-hud__ration')!;
     expect(rationEl.hidden).toBe(false);
     expect(rationEl.dataset.status).toBe('under');
-    expect(rationEl.querySelector('[data-ui-ref="ration-readout"]')?.textContent).toBe('17 / 23–27');
+    expect(rationEl.querySelector('[data-ui-ref="ration-readout"]')?.textContent).toBe('17 / 23–27 · 29/29');
     expect(rationEl.querySelector('[data-ui-ref="entropy-value"]')?.textContent).toBe('1/4');
     expect(rationEl.querySelector('.game-hud__ration-label')?.textContent).toBe('BALANCE');
     expect(rationEl.querySelectorAll('.game-hud__entropy-pip')).toHaveLength(4);
@@ -170,13 +170,13 @@ describe('GameHud', () => {
     expect(rationEl.getAttribute('aria-label')).toContain('target 23 to 27');
     expect(rationEl.getAttribute('aria-label')).toContain('Entropy 1 of 4');
     expect(rationEl.getAttribute('aria-label'))
-      .toContain('A balanced level recovers 1; a missed level adds 1 to 3 entropy.');
+      .toContain('A balanced checkpoint recovers 1; a missed checkpoint adds 1 to 3 entropy.');
     expect(rationEl.classList.contains('game-hud__ration--imbalanced')).toBe(false);
 
-    hud.render({ ...base, ration: { ...ration, breaksThisLevel: 25 } });
+    hud.render({ ...base, ration: { ...ration, recentBreaks: 25 } });
     expect(rationEl.dataset.status).toBe('balanced');
 
-    hud.render({ ...base, ration: { ...ration, breaksThisLevel: 30 } });
+    hud.render({ ...base, ration: { ...ration, recentBreaks: 30 } });
     expect(rationEl.dataset.status).toBe('over');
 
     // Entropy rising between frames marks a missed level judgment.

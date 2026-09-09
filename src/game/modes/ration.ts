@@ -16,9 +16,9 @@ import {
   SEVEN_BY_SEVEN,
 } from './modules.js';
 
-// Ration levels are deliberately shorter than Classic's: the band is judged at
-// each level end, so a tighter turn budget means more frequent checkpoints, a
-// smaller planning horizon, and a shorter window a bad cascade can overshoot.
+// Ration keeps short levels for its board pushes and planning rhythm. Balance
+// is judged independently on a rolling ledger, so a level-end cascade cannot
+// make a whole level irrecoverable by itself.
 const RATION_LEVEL_PRESSURE: ProgressionRules = {
   kind: 'level-pressure@1',
   initialTurnsPerLevel: 15,
@@ -51,16 +51,19 @@ export const RATION_RULES = defineGameRules({
   modifiers: [],
   ration: {
     kind: 'ration-band@1',
-    initialBandCenter: 0.92,
-    bandCenterLevelStep: 0.05,
-    minBandCenter: 0.6,
-    bandHalfWidth: 0.11,
-    entropyThreshold: 4,
+    initialBandCenter: 0.85,
+    bandCenterLevelStep: 0.03,
+    minBandCenter: 0.65,
+    bandHalfWidth: 0.2,
+    rollingWindowDrops: 12,
+    checkpointDrops: 3,
+    entropyThreshold: 5,
     entropyRecoveryPerLevel: 1,
     entropyMissBase: 1,
-    entropyPerDeviationUnit: 0.1,
-    maxEntropyGainPerLevel: 3,
-    balancedLevelBonus: 2_500,
+    entropyPerDeviationUnit: 0.2,
+    maxEntropyGainPerLevel: 2,
+    balancedLevelBonus: 750,
+    purgeScorePenalty: 250,
   },
 });
 

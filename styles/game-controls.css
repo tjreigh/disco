@@ -36,6 +36,8 @@
   color: #f5e9ff;
 }
 .game-control--rewind:hover:not(:disabled) { border-color: #e879f9; background: #55267a; }
+.game-control--purge { min-width: 76px; border-color: #f59e0b; background: #4b2c08; color: #fff2cf; }
+.game-control--purge:hover:not(:disabled) { border-color: #fbbf24; background: #6b3d08; }
 .game-control:hover:not(:disabled) { border-color: var(--color-accent); background: var(--color-surface-alt); }
 .game-control:disabled { opacity: .38; cursor: default; }
 .game-control[hidden] { display: none; }
@@ -71,6 +73,7 @@
   .game-control { min-width: 40px; padding-inline: 7px; }
   .game-control--drop, .game-control--confirm { min-width: 68px; }
   .game-control--rewind { min-width: 68px; font-size: 12px; }
+  .game-control--purge { min-width: 68px; font-size: 12px; }
 }
 @media (hover: hover) and (pointer: fine) and (min-width: 721px) {
   :root { --game-controls-height: 0px; }

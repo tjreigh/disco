@@ -63,11 +63,15 @@ export interface GameState {
   turnsPerLevel: number;
   /** Turns left within the current level's budget. */
   turnsRemaining: number;
-  /** Numbered discs cleared so far in the current level (Ration mode only). */
+  /** Numbered discs cleared so far in the current level (legacy Ration display). */
   breaksThisLevel: number;
+  /** Per-drop breaks in Ration's current rolling ledger, oldest to newest. */
+  rationBreakHistory: number[];
+  /** Whether this level's single Ration Purge has already been used. */
+  rationPurgeUsed: boolean;
   /** Ration imbalance meter; the run ends when this reaches the mode threshold. */
   entropy: number;
-  /** Levels finished inside the Ration band (Ration mode only). */
+  /** Balanced Ration ledger checkpoints completed this run. */
   balancedLevels: number;
   /** Only present for Gravity mode. */
   gravity?: GravityState | undefined;
