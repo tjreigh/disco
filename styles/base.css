@@ -1,6 +1,7 @@
 :root {
   --game-controls-height: 72px;
   --app-footer-height: 44px;
+  --footer-gesture-padding: 12px;
 
   /* UI-role colors are independent from the canvas rendering palette. */
   --color-app-background: #1a1a2e;

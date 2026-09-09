@@ -1,8 +1,8 @@
 .shell-region--bottom {
   display: grid;
   place-items: center;
-  min-height: calc(var(--game-controls-height) + var(--app-footer-height) + env(safe-area-inset-bottom));
-  padding-bottom: calc(var(--app-footer-height) + env(safe-area-inset-bottom));
+  min-height: calc(var(--game-controls-height) + var(--app-footer-height) + var(--footer-gesture-padding));
+  padding-bottom: calc(var(--app-footer-height) + var(--footer-gesture-padding));
 }
 .game-controls {
   pointer-events: auto;
@@ -75,8 +75,8 @@
 @media (hover: hover) and (pointer: fine) and (min-width: 721px) {
   :root { --game-controls-height: 0px; }
   .shell-region--bottom {
-    min-height: calc(var(--app-footer-height) + env(safe-area-inset-bottom));
-    padding-bottom: calc(var(--app-footer-height) + env(safe-area-inset-bottom));
+    min-height: calc(var(--app-footer-height) + var(--footer-gesture-padding));
+    padding-bottom: calc(var(--app-footer-height) + var(--footer-gesture-padding));
   }
   .game-controls { display: none; }
   .game-controls[data-rewind-mode="true"] {

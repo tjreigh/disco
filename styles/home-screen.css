@@ -7,7 +7,7 @@
   align-items: center;
   justify-content: center;
   overflow-y: auto;
-  padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) calc(max(24px, env(safe-area-inset-bottom)) + var(--app-footer-height)) max(24px, env(safe-area-inset-left));
+  padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) calc(max(24px, env(safe-area-inset-bottom)) + var(--app-footer-height) + var(--footer-gesture-padding)) max(24px, env(safe-area-inset-left));
   background: var(--color-app-background);
   opacity: 0;
   pointer-events: none;
@@ -366,10 +366,11 @@
   width: auto;
   max-width: 760px;
   min-height: var(--app-footer-height);
-  /* Extend the opaque bar through the bottom safe area so scrolled content
-     (and iOS overscroll) can't show under it. Content stays above the home
-     indicator via the padding. */
-  padding-bottom: env(safe-area-inset-bottom);
+  /* Keep the footer compact: a small fixed buffer instead of padding out the
+     full safe-area inset. Scrolled content clears the bar via the matching
+     --footer-gesture-padding term in .home-screen's bottom padding, so the
+     bar itself only needs enough room to sit clear of the gesture area. */
+  padding-bottom: var(--footer-gesture-padding);
   margin-inline: auto;
   border-top: 1px solid rgba(72, 101, 129, .5);
   background: var(--color-app-background);
@@ -410,7 +411,7 @@
 @media (max-width: 680px) {
   .home-screen {
     justify-content: flex-start;
-    padding: max(18px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) calc(max(18px, env(safe-area-inset-bottom)) + var(--app-footer-height)) max(16px, env(safe-area-inset-left));
+    padding: max(18px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) calc(max(18px, env(safe-area-inset-bottom)) + var(--app-footer-height) + var(--footer-gesture-padding)) max(16px, env(safe-area-inset-left));
   }
   .home-shell { gap: 20px; }
   .home-header { align-items: flex-start; flex-direction: column; gap: 12px; }
