@@ -34,7 +34,10 @@
   align-items: flex-start;
   justify-content: flex-start;
   padding-right: max(16px, env(safe-area-inset-right), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2));
-  padding-left: max(16px, env(safe-area-inset-left), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2));
+  /* The fixed game-menu trigger occupies the top-left corner. Keep the
+     Ration summary clear of it while retaining the grid gutter on wider
+     boards. The mode card has spare horizontal padding, reclaimed below. */
+  padding-left: max(16px, env(safe-area-inset-left), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2 + 60px));
 }
 .game-hud__bottom {
   top: calc(50% + var(--game-canvas-height, 0px) / 2 - 80px);
@@ -252,12 +255,12 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: 12px;
   flex: 0 0 auto;
   min-width: 0;
   border: 1px solid var(--color-border);
   border-radius: 10px;
-  padding: 6px 12px 7px;
+  padding: 6px 8px 7px;
   background: rgba(11, 32, 52, .92);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
@@ -623,7 +626,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .game-hud__ration { gap: 10px; padding: 4px 8px 5px; border-radius: 8px; }
+  .game-hud__ration { gap: 8px; padding: 4px 6px 5px; border-radius: 8px; }
   .game-hud__ration-label { font-size: 7px; }
   .game-hud__ration-value { font-size: 11px; }
   .game-hud__ration-track { height: 6px; }
