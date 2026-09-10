@@ -34,10 +34,11 @@
   align-items: flex-start;
   justify-content: flex-start;
   padding-right: max(16px, env(safe-area-inset-right), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2));
-  /* The fixed game-menu trigger occupies the top-left corner. Keep the
-     Ration summary clear of it while retaining the grid gutter on wider
-     boards. The mode card has spare horizontal padding, reclaimed below. */
-  padding-left: max(16px, env(safe-area-inset-left), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2 + 60px));
+  /* Align the summary column with the grid's left edge, except on narrow
+     boards where that would collide with the fixed ~44px game-menu trigger
+     in the top-left corner — there, clear the trigger with a small gap
+     instead. The wider mode card reclaims the space on the right. */
+  padding-left: max(16px, env(safe-area-inset-left), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2), calc(env(safe-area-inset-left) + 68px));
 }
 .game-hud__bottom {
   top: calc(50% + var(--game-canvas-height, 0px) / 2 - 80px);
@@ -59,7 +60,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
+  gap: 14px;
 }
 .game-hud__summary {
   display: grid;
@@ -70,8 +71,15 @@
 }
 .game-hud[data-ration-mode="true"] .game-hud__summary {
   justify-items: start;
+  flex: 1 1 auto;
+  min-width: 0;
 }
-.game-hud[data-ration-mode="true"] .game-hud__level { margin-top: 21px; }
+/* Ration's two-column top HUD has no room for the high-score / best-wave
+   line; it stays on the game-over screen. */
+.game-hud[data-ration-mode="true"] .game-hud__records { display: none; }
+/* Clears the absolutely-pinned pip strip so "Level" sits below it, as in
+   every other mode. */
+.game-hud[data-ration-mode="true"] .game-hud__level { margin-top: 22px; }
 .game-hud__score { margin-bottom: 5px; font-size: 24px; line-height: 1.1; color: #ffffff; }
 .game-hud[data-multiplayer="true"] .game-hud__score,
 .game-hud[data-multiplayer="true"] .game-hud__records { visibility: hidden; }
@@ -90,14 +98,24 @@
   padding-inline: 1px;
 }
 /* Ration lays the summary out as the left column of a two-column row, so this
-   grid-width pip strip can't sit in that column's flow. Pin it along the
-   bottom of the top band instead, flush with the grid's left edge. Every
-   other mode keeps it in flow under the turn label, centered by
-   .game-hud__turns. */
+   grid-width pip strip can't sit in that column's flow. Pin it absolutely
+   instead — left edge lined up under the summary column, right edge at the
+   grid edge — just below the turn line, so "Level" still follows it (see the
+   matching margin-top below). Every other mode keeps it in flow under the
+   turn label, centered by .game-hud__turns. */
 .game-hud[data-ration-mode="true"] .game-hud__pips {
   position: absolute;
-  left: max(16px, env(safe-area-inset-left), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2));
-  bottom: 6px;
+  left: max(16px, env(safe-area-inset-left), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2), calc(env(safe-area-inset-left) + 68px));
+  right: max(16px, env(safe-area-inset-right), calc((var(--game-canvas-width, 680px) - var(--game-grid-width, 504px)) / 2));
+  width: auto;
+  max-width: none;
+  bottom: 26px;
+}
+/* The strip is denser here (rolling-window capacity), so shrink the dots to
+   keep visible gaps between them. */
+.game-hud[data-ration-mode="true"] .game-hud__pip {
+  width: 7px;
+  height: 7px;
 }
 .game-hud__pip {
   flex: 0 0 auto;
@@ -253,14 +271,14 @@
 .game-hud__instability[hidden] { display: none; }
 .game-hud__ration {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
   flex: 0 0 auto;
-  min-width: 0;
+  min-width: 124px;
   border: 1px solid var(--color-border);
   border-radius: 10px;
-  padding: 6px 8px 7px;
+  padding: 5px 9px 6px;
   background: rgba(11, 32, 52, .92);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
@@ -271,6 +289,7 @@
   column-gap: 8px;
   align-items: baseline;
   min-width: 0;
+  width: 100%;
 }
 .game-hud__ration-label {
   grid-column: 1;
@@ -341,7 +360,8 @@
 .game-hud__entropy-pip--filled { background: #fb7185; }
 .game-hud__ration-checkpoint {
   display: flex;
-  flex: 1 0 100%;
+  flex: 0 0 auto;
+  width: 100%;
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
@@ -621,12 +641,7 @@
   }
   .game-hud__status { max-width: 58%; }
   .game-hud__top-grid { gap: 10px; }
-  .game-hud[data-ration-mode="true"] .game-hud__records {
-    max-width: 32vw;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .game-hud__ration { gap: 8px; padding: 4px 6px 5px; border-radius: 8px; }
+  .game-hud__ration { gap: 4px; padding: 4px 9px 5px; border-radius: 8px; }
   .game-hud__ration-label { font-size: 7px; }
   .game-hud__ration-value { font-size: 11px; }
   .game-hud__ration-track { height: 6px; }
