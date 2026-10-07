@@ -113,6 +113,7 @@ export class GameHud {
   private readonly instabilityValue: HTMLElement;
   private readonly pressure: HTMLElement;
   private readonly ration: HTMLElement;
+  private readonly rationLabel: HTMLElement;
   private readonly rationReadout: HTMLElement;
   private readonly rationBand: HTMLElement;
   private readonly rationMarker: HTMLElement;
@@ -162,6 +163,7 @@ export class GameHud {
     this.instabilityValue = mustQuery(fragment, '.game-hud__instability-value');
     this.pressure = mustQuery(fragment, '.game-hud__pressure');
     this.ration = mustQuery(fragment, '.game-hud__ration');
+    this.rationLabel = mustQuery(fragment, '[data-ui-ref="ration-label"]');
     this.rationReadout = mustQuery(fragment, '[data-ui-ref="ration-readout"]');
     this.rationBand = mustQuery(fragment, '[data-ui-ref="ration-band"]');
     this.rationMarker = mustQuery(fragment, '[data-ui-ref="ration-marker"]');
@@ -402,11 +404,9 @@ export class GameHud {
     this.rationBand.style.left = `${bandLeft}%`;
     this.rationBand.style.width = `${Math.max(0, bandRight - bandLeft)}%`;
     this.rationMarker.style.left = `${markerLeft}%`;
+    this.rationLabel.textContent = `BALANCE · ${windowDrops}`;
     this.rationReadout.textContent = `${recentBreaks} / ${minBreaks}–${maxBreaks}`;
     const buildingWindow = windowProgress < windowDrops;
-    this.rationCheckpoint.textContent = buildingWindow
-      ? `BUILD ${windowProgress}/${windowDrops}`
-      : `IN ${dropsUntilCheckpoint} ${dropsUntilCheckpoint === 1 ? 'DROP' : 'DROPS'}`;
     const status = buildingWindow
       ? 'building'
       : recentBreaks < minBreaks
@@ -414,6 +414,12 @@ export class GameHud {
       : recentBreaks > maxBreaks
         ? 'over'
         : 'balanced';
+    // Say where the window stands now, so the countdown reads as "this is
+    // what would be judged" rather than a bare number of drops.
+    const standing = status === 'under' ? ' · LOW' : status === 'over' ? ' · HIGH' : status === 'balanced' ? ' · OK' : '';
+    this.rationCheckpoint.textContent = buildingWindow
+      ? `BUILD ${windowProgress}/${windowDrops}`
+      : `IN ${dropsUntilCheckpoint} ${dropsUntilCheckpoint === 1 ? 'DROP' : 'DROPS'}${standing}`;
     this.ration.dataset.status = status;
     this.ration.setAttribute(
       'aria-label',
@@ -588,7 +594,11 @@ function controlHintsFor(
     { controls: '← →', action: 'Move' },
     { controls: '↓ / Click', action: 'Drop' },
   ];
-  if (state.ration) hints.push({ controls: 'X', action: 'Purge lane' });
+  if (state.ration) {
+    hints.push({ controls: 'X', action: 'Purge lane' });
+    hints.push({ controls: '#', action: 'Lane breaks' });
+    hints.push({ controls: '▼ ▲', action: 'Under / over band' });
+  }
   if (state.hasRewind) hints.push({ controls: 'Z', action: 'Rewind' });
   if (state.hasRestart !== false) hints.push({ controls: 'R', action: 'New game' });
   return hints;
@@ -613,7 +623,7 @@ function hintFor(state: GameHudState, needsTilt = false, confirmReady = false): 
   }
   if (state.ration) {
     return touch
-      ? 'Tap column to drop · PURGE clears the highlighted lane top'
+      ? '# = breaks · ▼ low · ▲ high'
       : '← → move  ↓ / click drop  X purge lane top  R restart';
   }
   return touch ? 'Tap column to drop' : '← → move  ↓ / click drop  R restart';

@@ -256,6 +256,11 @@ export class LocalBoardSession {
     return this.engine.canPurge(lane);
   }
 
+  /** Breaks a drop into `lane` would cause (Ration only); `null` when not previewable. */
+  previewRationBreaks(lane: number): number | null {
+    return this.engine.previewRationBreaks(lane);
+  }
+
   commitTilt(now = performance.now()): TurnResult {
     const previousLevelProgress = this.snapshotLevelProgress();
     const gravity = this.state.gravity;

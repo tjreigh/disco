@@ -45,3 +45,15 @@ export const COLOR_GRAVITY_ACCENT = '#62b0e8'; // gravity compass, tilt arc, dir
  * plain row or column — the lattice shows the real clear axis on the board.
  */
 export const COLOR_GRAVITY_LANE = 'rgba(98, 176, 232, 0.28)';
+
+/**
+ * Ration lane markers: how a drop would leave the rolling balance window.
+ *
+ * @remarks
+ * Matched to the HUD balance meter's under / in-band / over states so the lane
+ * markers and the meter read as the same signal.
+ */
+export const COLOR_RATION_PENDING = '#94a3b8';
+export const COLOR_RATION_UNDER = '#38bdf8';
+export const COLOR_RATION_IN_BAND = '#34d399';
+export const COLOR_RATION_OVER = '#fb7185';

@@ -2,7 +2,7 @@
 
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { Renderer } from '../../ui/rendering/renderer.js';
-import type { RewindVisualState, TutorialVisualState } from '../../ui/rendering/renderer.js';
+import type { RationLaneMarker, RewindVisualState, TutorialVisualState } from '../../ui/rendering/renderer.js';
 import { GamePhase } from '../../game/state.js';
 import type { GameState, GravityState } from '../../game/state.js';
 import { makeEmptyBoard, placeDisc } from '../../game/board.js';
@@ -15,6 +15,7 @@ import {
 } from '../../ui/rendering/layout.js';
 import {
   COLOR_COL_HOVER, COLOR_GAMEOVER_BG, COLOR_GRAVITY_LANE,
+  COLOR_RATION_IN_BAND, COLOR_RATION_OVER, COLOR_RATION_PENDING, COLOR_RATION_UNDER,
 } from '../../ui/rendering/theme.js';
 import type { GameStats } from '../../game/stats.js';
 import { AnimPhase } from '../../ui/rendering/animation-types.js';
@@ -134,11 +135,13 @@ function callDraw(
     tutorial?: TutorialVisualState | null;
     animations?: readonly RichDiscAnimation[];
     rewind?: RewindVisualState | null;
+    rationLanes?: readonly RationLaneMarker[] | null;
   } = {},
 ): void {
   renderer.draw(
     state, board, opts.animations ?? [], makeStats(), [], [],
     opts.tutorial ?? null, opts.previewLanding ?? null, false, null, opts.rewind ?? null,
+    undefined, undefined, opts.rationLanes ?? null,
   );
 }
 
@@ -633,5 +636,55 @@ describe('drawDisc', () => {
   test('clamps out-of-range alpha into globalAlpha\'s valid [0,1] domain', () => {
     expect(() => renderer.drawDisc(makeDisc(1, DiscKind.Numbered), 0, 0, 10, 5, 1)).not.toThrow();
     expect(() => renderer.drawDisc(makeDisc(1, DiscKind.Numbered), 0, 0, 10, -5, 1)).not.toThrow();
+  });
+});
+
+describe('Ration lane markers', () => {
+  const lanes: RationLaneMarker[] = [
+    { lane: 0, kind: 'drop', breaks: 0, status: 'under' },
+    { lane: 1, kind: 'drop', breaks: 3, status: 'in-band' },
+    { lane: 2, kind: 'drop', breaks: 7, status: 'over' },
+    { lane: 3, kind: 'blocked' },
+    { lane: 4, kind: 'drop', breaks: 0, status: 'pending' },
+  ];
+  const labels = (): string[] => ctx.calls
+    .filter(c => c.method === 'fillText')
+    .map(c => String(c.args[0]));
+
+  test('labels each lane with its break count and which side of the band it lands on', () => {
+    callDraw(renderer, makeState(), undefined, { rationLanes: lanes });
+    expect(labels()).toEqual(expect.arrayContaining(['0▼', '3', '7▲', '×']));
+  });
+
+  test('draws each marker above its own column, in the entry strip over the board', () => {
+    callDraw(renderer, makeState(), undefined, { rationLanes: lanes });
+    const text = ctx.calls.find(c => c.method === 'fillText' && c.args[0] === '7▲')!;
+    expect(text.args[1]).toBe(cellCenterX(2));
+    expect(text.args[2] as number).toBeLessThan(gridOriginY());
+  });
+
+  test('colors markers by status', () => {
+    callDraw(renderer, makeState(), undefined, { rationLanes: lanes });
+    const strokes = new Set(ctx.calls.filter(c => c.method === 'stroke').map(c => c.strokeStyle));
+    expect(strokes).toContain(COLOR_RATION_UNDER);
+    expect(strokes).toContain(COLOR_RATION_IN_BAND);
+    expect(strokes).toContain(COLOR_RATION_OVER);
+    expect(strokes).toContain(COLOR_RATION_PENDING);
+  });
+
+  test('tints only the cursor lane with its status color', () => {
+    callDraw(renderer, makeState({ cursorCol: 2 }), undefined, { rationLanes: lanes });
+    const washes = ctx.calls.filter(c => c.method === 'fillRect' && c.fillStyle === COLOR_RATION_OVER);
+    expect(washes).toHaveLength(1);
+    expect(washes[0]!.args[0]).toBe(gridOriginX() + 2 * cellSize());
+  });
+
+  test('draws nothing without markers, or while a turn is resolving', () => {
+    callDraw(renderer, makeState());
+    expect(labels()).not.toContain('×');
+
+    ctx.calls.length = 0;
+    callDraw(renderer, makeState({ phase: GamePhase.Animating }), undefined, { rationLanes: lanes });
+    expect(labels()).not.toContain('7▲');
   });
 });

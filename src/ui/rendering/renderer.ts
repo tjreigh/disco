@@ -14,6 +14,7 @@ import {
   COLOR_TEXT, COLOR_TEXT_DIM, COLOR_GHOST, COLOR_COL_HOVER,
   COLOR_GAMEOVER_BG, COLOR_SCORE_POPUP, COLOR_GRAVITY_LANE,
   COLOR_OPPONENT_GHOST,
+  COLOR_RATION_PENDING, COLOR_RATION_UNDER, COLOR_RATION_IN_BAND, COLOR_RATION_OVER,
 } from './theme.js';
 import {
   cellCenterX, cellCenterY, gridOriginX, gridOriginY,
@@ -31,6 +32,22 @@ export interface TutorialVisualState {
   /** No committable tilt exists yet — the highlight pulses and shows ↺/↻ arrows. Distinct from `staged`: after a valid tilt the lane stays blue but goes steady and loses the arrows, since the remaining action is Confirm. */
   needsTilt: boolean;
 }
+
+/** One lane's Ration preview: a column that can't take a drop, or what a drop there would do to the balance. */
+export type RationLaneMarker =
+  | { lane: number; kind: 'blocked' }
+  | { lane: number; kind: 'drop'; breaks: number; status: 'pending' | 'under' | 'in-band' | 'over' };
+
+const RATION_STATUS_COLORS = {
+  pending: COLOR_RATION_PENDING,
+  under: COLOR_RATION_UNDER,
+  'in-band': COLOR_RATION_IN_BAND,
+  over: COLOR_RATION_OVER,
+} as const;
+
+// Redundant with color so the markers stay readable without it: an arrow
+// points at which side of the band the drop would leave the ledger on.
+const RATION_STATUS_GLYPHS = { pending: '', under: '▼', 'in-band': '', over: '▲' } as const;
 
 export interface RewindVisualState {
   targets: ReadonlyArray<{
@@ -126,6 +143,7 @@ export class Renderer {
     rewind?: RewindVisualState | null,
     opponentCursor?: { col: number; disc: Disc } | null,
     activePlayerId?: string,
+    rationLanes?: readonly RationLaneMarker[] | null,
   ): void {
     const { ctx } = this;
     // Build a set of disc IDs currently being animated. drawStaticDiscs uses
@@ -162,6 +180,7 @@ export class Renderer {
     this.drawScoreIndicators(scoreIndicators);
     if (showCursor) {
       this.drawGhost(state, board, previewLanding ?? null);
+      if (rationLanes && axis === 'col') this.drawRationLaneMarkers(rationLanes, state.cursorCol);
     }
     if (opponentCursor) {
       this.drawOpponentGhost(opponentCursor.disc, opponentCursor.col, board);
@@ -644,6 +663,68 @@ export class Renderer {
     ctx.lineTo(cx, cy - discR() - 2);
     ctx.stroke();
     ctx.setLineDash([]);
+  }
+
+  // Ration only: one marker per lane in the entry strip above the board,
+  // showing how many discs a drop there would break, colored by where that
+  // leaves the rolling balance window. The lane under the cursor (a finger
+  // held on a column, on touch) gets a larger marker and a tinted lane wash,
+  // since a fingertip hides everything underneath it.
+  private drawRationLaneMarkers(markers: readonly RationLaneMarker[], cursorLane: number): void {
+    const { ctx } = this;
+    const cs = cellSize();
+    const touch = isTouchDevice();
+    const stripY = gridOriginY() - cs * 0.3;
+
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    // Draw the active lane last so its larger pill sits above its neighbours.
+    const ordered = [...markers].sort((a, b) => Number(a.lane === cursorLane) - Number(b.lane === cursorLane));
+    for (const marker of ordered) {
+      const active = marker.lane === cursorLane;
+      const cx = cellCenterX(marker.lane);
+      const fontPx = Math.round(Math.max(11, cs * (active ? (touch ? 0.34 : 0.27) : 0.22)));
+      const pillH = fontPx + (active ? 12 : 8);
+      ctx.font = `bold ${fontPx}px system-ui, sans-serif`;
+
+      if (marker.kind === 'blocked') {
+        ctx.globalAlpha = active ? 0.7 : 0.4;
+        ctx.fillStyle = COLOR_TEXT_DIM;
+        ctx.fillText('×', cx, stripY);
+        continue;
+      }
+
+      const color = RATION_STATUS_COLORS[marker.status];
+      if (active) {
+        ctx.globalAlpha = touch ? 0.2 : 0.1;
+        ctx.fillStyle = color;
+        ctx.fillRect(gridOriginX() + marker.lane * cs, gridOriginY(), cs, gridH());
+      }
+
+      const label = `${marker.breaks}${RATION_STATUS_GLYPHS[marker.status]}`;
+      const pillW = Math.max(cs * (active ? 0.8 : 0.6), ctx.measureText(label).width + 12);
+      const y = active && touch ? stripY - cs * 0.06 : stripY;
+      ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.roundRect(cx - pillW / 2, y - pillH / 2, pillW, pillH, pillH / 2);
+      // A drop that breaks nothing keeps the pill but recedes, so lanes that
+      // do something stand out against it.
+      const quiet = marker.breaks === 0 && !active;
+      ctx.fillStyle = COLOR_BG;
+      ctx.fill();
+      ctx.fillStyle = color;
+      ctx.globalAlpha = (quiet ? 0.55 : 1) * (active ? 1 : 0.28);
+      ctx.fill();
+      ctx.globalAlpha = quiet ? 0.65 : 1;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = active ? 2.5 : 1.5;
+      ctx.stroke();
+      ctx.globalAlpha = quiet ? 0.7 : 1;
+      ctx.fillStyle = active ? COLOR_BG : COLOR_TEXT;
+      ctx.fillText(label, cx, y + 0.5);
+    }
+    ctx.restore();
   }
 
   // Disco Duel only: the opponent's live column selection while it's their

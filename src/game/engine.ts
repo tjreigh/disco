@@ -441,6 +441,61 @@ export class GameEngine {
     return this.gravitySystem.previewDropLanding(this.state, lane, this.queue.peek());
   }
 
+  /**
+   * How many numbered discs dropping the current disc into `lane` would
+   * break, or `null` when Ration has nothing to preview for that lane.
+   *
+   * @remarks
+   * A pure dry run: it works on a deep-cloned board, and on the turn that
+   * completes a level it also runs the pushed row so the count includes that
+   * push's cascade. The push row is the one the real push would use — the
+   * push generator is rewound afterwards — unless injected cracked-disc
+   * generation makes that impossible, in which case the push is left out.
+   */
+  previewRationBreaks(lane: number): number | null {
+    if (rationRules(this.rules) === undefined
+      || this.state.phase !== GamePhase.WaitingForDrop
+      || this.gravitySystem.enabled
+      || !Number.isInteger(lane)
+      || lane < 0
+      || lane >= this.rules.board.cols
+      || isColumnFull(this.state.board, lane)) {
+      return null;
+    }
+
+    const board = deepCloneBoard(this.state.board);
+    const entrySteps = computeDropSteps(board, { ...this.queue.peek() }, lane, this.rules);
+    const countCleared = (steps: readonly PhysicsStep[]): number => steps.reduce(
+      (total, step) => total + (step.kind === StepKind.Clear ? step.cleared.length : 0),
+      0,
+    );
+    let breaks = countCleared(entrySteps);
+
+    const completesLevel = this.state.turnsRemaining
+      - turnCostForInstability(this.rules, this.state.paradox?.instability ?? 0) <= 0;
+    if (completesLevel && this.pushRandom && !this.customCrackedDiscFactory) {
+      const nextChainLevel = entrySteps.reduce(
+        (next, step) => step.kind === StepKind.Clear ? Math.max(next, step.chainLevel + 1) : next,
+        0,
+      );
+      const resolution = this.gravitySystem.resolutionContext(this.state.gravity);
+      const generatorState = this.pushRandom.snapshot();
+      const push = computePushStep(board, this.crackedDiscFactory, resolution.angleDeg);
+      this.pushRandom.restore(generatorState);
+      if (!push.gameOver) {
+        breaks += countCleared(computeClearSteps(
+          board,
+          this.rules,
+          undefined,
+          resolution.settle,
+          resolution.angleDeg,
+          nextChainLevel,
+        ));
+      }
+    }
+    return breaks;
+  }
+
   /** Whether the selected Ration lane has an exposed disc that can be purged. */
   canPurge(lane: number): boolean {
     const ration = rationRules(this.rules);

@@ -164,9 +164,9 @@ describe('GameHud', () => {
     expect(rationEl.hidden).toBe(false);
     expect(rationEl.dataset.status).toBe('under');
     expect(rationEl.querySelector('[data-ui-ref="ration-readout"]')?.textContent).toBe('17 / 23–27');
-    expect(rationEl.querySelector('[data-ui-ref="ration-checkpoint"]')?.textContent).toBe('IN 3 DROPS');
+    expect(rationEl.querySelector('[data-ui-ref="ration-checkpoint"]')?.textContent).toBe('IN 3 DROPS · LOW');
     expect(rationEl.querySelector('[data-ui-ref="entropy-value"]')?.textContent).toBe('1/4');
-    expect(rationEl.querySelector('.game-hud__ration-label')?.textContent).toBe('BALANCE');
+    expect(rationEl.querySelector('.game-hud__ration-label')?.textContent).toBe('BALANCE · 29');
     expect(rationEl.querySelectorAll('.game-hud__entropy-pip')).toHaveLength(4);
     expect(rationEl.querySelectorAll('.game-hud__entropy-pip--filled')).toHaveLength(1);
     expect(rationEl.getAttribute('aria-label')).toContain('target 23 to 27');
@@ -185,9 +185,11 @@ describe('GameHud', () => {
 
     hud.render({ ...base, ration: { ...ration, recentBreaks: 25 } });
     expect(rationEl.dataset.status).toBe('balanced');
+    expect(rationEl.querySelector('[data-ui-ref="ration-checkpoint"]')?.textContent).toBe('IN 3 DROPS · OK');
 
     hud.render({ ...base, ration: { ...ration, recentBreaks: 30 } });
     expect(rationEl.dataset.status).toBe('over');
+    expect(rationEl.querySelector('[data-ui-ref="ration-checkpoint"]')?.textContent).toBe('IN 3 DROPS · HIGH');
 
     // Entropy rising between frames marks a missed level judgment.
     hud.render({ ...base, ration: { ...ration, entropy: 2 } });
