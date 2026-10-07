@@ -72,37 +72,57 @@ function rationTestMode(overrides: {
 describe('Ration band math', () => {
   const ration = RATION_RULES.ration!;
 
+  // A descending band is still supported by the rules even though production
+  // Ration ships a flat one, so exercise the descent against a fixture.
+  const descending: RationRules = {
+    ...ration,
+    initialBandCenter: 0.85,
+    bandCenterLevelStep: 0.03,
+    minBandCenter: 0.65,
+    bandHalfWidth: 0.2,
+  };
+
+  test('the shipped band is flat at 1.3 breaks per drop ±0.3', () => {
+    for (const level of [1, 2, 10, 100]) {
+      expect(rationBandForLevel(ration, level)).toMatchObject({
+        minBreaksPerDrop: expect.closeTo(1.0),
+        maxBreaksPerDrop: expect.closeTo(1.6),
+      });
+    }
+    expect(rationBreakBand(ration, 1, ration.rollingWindowDrops)).toEqual({ minBreaks: 12, maxBreaks: 19 });
+  });
+
   test('the band center descends each level and floors at minBandCenter', () => {
-    expect(rationBandForLevel(ration, 1)).toEqual({
+    expect(rationBandForLevel(descending, 1)).toEqual({
       minBreaksPerDrop: 0.85 - 0.2,
       maxBreaksPerDrop: 0.85 + 0.2,
     });
-    expect(rationBandForLevel(ration, 2)).toEqual({
+    expect(rationBandForLevel(descending, 2)).toEqual({
       minBreaksPerDrop: 0.82 - 0.2,
       maxBreaksPerDrop: 0.82 + 0.2,
     });
-    expect(rationBandForLevel(ration, 7)).toMatchObject({
+    expect(rationBandForLevel(descending, 7)).toMatchObject({
       minBreaksPerDrop: expect.closeTo(0.47),
       maxBreaksPerDrop: expect.closeTo(0.87),
     });
-    expect(rationBandForLevel(ration, 8)).toEqual({
+    expect(rationBandForLevel(descending, 8)).toEqual({
       minBreaksPerDrop: 0.65 - 0.2,
       maxBreaksPerDrop: 0.65 + 0.2,
     });
-    expect(rationBandForLevel(ration, 100)).toEqual({
+    expect(rationBandForLevel(descending, 100)).toEqual({
       minBreaksPerDrop: 0.65 - 0.2,
       maxBreaksPerDrop: 0.65 + 0.2,
     });
   });
 
   test('the integer break range exactly matches the ratio judgment', () => {
-    expect(rationBreakBand(ration, 2, 29)).toEqual({ minBreaks: 18, maxBreaks: 29 });
+    expect(rationBreakBand(descending, 2, 29)).toEqual({ minBreaks: 18, maxBreaks: 29 });
     // Both edges of the rounded range are balanced; one break outside either
     // edge falls out of band.
-    expect(rationLevelJudgment(ration, 2, 18, 29)).toMatchObject({ balanced: true, deviation: 0 });
-    expect(rationLevelJudgment(ration, 2, 29, 29)).toMatchObject({ balanced: true, deviation: 0 });
-    expect(rationLevelJudgment(ration, 2, 17, 29)).toMatchObject({ balanced: false });
-    expect(rationLevelJudgment(ration, 2, 30, 29)).toMatchObject({ balanced: false });
+    expect(rationLevelJudgment(descending, 2, 18, 29)).toMatchObject({ balanced: true, deviation: 0 });
+    expect(rationLevelJudgment(descending, 2, 29, 29)).toMatchObject({ balanced: true, deviation: 0 });
+    expect(rationLevelJudgment(descending, 2, 17, 29)).toMatchObject({ balanced: false });
+    expect(rationLevelJudgment(descending, 2, 30, 29)).toMatchObject({ balanced: false });
   });
 
   test('the upper bound is not clamped to the turn budget (carry-over clears)', () => {
@@ -130,10 +150,17 @@ describe('Ration band math', () => {
   });
 
   test('entropy gain scales with deviation and caps per level', () => {
+    const scaled: RationRules = { ...ration, maxEntropyGainPerLevel: 2 };
+    expect(rationEntropyGain(scaled, 0)).toBe(0);
+    expect(rationEntropyGain(scaled, 0.05)).toBe(1);
+    expect(rationEntropyGain(scaled, 0.5)).toBe(2); // capped at 2
+    expect(rationEntropyGain(scaled, 2.5)).toBe(2);
+  });
+
+  test('the shipped entropy tuning caps a single miss at one point', () => {
     expect(rationEntropyGain(ration, 0)).toBe(0);
     expect(rationEntropyGain(ration, 0.05)).toBe(1);
-    expect(rationEntropyGain(ration, 0.5)).toBe(2); // capped at 2
-    expect(rationEntropyGain(ration, 2.5)).toBe(2);
+    expect(rationEntropyGain(ration, 2.5)).toBe(1);
   });
 });
 

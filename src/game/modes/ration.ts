@@ -19,6 +19,12 @@ import {
 // Ration keeps short levels for its board pushes and planning rhythm. Balance
 // is judged independently on a rolling ledger, so a level-end cascade cannot
 // make a whole level irrecoverable by itself.
+//
+// The band is flat and centered above one break per drop on purpose: every
+// level adds a full pushed row on top of the drops themselves, so a player
+// who only breaks about one disc per drop still sees the board grow each
+// level. Simulated play showed the old descending 0.85-center band failing
+// players well before the board did.
 const RATION_LEVEL_PRESSURE: ProgressionRules = {
   kind: 'level-pressure@1',
   initialTurnsPerLevel: 15,
@@ -32,14 +38,14 @@ const RATION_LEVEL_PRESSURE: ProgressionRules = {
 // it into a breakable disc the player did not budget for.
 const RATION_GENERATION = {
   ...CLASSIC_ADAPTIVE_GENERATION,
-  initialUnnumberedProbability: 0.12,
-  unnumberedProbabilityLevelStep: 0.008,
-  maxUnnumberedProbability: 0.25,
+  initialUnnumberedProbability: 0.06,
+  unnumberedProbabilityLevelStep: 0.004,
+  maxUnnumberedProbability: 0.15,
 } as const satisfies GenerationRules;
 
 export const RATION_RULES = defineGameRules({
   id: 'ration',
-  version: 1,
+  version: 2,
   board: SEVEN_BY_SEVEN,
   placement: DOWNWARD_DROP,
   clearing: ORTHOGONAL_COUNT_MATCH,
@@ -51,17 +57,19 @@ export const RATION_RULES = defineGameRules({
   modifiers: [],
   ration: {
     kind: 'ration-band@1',
-    initialBandCenter: 0.85,
-    bandCenterLevelStep: 0.03,
-    minBandCenter: 0.65,
-    bandHalfWidth: 0.2,
+    initialBandCenter: 1.3,
+    bandCenterLevelStep: 0,
+    minBandCenter: 1.3,
+    bandHalfWidth: 0.3,
     rollingWindowDrops: 12,
-    checkpointDrops: 3,
-    entropyThreshold: 5,
-    entropyRecoveryPerLevel: 1,
+    // Judging every half window keeps one mistake from failing several
+    // overlapping checkpoints in a row.
+    checkpointDrops: 6,
+    entropyThreshold: 6,
+    entropyRecoveryPerLevel: 2,
     entropyMissBase: 1,
     entropyPerDeviationUnit: 0.2,
-    maxEntropyGainPerLevel: 2,
+    maxEntropyGainPerLevel: 1,
     balancedLevelBonus: 750,
     purgeScorePenalty: 250,
   },

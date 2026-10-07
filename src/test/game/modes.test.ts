@@ -150,17 +150,20 @@ describe('composed solo rules', () => {
     expect(RATION_RULES.modifiers).toEqual([]);
     expect(RATION_RULES.ration).toMatchObject({
       kind: 'ration-band@1',
-      initialBandCenter: 0.85,
-      minBandCenter: 0.65,
-      bandHalfWidth: 0.2,
+      initialBandCenter: 1.3,
+      bandCenterLevelStep: 0,
+      minBandCenter: 1.3,
+      bandHalfWidth: 0.3,
       rollingWindowDrops: 12,
-      checkpointDrops: 3,
-      entropyThreshold: 5,
+      checkpointDrops: 6,
+      entropyThreshold: 6,
+      entropyRecoveryPerLevel: 2,
+      maxEntropyGainPerLevel: 1,
       balancedLevelBonus: 750,
       purgeScorePenalty: 250,
     });
-    expect(unnumberedProbabilityForLevel(RATION_RULES.generation, 1)).toBe(0.12);
-    expect(unnumberedProbabilityForLevel(RATION_RULES.generation, 21)).toBe(0.25);
+    expect(unnumberedProbabilityForLevel(RATION_RULES.generation, 1)).toBe(0.06);
+    expect(unnumberedProbabilityForLevel(RATION_RULES.generation, 31)).toBe(0.15);
     expect(RATION_MODE.rules).toBe(RATION_RULES);
     expect(RATION_MODE.hasTutorial).toBe(false);
     expect(getSoloMode('ration')).toBe(RATION_MODE);

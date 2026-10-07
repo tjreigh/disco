@@ -374,7 +374,6 @@ export function defineGameRules(config: GameRulesConfig): GameRulesConfig {
   if (ration) {
     for (const [label, value] of [
       ['Ration band center', ration.initialBandCenter],
-      ['Ration band center step', ration.bandCenterLevelStep],
       ['Ration band floor', ration.minBandCenter],
       ['Ration band half-width', ration.bandHalfWidth],
       ['Ration rolling window', ration.rollingWindowDrops],
@@ -384,6 +383,10 @@ export function defineGameRules(config: GameRulesConfig): GameRulesConfig {
       if (!Number.isFinite(value) || value <= 0) {
         throw new Error(`${label} for ${config.id} must be positive`);
       }
+    }
+    // A zero step is a deliberately flat band.
+    if (!Number.isFinite(ration.bandCenterLevelStep) || ration.bandCenterLevelStep < 0) {
+      throw new Error(`Ration band center step for ${config.id} must be non-negative`);
     }
     for (const [label, value] of [
       ['Ration entropy threshold', ration.entropyThreshold],
