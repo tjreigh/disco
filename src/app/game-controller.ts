@@ -1,5 +1,7 @@
 import type { SoloModeDefinition } from '../game/modes/mode.js';
-import { rationBreakBand, rationRules, rewindModifier, turnCostForInstability } from '../game/modes/mode.js';
+import {
+  rationBreakBand, rationLaneProjection, rationRules, rewindModifier, turnCostForInstability,
+} from '../game/modes/mode.js';
 import type { GameState } from '../game/state.js';
 import { GamePhase } from '../game/state.js';
 import type { PhysicsStep } from '../game/events.js';
@@ -9,6 +11,7 @@ import { CLASSIC_MODE, SOLO_MODES } from '../game/modes/index.js';
 import { DebugPanel } from '../ui/debug/debug-panel.js';
 import { releaseGameplayFocus } from '../ui/dom-utils.js';
 import { Renderer } from '../ui/rendering/renderer.js';
+import type { RationLaneMarker } from '../ui/rendering/renderer.js';
 import { InputHandler } from '../platform/input-handler.js';
 import type { InputIntent } from '../platform/input-handler.js';
 import { AudioManager } from '../platform/audio-manager.js';
@@ -44,6 +47,7 @@ const SAVE_EXIT_SYNC_WAIT_MS = 5_000;
 export class SoloSessionController {
   private readonly state: GameState;
   private readonly session: LocalBoardSession;
+  private rationMarkerCache: { key: string; markers: readonly RationLaneMarker[] } | undefined;
   private mode: SoloModeDefinition;
   private renderer: Renderer;
   private input: InputHandler;
@@ -1033,7 +1037,40 @@ export class SoloSessionController {
       this.isStackMode(),
       view.gravityShiftCue,
       rewindPreview ? { targets: rewindPreview.fractures } : null,
+      undefined,
+      undefined,
+      this.rationLaneMarkers(),
     );
+  }
+
+  /**
+   * Per-lane Ration previews, recomputed only when the position changes — the
+   * dry run costs a full drop resolution per lane, far too much per frame.
+   */
+  private rationLaneMarkers(): readonly RationLaneMarker[] | null {
+    const ration = rationRules(this.mode.rules);
+    if (!ration || this.state.phase !== GamePhase.WaitingForDrop) return null;
+    const key = [
+      this.state.generationSeed,
+      this.state.dropCount,
+      this.state.currentDisc.id,
+      this.state.score,
+      this.state.rationPurgeUsed,
+    ].join(':');
+    if (this.rationMarkerCache?.key === key) return this.rationMarkerCache.markers;
+    const markers = Array.from({ length: this.mode.rules.board.cols }, (_, lane): RationLaneMarker => {
+      const breaks = this.session.previewRationBreaks(lane);
+      if (breaks === null) return { lane, kind: 'blocked' };
+      const { status } = rationLaneProjection(
+        ration,
+        this.state.level,
+        this.state.rationBreakHistory,
+        breaks,
+      );
+      return { lane, kind: 'drop', breaks, status };
+    });
+    this.rationMarkerCache = { key, markers };
+    return markers;
   }
 
   private isStackMode(): boolean {

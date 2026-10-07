@@ -10,6 +10,7 @@ import {
   rationBandForLevel,
   rationBreakBand,
   rationEntropyGain,
+  rationLaneProjection,
   rationLevelJudgment,
 } from '../../game/modes/mode.js';
 import type { RationRules } from '../../game/modes/mode.js';
@@ -465,5 +466,94 @@ describe('Ration mode registration', () => {
       persistence: { kind: 'solo-autosave@1', enabled: true },
       stats: { kind: 'solo-account-stats@1', enabled: true, leaderboardEligible: true },
     });
+  });
+});
+
+describe('Ration lane preview', () => {
+  const SAVED_AT = 1;
+
+  test('previews exactly the breaks a real drop produces, including level pushes', () => {
+    let pushTurns = 0;
+    let comparedDrops = 0;
+    for (let seed = 1; seed <= 25; seed++) {
+      const engine = new GameEngine({ rules: RATION_RULES, seed });
+      for (let turn = 0; turn < 60 && engine.state.phase === GamePhase.WaitingForDrop; turn++) {
+        const open = [...Array(RATION_RULES.board.cols).keys()]
+          .filter(lane => engine.previewRationBreaks(lane) !== null);
+        if (open.length === 0) break;
+        // Pick lanes that vary with the seed and turn so many shapes are covered.
+        const lane = open[(seed * 7 + turn * 3) % open.length]!;
+        const previewed = engine.previewRationBreaks(lane);
+        const completesLevel = engine.state.turnsRemaining <= 1;
+        const result = engine.drop(lane);
+        expect(result.accepted).toBe(true);
+        // A push that overflows ends the run without resolving, so only the
+        // non-fatal outcome is comparable.
+        if (!(completesLevel && result.gameOverReason === 'push-overflow')) {
+          expect(previewed).toBe(result.stackSize);
+          comparedDrops++;
+        }
+        if (completesLevel) pushTurns++;
+      }
+    }
+    expect(comparedDrops).toBeGreaterThan(300);
+    expect(pushTurns).toBeGreaterThan(20);
+  });
+
+  test('previewing every lane never changes the game or its generation', () => {
+    for (const seed of [3, 11, 29]) {
+      const engine = new GameEngine({ rules: RATION_RULES, seed });
+      for (let turn = 0; turn < 40 && engine.state.phase === GamePhase.WaitingForDrop; turn++) {
+        const before = JSON.stringify(engine.exportSave({ savedAt: SAVED_AT }));
+        const boardBefore = JSON.stringify(engine.state.board);
+        for (let lane = 0; lane < RATION_RULES.board.cols; lane++) engine.previewRationBreaks(lane);
+        expect(JSON.stringify(engine.state.board)).toBe(boardBefore);
+        expect(JSON.stringify(engine.exportSave({ savedAt: SAVED_AT }))).toBe(before);
+        const lane = [...Array(RATION_RULES.board.cols).keys()]
+          .find(candidate => engine.previewRationBreaks(candidate) !== null);
+        if (lane === undefined) break;
+        engine.drop(lane);
+      }
+    }
+  });
+
+  test('previews nothing for full lanes, other modes, or outside the waiting phase', () => {
+    const ration = new GameEngine({ rules: RATION_RULES, seed: 5 });
+    expect(ration.previewRationBreaks(-1)).toBeNull();
+    expect(ration.previewRationBreaks(RATION_RULES.board.cols)).toBeNull();
+    expect(ration.previewRationBreaks(0)).not.toBeNull();
+    ration.state.phase = GamePhase.Animating;
+    expect(ration.previewRationBreaks(0)).toBeNull();
+
+    const classic = new GameEngine({ seed: 5 });
+    expect(classic.previewRationBreaks(0)).toBeNull();
+
+    const full = new GameEngine({ rules: RATION_RULES, seed: 5 });
+    for (let row = 0; row < RATION_RULES.board.rows; row++) {
+      full.state.board[row]![0] = makeDisc(9, DiscKind.DoubleCracked);
+    }
+    expect(full.previewRationBreaks(0)).toBeNull();
+    expect(full.previewRationBreaks(1)).not.toBeNull();
+  });
+
+  test('projects the rolling window and classifies it against the band', () => {
+    const ration = RATION_RULES.ration!;
+    // A full window drops its oldest entry: 12 + 4 - 1 = 15, inside 12-19.
+    expect(rationLaneProjection(ration, 1, Array(12).fill(1), 4)).toEqual({
+      breaks: 4, projectedTotal: 15, status: 'in-band',
+    });
+    expect(rationLaneProjection(ration, 1, Array(11).fill(1), 0).status).toBe('under');
+    expect(rationLaneProjection(ration, 1, Array(12).fill(2), 4).status).toBe('over');
+  });
+
+  test('a window that is still filling is pro-rated, and only too much is called out', () => {
+    const ration = RATION_RULES.ration!;
+    // Two drops in: 1 + 1 = 2 against a pro-rated band of 2-3.
+    expect(rationLaneProjection(ration, 1, [1], 1).status).toBe('in-band');
+    expect(rationLaneProjection(ration, 1, [1], 5).status).toBe('over');
+    // Falling short this early can still be made up, so it is not "under".
+    expect(rationLaneProjection(ration, 1, [1], 0).status).toBe('pending');
+    expect(rationLaneProjection(ration, 1, [], 0).status).toBe('pending');
+    expect(rationLaneProjection(ration, 1, [], 1).status).toBe('in-band');
   });
 });

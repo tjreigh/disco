@@ -590,3 +590,39 @@ export function rationEntropyGain(rules: RationRules, deviation: number): number
   const gained = rules.entropyMissBase + Math.floor(deviation / rules.entropyPerDeviationUnit);
   return Math.min(rules.maxEntropyGainPerLevel, gained);
 }
+
+/** `pending`: below the band, but the window is still filling so it is too early to call it low. */
+export type RationLaneStatus = 'pending' | 'under' | 'in-band' | 'over';
+
+export interface RationLaneProjection {
+  /** Numbered discs the drop would break, including any level-push cascade. */
+  readonly breaks: number;
+  /** The rolling-window break total after the drop. */
+  readonly projectedTotal: number;
+  readonly status: RationLaneStatus;
+}
+
+/**
+ * Where a drop that breaks `breaks` discs would leave the rolling ledger.
+ *
+ * @remarks
+ * While the window is still filling, the band is scaled to the drops it holds
+ * so far, and falling short of it is only `pending`: later drops can still
+ * make it up, and an empty opening board cannot break anything yet.
+ */
+export function rationLaneProjection(
+  rules: RationRules,
+  level: number,
+  history: readonly number[],
+  breaks: number,
+): RationLaneProjection {
+  const window = [...history, breaks].slice(-rules.rollingWindowDrops);
+  const projectedTotal = window.reduce((total, value) => total + value, 0);
+  const { minBreaks, maxBreaks } = rationBreakBand(rules, level, window.length);
+  const short = window.length < rules.rollingWindowDrops ? 'pending' : 'under';
+  return {
+    breaks,
+    projectedTotal,
+    status: projectedTotal < minBreaks ? short : projectedTotal > maxBreaks ? 'over' : 'in-band',
+  };
+}
