@@ -8,3 +8,4 @@ api/data/
 api/dist/
 coverage/
 test-results/
+.npm/
