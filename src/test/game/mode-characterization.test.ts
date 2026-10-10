@@ -26,7 +26,7 @@ const SHIPPED_MODES = [
     minimumTurns: 8,
     queue: [
       { value: 2, kind: DiscKind.Numbered },
-      { value: 7, kind: DiscKind.DoubleCracked },
+      { value: 7, kind: DiscKind.Numbered },
       { value: 4, kind: DiscKind.Numbered },
     ],
     capabilities: { canDrop: true, canTilt: false, canRewind: false },
