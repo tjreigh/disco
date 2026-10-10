@@ -7,7 +7,7 @@ import { computeOwnerScoreDelta } from '#game-scoring';
 import { isColumnFull } from '#game-board';
 import { DiscKind } from '#game-model';
 import type { Board, Disc } from '#game-model';
-import { MULTIPLAYER_PROTOCOL_VERSION } from '#multiplayer-contracts';
+import { isWireBonusKind, MULTIPLAYER_PROTOCOL_VERSION } from '#multiplayer-contracts';
 import type {
   GameOverReason,
   MultiplayerModeIdentity,
@@ -435,6 +435,11 @@ function serializeSteps(steps: readonly PhysicsStep[]): WireStep[] {
         } satisfies WirePushStep);
         break;
       case 'bonus':
+        // Disco Duel's rules only award level and board-clear bonuses; any
+        // other kind means the rules changed without the wire format.
+        if (!isWireBonusKind(step.bonusKind)) {
+          throw new Error(`Bonus kind "${step.bonusKind}" cannot be sent in a multiplayer match`);
+        }
         result.push({
           kind: 'bonus' as const,
           bonusKind: step.bonusKind,

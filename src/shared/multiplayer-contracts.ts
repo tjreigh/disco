@@ -347,8 +347,13 @@ export function isWireEntryEdge(value: unknown): value is WireEntryEdge {
   return typeof value === 'string' && WIRE_ENTRY_EDGE_SET.has(value);
 }
 
-/** Mirrors src/game/events.ts's BonusKind. */
-export const WIRE_BONUS_KINDS = ['level', 'board-clear', 'stack', 'balanced'] as const;
+/**
+ * The bonus kinds a multiplayer match can produce. This is a subset of
+ * src/game/events.ts's BonusKind: Score Race and Disco Duel use Classic chain
+ * scoring, so they never award the Stack or Ration bonuses, and the wire parser
+ * rejects kinds a match cannot legitimately send.
+ */
+export const WIRE_BONUS_KINDS = ['level', 'board-clear'] as const;
 export type WireBonusKind = (typeof WIRE_BONUS_KINDS)[number];
 const WIRE_BONUS_KIND_SET: ReadonlySet<string> = new Set(WIRE_BONUS_KINDS);
 export function isWireBonusKind(value: unknown): value is WireBonusKind {

@@ -431,9 +431,17 @@ test('game-over reason vocabulary stays in sync between src/game and src/shared'
   expect([...GAME_OVER_REASONS].sort()).toEqual([...SHARED_GAME_OVER_REASONS].sort());
 });
 
-// Same reasoning for the bonus-kind vocabulary: src/game/events.ts and
-// src/shared/multiplayer-contracts.ts each keep their own copy because the
-// isolated builds cannot import from each other.
-test('bonus-kind vocabulary stays in sync between src/game and src/shared', () => {
-  expect([...BONUS_KINDS].sort()).toEqual([...WIRE_BONUS_KINDS].sort());
+// The wire bonus kinds are deliberately a subset of the engine's: multiplayer
+// modes only award level and board-clear bonuses, so mode-specific kinds
+// (stack, balanced, ...) never go over the wire. Every wire kind must still be
+// a real engine kind, so a kind removed from the engine cannot linger on the wire.
+test('every wire bonus kind is a bonus kind the engine can produce', () => {
+  for (const kind of WIRE_BONUS_KINDS) expect(BONUS_KINDS).toContain(kind);
+});
+
+test('the multiplayer modes only award bonuses the wire can carry', () => {
+  for (const rules of [SCORE_RACE_RULES, SHARED_DUEL_RULES]) {
+    expect(rules.scoring.kind).toBe('chain-score@1');
+    expect(rules.ration).toBeUndefined();
+  }
 });

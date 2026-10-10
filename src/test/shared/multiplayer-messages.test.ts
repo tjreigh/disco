@@ -633,6 +633,24 @@ describe('turn-played server message', () => {
     expect(result).toEqual({ ok: false, error: 'invalid-message' });
   });
 
+  test.each(['stack', 'balanced'])('rejects the %s bonus, which no multiplayer mode awards', bonusKind => {
+    const result = parseMultiplayerServerMessage({
+      ...base,
+      mode,
+      type: 'turn-played',
+      matchId: 'match-1',
+      board: emptyBoard(),
+      turnResult: {
+        ...turnResult,
+        steps: [{ kind: 'bonus', bonusKind, pointsAwarded: 10 }],
+      },
+      nextPlayerId: 'p2',
+      revision: 1,
+      ...discFields,
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid-message' });
+  });
+
   test('rejects an unrecognized gameOverReason instead of silently dropping it', () => {
     const result = parseMultiplayerServerMessage({
       ...base,
