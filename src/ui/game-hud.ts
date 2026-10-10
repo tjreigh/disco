@@ -69,6 +69,8 @@ export interface GameHudState {
     needMax: number;
     windowDrops: number;
     windowProgress: number;
+    /** Opening drops still left that are kept out of the ledger; 0 once counting has begun. */
+    warmupLeft: number;
     /** Drops until the next check, counting the next drop as 1. */
     dropsUntilCheck: number;
     /** `locked` already exceeds the band, so the next check cannot pass. */
@@ -422,6 +424,7 @@ export class GameHud {
       needMax,
       windowDrops,
       windowProgress,
+      warmupLeft,
       dropsUntilCheck,
       doomed,
       laneResult,
@@ -487,6 +490,9 @@ export class GameHud {
         ? 'The next drop is a check and it will miss.'
         : `The next drop is a check: it must break ${needMin} to ${needMax} discs.`;
       if (laneSpoken) spoken += ` Currently ${laneSpoken}.`;
+    } else if (warmupLeft > 0) {
+      line = `WARM-UP · ${warmupLeft} MORE NOT COUNTED`;
+      spoken = `Warm-up: the next ${warmupLeft} drops are not counted. The ${windowDrops}-drop balance window starts after that. First check in ${dropsUntilCheck} drops.`;
     } else if (buildingWindow) {
       line = `BUILD ${windowProgress}/${windowDrops} · NO CHECK YET`;
       spoken = `Building the ${windowDrops}-drop balance window: ${windowProgress} drops recorded. First check in ${dropsUntilCheck} drops.`;

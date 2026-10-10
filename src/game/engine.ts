@@ -635,9 +635,11 @@ export class GameEngine {
     const ration = rationRules(this.rules);
     if (ration) {
       this.state.breaksThisLevel += stackSize;
-      this.state.rationBreakHistory.push(stackSize);
-      if (this.state.rationBreakHistory.length > ration.rollingWindowDrops) {
-        this.state.rationBreakHistory.shift();
+      if (this.state.dropCount > ration.warmupDrops) {
+        this.state.rationBreakHistory.push(stackSize);
+        if (this.state.rationBreakHistory.length > ration.rollingWindowDrops) {
+          this.state.rationBreakHistory.shift();
+        }
       }
     }
     if (this.rules.scoring.kind === 'stack-score@1' && stackSize > 0) {

@@ -45,7 +45,7 @@ const RATION_GENERATION = {
 
 export const RATION_RULES = defineGameRules({
   id: 'ration',
-  version: 3,
+  version: 4,
   board: SEVEN_BY_SEVEN,
   placement: DOWNWARD_DROP,
   clearing: ORTHOGONAL_COUNT_MATCH,
@@ -61,6 +61,9 @@ export const RATION_RULES = defineGameRules({
     bandCenterLevelStep: 0,
     minBandCenter: 1.3,
     bandHalfWidth: 0.3,
+    // The empty opening board cannot break a full window's worth of discs, so
+    // the ledger starts after one window of drops.
+    warmupDrops: 12,
     rollingWindowDrops: 12,
     // Judging every half window keeps one mistake from failing several
     // overlapping checkpoints in a row.

@@ -155,7 +155,7 @@ describe('GameHud', () => {
     // A full 29-drop window, band 23-27, 3 drops to the next check.
     const ration = {
       locked: 17, leaving: 6, minBreaks: 23, maxBreaks: 27, needMin: 6, needMax: 10,
-      windowDrops: 29, windowProgress: 29, dropsUntilCheck: 3, doomed: false,
+      windowDrops: 29, windowProgress: 29, warmupLeft: 0, dropsUntilCheck: 3, doomed: false,
       laneHints: true,
       streak: 0,
       laneResult: null,
@@ -208,6 +208,15 @@ describe('GameHud', () => {
     expect(rationEl.dataset.status).toBe('building');
     expect(line()).toBe('BUILD 4/29 · NO CHECK YET');
     expect(rationEl.getAttribute('aria-label')).toContain('Building the 29-drop balance window');
+
+    // Opening warm-up: drops are not recorded yet, so say so instead of showing a stuck 0/29.
+    hud.render({
+      ...base,
+      ration: { ...ration, locked: 0, leaving: 0, windowProgress: 0, warmupLeft: 7, dropsUntilCheck: 36, needMin: 23, needMax: 27 },
+    });
+    expect(rationEl.dataset.status).toBe('building');
+    expect(line()).toBe('WARM-UP · 7 MORE NOT COUNTED');
+    expect(rationEl.getAttribute('aria-label')).toContain('Warm-up: the next 7 drops are not counted');
 
     // Colour follows the locked breaks against the band.
     hud.render({ ...base, ration: { ...ration, locked: 25 } });

@@ -997,6 +997,7 @@ export class SoloSessionController {
             needMax: forecast.need.max,
             windowDrops: ration.rollingWindowDrops,
             windowProgress: this.state.rationBreakHistory.length,
+            warmupLeft: Math.max(0, ration.warmupDrops - this.state.dropCount),
             dropsUntilCheck: forecast.dropsUntilCheck,
             doomed: forecast.doomed,
             laneHints: this.laneHintsEnabled,

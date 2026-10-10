@@ -61,6 +61,7 @@ function rationTestMode(overrides: {
       bandCenterLevelStep: 0,
       minBandCenter: center,
       bandHalfWidth: halfWidth,
+      warmupDrops: 0,
       rollingWindowDrops,
       checkpointDrops,
       entropyThreshold: 4,
@@ -150,6 +151,7 @@ describe('Ration band math', () => {
         balancedLevelBonus: 2_500,
         streakStep: 0,
         streakCap: 2_500,
+        warmupDrops: 0,
         rollingWindowDrops: 1,
         checkpointDrops: 1,
         purgeScorePenalty: 250,
@@ -549,8 +551,38 @@ describe('Ration lane preview', () => {
   });
 });
 
+describe('Ration opening warmup', () => {
+  test('the shipped rules keep the empty opening board out of the first ledger window', () => {
+    const ration = RATION_RULES.ration!;
+    expect(ration.warmupDrops).toBe(ration.rollingWindowDrops);
+    const engine = new GameEngine({ rules: RATION_RULES, seed: 3 });
+    for (let turn = 0; turn < ration.warmupDrops; turn++) {
+      const lane = turn % RATION_RULES.board.cols;
+      expect(engine.drop(lane).accepted).toBe(true);
+      expect(engine.state.rationBreakHistory).toEqual([]);
+    }
+    expect(engine.state.entropy).toBe(0);
+    engine.drop(0);
+    expect(engine.state.rationBreakHistory).toHaveLength(1);
+  });
+
+  test('the forecast counts only post-warmup drops toward a full window', () => {
+    const ration = RATION_RULES.ration!;
+    const fresh = rationForecast(ration, 1, [], 0);
+    expect(fresh.dropsUntilCheck).toBe(24);
+    expect(fresh.building).toBe(true);
+    expect(fresh.locked).toBe(0);
+    expect(fresh.need.min).toBe(12);
+    // Mid-warmup: 5 drops in, 7 warmup drops left, then 12 to fill the window.
+    expect(rationForecast(ration, 1, [], 5).dropsUntilCheck).toBe(19);
+    // First recorded drop in: 11 entries still to add.
+    expect(rationForecast(ration, 1, [2], 13).dropsUntilCheck).toBe(11);
+  });
+});
+
 describe('Ration next-check forecast', () => {
-  const ration = RATION_RULES.ration!; // window 12, check every 6, band 12-19
+  // Window 12, check every 6, band 12-19, no warmup so drop counts equal ledger sizes.
+  const ration = { ...RATION_RULES.ration!, warmupDrops: 0 };
 
   test('counts drops to the next check, building the window first', () => {
     expect(rationForecast(ration, 1, [], 0).dropsUntilCheck).toBe(12);

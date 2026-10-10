@@ -122,6 +122,12 @@ export interface RationRules {
   readonly minBandCenter: number;
   /** Half-width of the band around its center, in breaks-per-drop. */
   readonly bandHalfWidth: number;
+  /**
+   * Opening drops kept out of the ledger. The board starts empty, so these
+   * drops cannot break enough to meet the band; the first ledger window starts
+   * once the board has material.
+   */
+  readonly warmupDrops: number;
   /** Number of most-recent drops included in the balance ledger. */
   readonly rollingWindowDrops: number;
   /** Evaluate the full ledger after this many accepted drops. */
@@ -416,8 +422,10 @@ export function defineGameRules(config: GameRulesConfig): GameRulesConfig {
       throw new Error(`Ration rolling window for ${config.id} must cover at least one checkpoint`);
     }
     if (!Number.isSafeInteger(ration.rollingWindowDrops)
-      || !Number.isSafeInteger(ration.checkpointDrops)) {
-      throw new Error(`Ration rolling window and checkpoint interval for ${config.id} must be integers`);
+      || !Number.isSafeInteger(ration.checkpointDrops)
+      || !Number.isSafeInteger(ration.warmupDrops)
+      || ration.warmupDrops < 0) {
+      throw new Error(`Ration warmup, rolling window and checkpoint interval for ${config.id} must be non-negative integers`);
     }
   }
 
@@ -633,11 +641,14 @@ export function rationForecast(
   const window = rules.rollingWindowDrops;
   const interval = rules.checkpointDrops;
   const length = history.length;
+  // Warmup drops do not enter the ledger, so only drops past it add entries.
+  const warmupLeft = Math.max(0, rules.warmupDrops - dropCount);
+  const added = (drops: number): number => Math.max(0, drops - warmupLeft);
   let dropsUntilCheck = 1;
-  while (length + dropsUntilCheck < window || (dropCount + dropsUntilCheck) % interval !== 0) {
+  while (length + added(dropsUntilCheck) < window || (dropCount + dropsUntilCheck) % interval !== 0) {
     dropsUntilCheck++;
   }
-  const keep = Math.max(0, window - dropsUntilCheck);
+  const keep = Math.max(0, window - added(dropsUntilCheck));
   const total = history.reduce((sum, breaks) => sum + breaks, 0);
   const locked = keep === 0 ? 0 : history.slice(-keep).reduce((sum, breaks) => sum + breaks, 0);
   const { minBreaks, maxBreaks } = rationBreakBand(rules, level, window);
