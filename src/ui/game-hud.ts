@@ -58,13 +58,28 @@ export interface GameHudState {
   } | null;
   /** Ration balance meter state. Omit for non-Ration modes. */
   ration?: {
-    recentBreaks: number;
+    /** Breaks in the window now that are still in it at the next check. */
+    locked: number;
+    /** Breaks in the window now that roll off before the next check. */
+    leaving: number;
     minBreaks: number;
     maxBreaks: number;
+    /** Breaks the drops up to the next check must supply, lower bound already clamped to 0. */
+    needMin: number;
+    needMax: number;
     windowDrops: number;
     windowProgress: number;
-    /** Drops remaining before the first or next rolling-ledger evaluation. */
-    dropsUntilCheckpoint: number;
+    /** Drops until the next check, counting the next drop as 1. */
+    dropsUntilCheck: number;
+    /** `locked` already exceeds the band, so the next check cannot pass. */
+    doomed: boolean;
+    /** What a drop in the cursor lane would do; null when that lane cannot take a drop. */
+    laneResult: {
+      kind: 'open' | 'doomed' | 'pass' | 'miss-low' | 'miss-high';
+      /** Entropy change if this drop is the check; 0 otherwise. */
+      entropyDelta: number;
+      endsRun: boolean;
+    } | null;
     entropy: number;
     entropyThreshold: number;
     /** Entropy recovered per balanced ledger checkpoint. */
@@ -116,6 +131,9 @@ export class GameHud {
   private readonly rationLabel: HTMLElement;
   private readonly rationReadout: HTMLElement;
   private readonly rationBand: HTMLElement;
+  private readonly rationLocked: HTMLElement;
+  private readonly rationLeaving: HTMLElement;
+  private readonly rationOverflow: HTMLElement;
   private readonly rationMarker: HTMLElement;
   private readonly rationCheckpoint: HTMLElement;
   private readonly entropyValue: HTMLElement;
@@ -166,6 +184,9 @@ export class GameHud {
     this.rationLabel = mustQuery(fragment, '[data-ui-ref="ration-label"]');
     this.rationReadout = mustQuery(fragment, '[data-ui-ref="ration-readout"]');
     this.rationBand = mustQuery(fragment, '[data-ui-ref="ration-band"]');
+    this.rationLocked = mustQuery(fragment, '[data-ui-ref="ration-locked"]');
+    this.rationLeaving = mustQuery(fragment, '[data-ui-ref="ration-leaving"]');
+    this.rationOverflow = mustQuery(fragment, '[data-ui-ref="ration-overflow"]');
     this.rationMarker = mustQuery(fragment, '[data-ui-ref="ration-marker"]');
     this.rationCheckpoint = mustQuery(fragment, '[data-ui-ref="ration-checkpoint"]');
     this.entropyValue = mustQuery(fragment, '[data-ui-ref="entropy-value"]');
@@ -385,50 +406,91 @@ export class GameHud {
 
   private renderRation(ration: NonNullable<GameHudState['ration']>): void {
     const {
-      recentBreaks,
+      locked,
+      leaving,
       minBreaks,
       maxBreaks,
+      needMin,
+      needMax,
       windowDrops,
       windowProgress,
-      dropsUntilCheckpoint,
+      dropsUntilCheck,
+      doomed,
+      laneResult,
       entropy,
       entropyThreshold,
       entropyRecoveryPerLevel,
       entropyMissBase,
       maxEntropyGainPerLevel,
     } = ration;
-    const scale = Math.max(1, windowDrops);
-    const bandLeft = Math.min(1, Math.max(0, minBreaks / scale)) * 100;
-    const bandRight = Math.min(1, Math.max(0, maxBreaks / scale)) * 100;
-    const markerLeft = Math.min(1, Math.max(0, recentBreaks / scale)) * 100;
-    this.rationBand.style.left = `${bandLeft}%`;
-    this.rationBand.style.width = `${Math.max(0, bandRight - bandLeft)}%`;
-    this.rationMarker.style.left = `${markerLeft}%`;
+    // The bar shows the window total, so it must reach past the band's upper
+    // edge for the band to be visible at all.
+    const scale = Math.max(1, windowDrops, Math.ceil(maxBreaks * 1.25));
+    const pct = (value: number): number => Math.min(1, Math.max(0, value / scale)) * 100;
+    const lockedEnd = pct(locked);
+    const leavingEnd = pct(locked + leaving);
+    this.rationBand.style.left = `${pct(minBreaks)}%`;
+    this.rationBand.style.width = `${Math.max(0, pct(maxBreaks) - pct(minBreaks))}%`;
+    this.rationLocked.style.width = `${lockedEnd}%`;
+    this.rationLeaving.style.left = `${lockedEnd}%`;
+    this.rationLeaving.style.width = `${Math.max(0, leavingEnd - lockedEnd)}%`;
+    this.rationMarker.style.left = `${lockedEnd}%`;
+    this.rationOverflow.hidden = locked <= scale;
     this.rationLabel.textContent = `BALANCE · ${windowDrops}`;
-    this.rationReadout.textContent = `${recentBreaks} / ${minBreaks}–${maxBreaks}`;
+    // Nothing rolling off means the plain total is the whole story.
+    this.rationReadout.textContent = `${leaving > 0 ? `${locked} + ${leaving}` : locked} / ${minBreaks}–${maxBreaks}`;
     const buildingWindow = windowProgress < windowDrops;
+    // Colour follows what is already locked in, not the whole window: breaks
+    // that roll off before the check are not judged.
     const status = buildingWindow
       ? 'building'
-      : recentBreaks < minBreaks
-      ? 'under'
-      : recentBreaks > maxBreaks
-        ? 'over'
-        : 'balanced';
-    // Say where the window stands now, so the countdown reads as "this is
-    // what would be judged" rather than a bare number of drops.
-    const standing = status === 'under' ? ' · LOW' : status === 'over' ? ' · HIGH' : status === 'balanced' ? ' · OK' : '';
-    this.rationCheckpoint.textContent = buildingWindow
-      ? `BUILD ${windowProgress}/${windowDrops}`
-      : `IN ${dropsUntilCheckpoint} ${dropsUntilCheckpoint === 1 ? 'DROP' : 'DROPS'}${standing}`;
+      : locked < minBreaks
+        ? 'under'
+        : locked > maxBreaks
+          ? 'over'
+          : 'balanced';
+
+    const need = `${needMin}–${needMax}`;
+    const checkNext = dropsUntilCheck === 1;
+    let laneText = '';
+    let laneSpoken = '';
+    if (checkNext && laneResult) {
+      const delta = laneResult.entropyDelta;
+      if (laneResult.kind === 'pass') {
+        laneText = delta < 0 ? `✓ −${-delta}` : '✓ HOLDS';
+        laneSpoken = delta < 0 ? `a drop in the selected lane passes and recovers ${-delta} entropy` : 'a drop in the selected lane passes and entropy stays at 0';
+      } else {
+        laneText = laneResult.endsRun ? '✗ ENDS RUN' : `✗ +${delta}`;
+        laneSpoken = laneResult.endsRun
+          ? 'a drop in the selected lane misses and ends the run'
+          : `a drop in the selected lane misses and adds ${delta} entropy`;
+      }
+    }
+    let line: string;
+    let spoken: string;
+    if (checkNext) {
+      const target = doomed ? 'WILL MISS' : `BREAK ${need}`;
+      line = `CHECK NEXT DROP · ${target}${laneText ? ` · ${laneText}` : ''}`;
+      spoken = doomed
+        ? 'The next drop is a check and it will miss.'
+        : `The next drop is a check: it must break ${needMin} to ${needMax} discs.`;
+      if (laneSpoken) spoken += ` Currently ${laneSpoken}.`;
+    } else if (buildingWindow) {
+      line = `BUILD ${windowProgress}/${windowDrops} · NO CHECK YET`;
+      spoken = `Building the ${windowDrops}-drop balance window: ${windowProgress} drops recorded. First check in ${dropsUntilCheck} drops.`;
+    } else if (doomed) {
+      line = `CHECK IN ${dropsUntilCheck} · WILL MISS`;
+      spoken = `Check in ${dropsUntilCheck} drops. Too many discs are already locked in, so it will miss.`;
+    } else {
+      line = `CHECK IN ${dropsUntilCheck} · NEED ${need} · ENTROPY HOLDS`;
+      spoken = `Check in ${dropsUntilCheck} drops. The drops until then must break ${needMin} to ${needMax} discs in total. Entropy holds until then.`;
+    }
+    this.rationCheckpoint.textContent = line;
     this.ration.dataset.status = status;
     this.ration.setAttribute(
       'aria-label',
-      `${buildingWindow
-        ? `Building the ${windowDrops}-drop balance window: ${windowProgress} drops recorded. First evaluation in ${dropsUntilCheckpoint} ${dropsUntilCheckpoint === 1 ? 'drop' : 'drops'}.`
-        : `Rolling balance ${recentBreaks} breaks in the last ${windowDrops} drops, target ${minBreaks} to ${maxBreaks}, currently ${
-          status === 'under' ? 'below' : status === 'over' ? 'above' : 'inside'
-        } the band. Next evaluation in ${dropsUntilCheckpoint} ${dropsUntilCheckpoint === 1 ? 'drop' : 'drops'}.`}
-       Entropy ${entropy} of ${entropyThreshold}. A balanced checkpoint recovers ${
+      `${spoken} Of the ${windowDrops}-drop window, ${locked} breaks stay and ${leaving} roll off before the check; target ${minBreaks} to ${maxBreaks}.`
+      + ` Entropy ${entropy} of ${entropyThreshold}. A balanced checkpoint recovers ${
         entropyRecoveryPerLevel
       }; a missed checkpoint adds ${entropyMissBase} to ${maxEntropyGainPerLevel} entropy.`,
     );

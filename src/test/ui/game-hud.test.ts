@@ -152,44 +152,92 @@ describe('GameHud', () => {
       level: 2, initialTurnsPerLevel: 30, turnsPerLevel: 29, turnsRemaining: 10,
       hasGravity: false,
     };
+    // A full 29-drop window, band 23-27, 3 drops to the next check.
     const ration = {
-      recentBreaks: 17, minBreaks: 23, maxBreaks: 27, windowDrops: 29, windowProgress: 29,
-      dropsUntilCheckpoint: 3,
+      locked: 17, leaving: 6, minBreaks: 23, maxBreaks: 27, needMin: 6, needMax: 10,
+      windowDrops: 29, windowProgress: 29, dropsUntilCheck: 3, doomed: false,
+      laneResult: null,
       entropy: 1, entropyThreshold: 4,
       entropyRecoveryPerLevel: 1, entropyMissBase: 1, maxEntropyGainPerLevel: 3,
     };
     hud.render({ ...base, ration });
 
     const rationEl = hud.root.querySelector<HTMLElement>('.game-hud__ration')!;
+    const line = (): string | null | undefined =>
+      rationEl.querySelector('[data-ui-ref="ration-checkpoint"]')?.textContent;
     expect(rationEl.hidden).toBe(false);
     expect(rationEl.dataset.status).toBe('under');
-    expect(rationEl.querySelector('[data-ui-ref="ration-readout"]')?.textContent).toBe('17 / 23–27');
-    expect(rationEl.querySelector('[data-ui-ref="ration-checkpoint"]')?.textContent).toBe('IN 3 DROPS · LOW');
+    expect(rationEl.querySelector('[data-ui-ref="ration-readout"]')?.textContent).toBe('17 + 6 / 23–27');
+    expect(line()).toBe('CHECK IN 3 · NEED 6–10 · ENTROPY HOLDS');
     expect(rationEl.querySelector('[data-ui-ref="entropy-value"]')?.textContent).toBe('1/4');
     expect(rationEl.querySelector('.game-hud__ration-label')?.textContent).toBe('BALANCE · 29');
     expect(rationEl.querySelectorAll('.game-hud__entropy-pip')).toHaveLength(4);
     expect(rationEl.querySelectorAll('.game-hud__entropy-pip--filled')).toHaveLength(1);
     expect(rationEl.getAttribute('aria-label')).toContain('target 23 to 27');
+    expect(rationEl.getAttribute('aria-label')).toContain('17 breaks stay and 6 roll off');
+    expect(rationEl.getAttribute('aria-label')).toContain('must break 6 to 10 discs');
     expect(rationEl.getAttribute('aria-label')).toContain('Entropy 1 of 4');
     expect(rationEl.getAttribute('aria-label'))
       .toContain('A balanced checkpoint recovers 1; a missed checkpoint adds 1 to 3 entropy.');
     expect(rationEl.classList.contains('game-hud__ration--imbalanced')).toBe(false);
 
+    // The track is scaled to max + headroom (ceil(27 * 1.25) = 34), so the
+    // band is visible, and splits the window into locked and leaving parts.
+    const style = (ref: string): CSSStyleDeclaration =>
+      rationEl.querySelector<HTMLElement>(`[data-ui-ref="${ref}"]`)!.style;
+    expect(parseFloat(style('ration-band').left)).toBeCloseTo((23 / 34) * 100, 3);
+    expect(parseFloat(style('ration-band').width)).toBeCloseTo((4 / 34) * 100, 3);
+    expect(parseFloat(style('ration-locked').width)).toBeCloseTo((17 / 34) * 100, 3);
+    expect(parseFloat(style('ration-leaving').left)).toBeCloseTo((17 / 34) * 100, 3);
+    expect(parseFloat(style('ration-leaving').width)).toBeCloseTo((6 / 34) * 100, 3);
+    expect(parseFloat(style('ration-marker').left)).toBeCloseTo((17 / 34) * 100, 3);
+    expect(rationEl.querySelector<HTMLElement>('[data-ui-ref="ration-overflow"]')!.hidden).toBe(true);
+
+    // With nothing rolling off, the readout drops the "+ 0".
+    hud.render({ ...base, ration: { ...ration, leaving: 0 } });
+    expect(rationEl.querySelector('[data-ui-ref="ration-readout"]')?.textContent).toBe('17 / 23–27');
+    hud.render({ ...base, ration });
+
+    // A window that is still filling: slate, nothing judged yet.
     hud.render({
       ...base,
-      ration: { ...ration, recentBreaks: 4, windowProgress: 4, dropsUntilCheckpoint: 8 },
+      ration: { ...ration, locked: 4, leaving: 0, windowProgress: 4, dropsUntilCheck: 8, needMin: 19, needMax: 23 },
     });
     expect(rationEl.dataset.status).toBe('building');
-    expect(rationEl.querySelector('[data-ui-ref="ration-checkpoint"]')?.textContent).toBe('BUILD 4/29');
+    expect(line()).toBe('BUILD 4/29 · NO CHECK YET');
     expect(rationEl.getAttribute('aria-label')).toContain('Building the 29-drop balance window');
 
-    hud.render({ ...base, ration: { ...ration, recentBreaks: 25 } });
+    // Colour follows the locked breaks against the band.
+    hud.render({ ...base, ration: { ...ration, locked: 25 } });
     expect(rationEl.dataset.status).toBe('balanced');
-    expect(rationEl.querySelector('[data-ui-ref="ration-checkpoint"]')?.textContent).toBe('IN 3 DROPS · OK');
-
-    hud.render({ ...base, ration: { ...ration, recentBreaks: 30 } });
+    hud.render({ ...base, ration: { ...ration, locked: 30, needMin: 0, needMax: -3, doomed: true } });
     expect(rationEl.dataset.status).toBe('over');
-    expect(rationEl.querySelector('[data-ui-ref="ration-checkpoint"]')?.textContent).toBe('IN 3 DROPS · HIGH');
+    expect(line()).toBe('CHECK IN 3 · WILL MISS');
+
+    // Locked breaks beyond the scale pin the marker and show the overflow tick.
+    hud.render({ ...base, ration: { ...ration, locked: 40, leaving: 0, needMin: 0, needMax: -13, doomed: true } });
+    expect(parseFloat(style('ration-marker').left)).toBe(100);
+    expect(rationEl.querySelector<HTMLElement>('[data-ui-ref="ration-overflow"]')!.hidden).toBe(false);
+
+    // The checking drop: required breaks plus what the cursor lane would do.
+    const check = { ...ration, dropsUntilCheck: 1, needMin: 0 };
+    hud.render({ ...base, ration: { ...check, needMin: 2, laneResult: { kind: 'pass', entropyDelta: -1, endsRun: false } } });
+    expect(line()).toBe('CHECK NEXT DROP · BREAK 2–10 · ✓ −1');
+    expect(rationEl.getAttribute('aria-label')).toContain('passes and recovers 1 entropy');
+    hud.render({ ...base, ration: { ...check, laneResult: { kind: 'pass', entropyDelta: 0, endsRun: false } } });
+    expect(line()).toBe('CHECK NEXT DROP · BREAK 0–10 · ✓ HOLDS');
+    hud.render({ ...base, ration: { ...check, laneResult: { kind: 'miss-high', entropyDelta: 1, endsRun: false } } });
+    expect(line()).toBe('CHECK NEXT DROP · BREAK 0–10 · ✗ +1');
+    hud.render({ ...base, ration: { ...check, laneResult: { kind: 'miss-low', entropyDelta: 1, endsRun: true } } });
+    expect(line()).toBe('CHECK NEXT DROP · BREAK 0–10 · ✗ ENDS RUN');
+    expect(rationEl.getAttribute('aria-label')).toContain('misses and ends the run');
+    hud.render({ ...base, ration: { ...check } });
+    expect(line()).toBe('CHECK NEXT DROP · BREAK 0–10');
+    // Even a still-filling window gets the check line once the next drop is the check.
+    hud.render({ ...base, ration: { ...check, windowProgress: 28 } });
+    expect(line()).toBe('CHECK NEXT DROP · BREAK 0–10');
+    hud.render({ ...base, ration: { ...check, doomed: true, needMax: -2 } });
+    expect(line()).toBe('CHECK NEXT DROP · WILL MISS');
 
     // Entropy rising between frames marks a missed level judgment.
     hud.render({ ...base, ration: { ...ration, entropy: 2 } });

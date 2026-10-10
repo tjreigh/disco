@@ -1,6 +1,6 @@
 import type { SoloModeDefinition } from '../game/modes/mode.js';
 import {
-  rationBreakBand, rationForecast, rationLaneProjection, rationRules, rewindModifier, turnCostForInstability,
+  rationBreakBand, rationForecast, rationLaneOutcome, rationLaneProjection, rationRules, rewindModifier, turnCostForInstability,
 } from '../game/modes/mode.js';
 import type { GameState } from '../game/state.js';
 import { GamePhase } from '../game/state.js';
@@ -47,7 +47,7 @@ const SAVE_EXIT_SYNC_WAIT_MS = 5_000;
 export class SoloSessionController {
   private readonly state: GameState;
   private readonly session: LocalBoardSession;
-  private rationMarkerCache: { key: string; markers: readonly RationLaneMarker[] } | undefined;
+  private rationMarkerCache: { key: string; breaks: readonly (number | null)[] } | undefined;
   private mode: SoloModeDefinition;
   private renderer: Renderer;
   private input: InputHandler;
@@ -958,20 +958,36 @@ export class SoloSessionController {
       ...(() => {
         const ration = rationRules(this.mode.rules);
         if (!ration) return {};
-        const windowProgress = this.state.rationBreakHistory.length;
-        const { dropsUntilCheck: dropsUntilCheckpoint } = rationForecast(
+        const forecast = rationForecast(
           ration,
           this.state.level,
           this.state.rationBreakHistory,
           this.state.dropCount,
         );
+        const { minBreaks, maxBreaks } = rationBreakBand(ration, forecast.level, ration.rollingWindowDrops);
+        const cursorBreaks = this.rationLaneBreaks()?.[this.state.cursorCol];
+        const cursorOutcome = typeof cursorBreaks === 'number'
+          ? rationLaneOutcome(ration, forecast, cursorBreaks, this.state.entropy)
+          : null;
         return {
           ration: {
-            recentBreaks: this.state.rationBreakHistory.reduce((total, breaks) => total + breaks, 0),
-            ...rationBreakBand(ration, this.state.level, ration.rollingWindowDrops),
+            locked: forecast.locked,
+            leaving: forecast.leaving,
+            minBreaks,
+            maxBreaks,
+            needMin: forecast.need.min,
+            needMax: forecast.need.max,
             windowDrops: ration.rollingWindowDrops,
-            windowProgress,
-            dropsUntilCheckpoint,
+            windowProgress: this.state.rationBreakHistory.length,
+            dropsUntilCheck: forecast.dropsUntilCheck,
+            doomed: forecast.doomed,
+            laneResult: cursorOutcome
+              ? {
+                  kind: cursorOutcome.kind,
+                  entropyDelta: cursorOutcome.entropyAfter - this.state.entropy,
+                  endsRun: cursorOutcome.endsRun,
+                }
+              : null,
             entropy: this.state.entropy,
             entropyThreshold: ration.entropyThreshold,
             entropyRecoveryPerLevel: ration.entropyRecoveryPerLevel,
@@ -1043,12 +1059,12 @@ export class SoloSessionController {
   }
 
   /**
-   * Per-lane Ration previews, recomputed only when the position changes — the
-   * dry run costs a full drop resolution per lane, far too much per frame.
+   * Break counts a drop in each lane would produce (null: lane blocked),
+   * recomputed only when the position changes — the dry run costs a full drop
+   * resolution per lane, far too much per frame.
    */
-  private rationLaneMarkers(): readonly RationLaneMarker[] | null {
-    const ration = rationRules(this.mode.rules);
-    if (!ration || this.state.phase !== GamePhase.WaitingForDrop) return null;
+  private rationLaneBreaks(): readonly (number | null)[] | null {
+    if (!rationRules(this.mode.rules) || this.state.phase !== GamePhase.WaitingForDrop) return null;
     const key = [
       this.state.generationSeed,
       this.state.dropCount,
@@ -1056,9 +1072,21 @@ export class SoloSessionController {
       this.state.score,
       this.state.rationPurgeUsed,
     ].join(':');
-    if (this.rationMarkerCache?.key === key) return this.rationMarkerCache.markers;
-    const markers = Array.from({ length: this.mode.rules.board.cols }, (_, lane): RationLaneMarker => {
-      const breaks = this.session.previewRationBreaks(lane);
+    if (this.rationMarkerCache?.key !== key) {
+      this.rationMarkerCache = {
+        key,
+        breaks: Array.from({ length: this.mode.rules.board.cols }, (_, lane) => this.session.previewRationBreaks(lane)),
+      };
+    }
+    return this.rationMarkerCache.breaks;
+  }
+
+  /** Per-lane Ration markers. */
+  private rationLaneMarkers(): readonly RationLaneMarker[] | null {
+    const ration = rationRules(this.mode.rules);
+    const lanes = this.rationLaneBreaks();
+    if (!ration || !lanes) return null;
+    return lanes.map((breaks, lane): RationLaneMarker => {
       if (breaks === null) return { lane, kind: 'blocked' };
       const { status } = rationLaneProjection(
         ration,
@@ -1068,8 +1096,6 @@ export class SoloSessionController {
       );
       return { lane, kind: 'drop', breaks, status };
     });
-    this.rationMarkerCache = { key, markers };
-    return markers;
   }
 
   private isStackMode(): boolean {

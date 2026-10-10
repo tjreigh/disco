@@ -276,6 +276,8 @@
   gap: 5px;
   flex: 0 0 auto;
   min-width: 124px;
+  /* Scales the whole card, text and track included, without touching each size. */
+  zoom: .85;
   border: 1px solid var(--color-border);
   border-radius: 10px;
   padding: 5px 9px 6px;
@@ -319,6 +321,33 @@
   border-radius: 999px;
   background: rgba(113, 128, 150, .3);
 }
+.game-hud__ration-locked,
+.game-hud__ration-leaving {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+.game-hud__ration-locked {
+  left: 0;
+  border-radius: 999px;
+  background: #94a3b8;
+}
+.game-hud__ration-leaving {
+  background: repeating-linear-gradient(135deg, rgba(148, 163, 184, .55) 0 2px, transparent 2px 4px);
+}
+.game-hud__ration-overflow {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  right: -1px;
+  width: 3px;
+  border-radius: 2px;
+  background: #fb7185;
+}
+.game-hud__ration-overflow[hidden] { display: none; }
+.game-hud__ration[data-status="under"] .game-hud__ration-locked { background: #38bdf8; }
+.game-hud__ration[data-status="balanced"] .game-hud__ration-locked { background: #34d399; }
+.game-hud__ration[data-status="over"] .game-hud__ration-locked { background: #fb7185; }
 .game-hud__ration-band {
   position: absolute;
   top: 0;
@@ -372,8 +401,8 @@
   color: #93c5fd;
   font-size: 10px;
   font-weight: 800;
-  line-height: 1;
-  white-space: nowrap;
+  line-height: 1.25;
+  text-align: right;
   font-variant-numeric: tabular-nums;
 }
 .game-hud__ration--recovered { animation: ration-recovered 600ms ease-out; }
