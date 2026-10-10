@@ -593,6 +593,7 @@ export class SoloSessionController {
     const ration = rationRules(this.mode.rules);
     this.gameOverScreen.open({
       score: this.state.score,
+      level: this.state.level,
       stats: displayedStats,
       isStackMode: this.isStackMode(),
       bestRunRecord: view.longestStreak,

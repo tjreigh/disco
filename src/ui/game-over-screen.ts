@@ -8,6 +8,8 @@ export const GAME_OVER_RUN_STATS_EXPANDED_KEY = 'disco.game-over.run-stats-expan
 
 export interface GameOverSummary {
   score: number;
+  /** Level reached when the run ended. */
+  level: number;
   stats: GameStats;
   isStackMode: boolean;
   bestRunRecord: number;
@@ -26,6 +28,7 @@ export interface GameOverSummary {
 export class GameOverScreen {
   private readonly overlay: HTMLElement;
   private readonly score: HTMLElement;
+  private readonly level: HTMLElement;
   private readonly highlights: HTMLElement;
   private readonly scoreContext: HTMLElement;
   private readonly reason: HTMLElement;
@@ -63,7 +66,8 @@ export class GameOverScreen {
     const fragment = cloneTemplate('tpl-game-over-screen');
     this.overlay = mustQuery(fragment, '.game-over-screen');
     this.highlights = mustQuery(fragment, '.game-over-highlights');
-    this.score = mustQuery(fragment, '.game-over-score');
+    this.score = mustQuery(fragment, '.game-over-score__value');
+    this.level = mustQuery(fragment, '.game-over-score__level');
     this.scoreContext = mustQuery(fragment, '.game-over-score-context');
     this.reason = mustQuery(fragment, '.game-over-reason');
     this.runRecord = mustQuery(fragment, '.game-over-run-record');
@@ -109,6 +113,7 @@ export class GameOverScreen {
 
   open({
     score,
+    level,
     stats,
     isStackMode,
     bestRunRecord,
@@ -132,6 +137,7 @@ export class GameOverScreen {
     this.highlights.hidden = !newHighScore && !newBestRecord;
 
     this.score.textContent = `Score ${score.toLocaleString('en-US')}`;
+    this.level.textContent = `Level ${level.toLocaleString('en-US')}`;
     this.scoreContext.textContent = newHighScore
       ? previousHighScore > 0
         ? `${(score - previousHighScore).toLocaleString('en-US')} above your previous best`

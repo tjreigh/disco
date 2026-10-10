@@ -21,6 +21,7 @@ describe('GameOverScreen', () => {
 
     screen.open({
       score: 12345,
+      level: 7,
       stats: {
         highScore: 20000,
         longestStreak: 6,
@@ -50,6 +51,7 @@ describe('GameOverScreen', () => {
     expect(overlay.classList).toContain('game-over-screen--open');
     expect(overlay.getAttribute('aria-hidden')).toBe('false');
     expect(overlay.textContent).toContain('Score 12,345');
+    expect(overlay.textContent).toContain('Level 7');
     expect(overlay.textContent).toContain('NEW HIGH SCORE');
     expect(overlay.textContent).toContain('NEW BEST CHAIN');
     expect(overlay.textContent).toContain('2,345 above your previous best');
@@ -93,6 +95,7 @@ describe('GameOverScreen', () => {
     const screen = new GameOverScreen();
     screen.open({
       score: 10,
+      level: 7,
       stats: {
         highScore: 10, longestStreak: 4, averageScore: 10, gamesPlayed: 1, totalScore: 10,
         totalPlayTimeMs: 0, totalDiscsDropped: 0, totalDiscsBroken: 0,
@@ -154,6 +157,7 @@ describe('GameOverScreen', () => {
     screen.onRequestRewind = onRewind;
     screen.open({
       score: 99,
+      level: 7,
       stats: {
         highScore: 99, longestStreak: 1, averageScore: 99, gamesPlayed: 1, totalScore: 99,
         totalPlayTimeMs: 0, totalDiscsDropped: 0, totalDiscsBroken: 0,
@@ -181,6 +185,7 @@ describe('GameOverScreen', () => {
     const screen = new GameOverScreen();
     screen.open({
       score: 100,
+      level: 7,
       stats: {
         highScore: 5000, longestStreak: 2, averageScore: 900, gamesPlayed: 4,
         totalScore: 3600, totalPlayTimeMs: 0, totalDiscsDropped: 0, totalDiscsBroken: 0,
@@ -207,6 +212,7 @@ describe('GameOverScreen', () => {
     const screen = new GameOverScreen();
     screen.open({
       score: 1000,
+      level: 7,
       stats: {
         highScore: 1000, longestStreak: 3, averageScore: 1000, gamesPlayed: 1, totalScore: 1000,
         totalPlayTimeMs: 0, totalDiscsDropped: 0, totalDiscsBroken: 0,
@@ -233,6 +239,7 @@ describe('GameOverScreen', () => {
 
     screen.open({
       score: 1000,
+      level: 7,
       stats: {
         highScore: 1000, longestStreak: 3, averageScore: 1000, gamesPlayed: 1, totalScore: 1000,
         totalPlayTimeMs: 0, totalDiscsDropped: 0, totalDiscsBroken: 0,

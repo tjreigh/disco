@@ -225,6 +225,13 @@
   font-size: 24px;
   font-weight: 700;
 }
+.game-over-score__value { display: block; }
+.game-over-score__level {
+  display: block;
+  margin-top: 2px;
+  color: #9fb3c8;
+  font-size: 16px;
+}
 .game-over-score-context {
   color: #ffe29a;
   font-size: 12px;
