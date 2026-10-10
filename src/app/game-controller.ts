@@ -82,6 +82,7 @@ export class SoloSessionController {
   private readonly playbackPauseReasons = new Set<string>();
   private readonly userSettings = new UserSettingsStore();
   private advancedHudEnabled = this.userSettings.get().advancedHud;
+  private laneHintsEnabled = this.userSettings.get().laneHints;
   private discsBrokenThisGame = 0;
   private displayedDropsThisGame = 0;
   private displayedDiscsBrokenThisGame = 0;
@@ -161,6 +162,7 @@ export class SoloSessionController {
     this.homeScreen.onRequestHome = () => void this.saveAndReturnToMenu();
     this.homeScreen.onRequestToggleSound = () => this.toggleSound();
     this.homeScreen.onRequestToggleAdvancedHud = () => this.toggleAdvancedHud();
+    this.homeScreen.onRequestToggleLaneHints = () => this.toggleLaneHints();
     if (zoomControls) {
       this.homeScreen.onRequestZoomIn = () => zoomControls.zoomIn();
       this.homeScreen.onRequestZoomOut = () => zoomControls.zoomOut();
@@ -209,6 +211,7 @@ export class SoloSessionController {
     };
     this.homeScreen.setSoundEnabled(this.audio.isEnabled());
     this.homeScreen.setAdvancedHudEnabled(this.advancedHudEnabled);
+    this.homeScreen.setLaneHintsEnabled(this.laneHintsEnabled);
     this.unsubscribeStatsStore = this.statsStore.subscribe(() => this.handleStatsStoreUpdate());
     this.unsubscribeSaveStore = this.saveStore.subscribe(() => this.handleSaveStoreUpdate());
     this.handleSaveStoreUpdate();
@@ -310,6 +313,7 @@ export class SoloSessionController {
     this.activeTutorial = null;
     this.tutorialOverlay.hide();
     this.mode = mode;
+    this.syncLaneHintsAvailability();
     this.session.configure(mode.rules, this.debugSeedOverride());
     this.stats = this.statsStore.loadStats(mode.id);
     this.captureGameStartRecords();
@@ -329,6 +333,7 @@ export class SoloSessionController {
     const tutorial = TUTORIALS[mode.id];
     if (!tutorial) return;
     this.mode = mode;
+    this.syncLaneHintsAvailability();
     this.stats = this.statsStore.loadStats(mode.id);
     this.captureGameStartRecords();
     setGridSize(mode.rules.board.cols, mode.rules.board.rows);
@@ -820,6 +825,7 @@ export class SoloSessionController {
       this.gameOverScreen.close();
       this.session.loadSave(save, mode.rules);
       this.mode = mode;
+    this.syncLaneHintsAvailability();
       this.stats = this.statsStore.loadStats(mode.id);
       this.captureGameStartRecords();
       setGridSize(mode.rules.board.cols, mode.rules.board.rows);
@@ -860,6 +866,17 @@ export class SoloSessionController {
     this.advancedHudEnabled = !this.advancedHudEnabled;
     this.userSettings.setAdvancedHud(this.advancedHudEnabled);
     this.homeScreen.setAdvancedHudEnabled(this.advancedHudEnabled);
+  }
+
+  private toggleLaneHints(): void {
+    this.laneHintsEnabled = !this.laneHintsEnabled;
+    this.userSettings.setLaneHints(this.laneHintsEnabled);
+    this.homeScreen.setLaneHintsEnabled(this.laneHintsEnabled);
+  }
+
+  /** The lane-hints control only applies to Ration; call whenever `this.mode` changes. */
+  private syncLaneHintsAvailability(): void {
+    this.homeScreen.setLaneHintsAvailable(rationRules(this.mode.rules) !== undefined);
   }
 
   private openDebugPanel(): void {
@@ -981,6 +998,7 @@ export class SoloSessionController {
             windowProgress: this.state.rationBreakHistory.length,
             dropsUntilCheck: forecast.dropsUntilCheck,
             doomed: forecast.doomed,
+            laneHints: this.laneHintsEnabled,
             laneResult: cursorOutcome
               ? {
                   kind: cursorOutcome.kind,
@@ -1064,7 +1082,8 @@ export class SoloSessionController {
    * resolution per lane, far too much per frame.
    */
   private rationLaneBreaks(): readonly (number | null)[] | null {
-    if (!rationRules(this.mode.rules) || this.state.phase !== GamePhase.WaitingForDrop) return null;
+    if (!rationRules(this.mode.rules) || !this.laneHintsEnabled
+      || this.state.phase !== GamePhase.WaitingForDrop) return null;
     const key = [
       this.state.generationSeed,
       this.state.dropCount,

@@ -75,6 +75,7 @@ vi.mock('../../ui/home-screen.js', () => ({
     onRequestHome?: () => void;
     onRequestToggleSound?: () => void;
     onRequestToggleAdvancedHud?: () => void;
+    onRequestToggleLaneHints?: () => void;
     onRequestDebug?: () => void;
     onRequestTutorial?: (mode: unknown) => void;
     open = vi.fn();
@@ -86,6 +87,8 @@ vi.mock('../../ui/home-screen.js', () => ({
     refreshAuth = vi.fn();
     setSoundEnabled = vi.fn();
     setAdvancedHudEnabled = vi.fn();
+    setLaneHintsEnabled = vi.fn();
+    setLaneHintsAvailable = vi.fn();
     setSaveLoading = vi.fn();
     setSaveExitPending = vi.fn();
     constructor(_modes: unknown, onSelectMode: (mode: unknown) => void) {
@@ -177,7 +180,7 @@ import { GamePhase } from '../../game/state.js';
 import type { Board } from '../../game/model.js';
 import { DiscKind } from '../../game/model.js';
 import { makeDisc } from '../../game/disc.js';
-import { CLASSIC_MODE, GRAVITY_MODE, PARADOX_MODE, STACK_MODE } from '../../game/modes/index.js';
+import { CLASSIC_MODE, GRAVITY_MODE, PARADOX_MODE, RATION_MODE, STACK_MODE } from '../../game/modes/index.js';
 import { CLASSIC_TUTORIAL, GRAVITY_TUTORIAL } from '../../app/tutorial.js';
 import { StepKind } from '../../game/events.js';
 import { GameEngine } from '../../game/engine.js';
@@ -1064,6 +1067,40 @@ describe('restart', () => {
     expect(state.dropCount).toBe(0);
     expect(isEmptyBoard(board)).toBe(true);
     expect(lastOf(saveStoreInstances).remove).toHaveBeenCalled();
+  });
+});
+
+describe('Ration lane hints', () => {
+  const lastRationLanes = (renderer: { draw: { mock: { calls: unknown[][] } } }): unknown =>
+    renderer.draw.mock.calls.at(-1)![13];
+
+  test('the setting hides the lane markers and the cursor-lane result, and is only offered in Ration', () => {
+    createGame();
+    const homeScreen = lastOf(homeScreenInstances);
+    const renderer = lastOf(rendererInstances);
+
+    homeScreen.onSelectMode(CLASSIC_MODE);
+    expect(homeScreen.setLaneHintsAvailable).toHaveBeenLastCalledWith(false);
+
+    homeScreen.onSelectMode(RATION_MODE);
+    expect(homeScreen.setLaneHintsAvailable).toHaveBeenLastCalledWith(true);
+    frame(0);
+    expect(lastRationLanes(renderer)).toHaveLength(RATION_MODE.rules.board.cols);
+    const checkLine = (): string | null | undefined =>
+      document.querySelector('[data-ui-ref="ration-checkpoint"]')?.textContent;
+    expect(document.body.textContent).toContain('Lane breaks');
+
+    homeScreen.onRequestToggleLaneHints?.();
+    expect(homeScreen.setLaneHintsEnabled).toHaveBeenLastCalledWith(false);
+    frame(1);
+    expect(lastRationLanes(renderer)).toBeNull();
+    expect(document.body.textContent).not.toContain('Lane breaks');
+    expect(checkLine()).toBeDefined();
+
+    homeScreen.onRequestToggleLaneHints?.();
+    expect(homeScreen.setLaneHintsEnabled).toHaveBeenLastCalledWith(true);
+    frame(2);
+    expect(lastRationLanes(renderer)).toHaveLength(RATION_MODE.rules.board.cols);
   });
 });
 

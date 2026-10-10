@@ -45,6 +45,7 @@ export class HomeScreen {
   onRequestHome?: () => void;
   onRequestToggleSound?: () => void;
   onRequestToggleAdvancedHud?: () => void;
+  onRequestToggleLaneHints?: () => void;
   onRequestZoomIn?: () => void;
   onRequestZoomOut?: () => void;
   onRequestZoomReset?: () => void;
@@ -144,6 +145,7 @@ export class HomeScreen {
       {
         soundButton: mustQuery(menuFragment, '[data-game-menu-action="sound"]'),
         advancedHudButton: mustQuery(menuFragment, '[data-game-menu-action="advanced-hud"]'),
+        laneHintsButton: mustQuery<HTMLButtonElement>(menuFragment, '[data-game-menu-action="lane-hints"]'),
         zoomOutButton: mustQuery(menuFragment, '[data-game-menu-action="zoom-out"]'),
         zoomResetButton: mustQuery(menuFragment, '[data-game-menu-action="zoom-reset"]'),
         zoomInButton: mustQuery(menuFragment, '[data-game-menu-action="zoom-in"]'),
@@ -151,6 +153,7 @@ export class HomeScreen {
       {
         onRequestToggleSound: () => this.onRequestToggleSound?.(),
         onRequestToggleAdvancedHud: () => this.onRequestToggleAdvancedHud?.(),
+        onRequestToggleLaneHints: () => this.onRequestToggleLaneHints?.(),
         onRequestZoomOut: () => this.onRequestZoomOut?.(),
         onRequestZoomReset: () => this.onRequestZoomReset?.(),
         onRequestZoomIn: () => this.onRequestZoomIn?.(),
@@ -230,6 +233,14 @@ export class HomeScreen {
 
   setAdvancedHudEnabled(enabled: boolean): void {
     this.menuControls.setAdvancedHudEnabled(enabled);
+  }
+
+  setLaneHintsEnabled(enabled: boolean): void {
+    this.menuControls.setLaneHintsEnabled(enabled);
+  }
+
+  setLaneHintsAvailable(available: boolean): void {
+    this.menuControls.setLaneHintsAvailable(available);
   }
 
   updateZoomState(scale: number): void {

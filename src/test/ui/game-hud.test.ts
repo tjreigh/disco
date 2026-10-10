@@ -156,6 +156,7 @@ describe('GameHud', () => {
     const ration = {
       locked: 17, leaving: 6, minBreaks: 23, maxBreaks: 27, needMin: 6, needMax: 10,
       windowDrops: 29, windowProgress: 29, dropsUntilCheck: 3, doomed: false,
+      laneHints: true,
       laneResult: null,
       entropy: 1, entropyThreshold: 4,
       entropyRecoveryPerLevel: 1, entropyMissBase: 1, maxEntropyGainPerLevel: 3,
@@ -246,6 +247,18 @@ describe('GameHud', () => {
     hud.render({ ...base, ration: { ...ration, entropy: 1 } });
     expect(rationEl.classList).toContain('game-hud__ration--recovered');
     expect(rationEl.classList).not.toContain('game-hud__ration--imbalanced');
+
+    // Hints on shows the lane-marker explanations; off drops them along with the cursor-lane result.
+    const hints = (): (string | null)[] => Array.from(hud.root.querySelectorAll('.game-hud__hint-action'))
+      .map(control => control.getAttribute('aria-label'));
+    hud.render({ ...base, ration: { ...ration, dropsUntilCheck: 1, laneResult: { kind: 'pass', entropyDelta: -1, endsRun: false } } });
+    expect(hints()).toContain('#: Lane breaks');
+    expect(line()).toContain('✓ −1');
+    hud.render({ ...base, ration: { ...ration, dropsUntilCheck: 1, laneHints: false, laneResult: null } });
+    expect(hints()).toContain('X: Purge lane');
+    expect(hints()).not.toContain('#: Lane breaks');
+    expect(hints().join()).not.toContain('▼ ▲');
+    expect(line()).toBe('CHECK NEXT DROP · BREAK 6–10');
 
     hud.render({ ...base });
     expect(rationEl.hidden).toBe(true);

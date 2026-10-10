@@ -330,6 +330,24 @@ describe('HomeScreen', () => {
     home.setAdvancedHudEnabled(true);
     expect(advancedHud.textContent).toBe('ADVANCED HUD ON');
     expect(advancedHud.getAttribute('aria-pressed')).toBe('true');
+
+    // Lane hints are a Ration-only control: hidden until a mode offers it.
+    const laneHints = document.querySelector<HTMLButtonElement>('[data-game-menu-action="lane-hints"]')!;
+    expect(laneHints.hidden).toBe(true);
+    home.setLaneHintsAvailable(true);
+    home.setLaneHintsEnabled(true);
+    expect(laneHints.hidden).toBe(false);
+    expect(laneHints.textContent).toBe('LANE HINTS ON');
+    expect(laneHints.getAttribute('aria-pressed')).toBe('true');
+    const onToggleLaneHints = vi.fn();
+    home.onRequestToggleLaneHints = onToggleLaneHints;
+    laneHints.click();
+    expect(onToggleLaneHints).toHaveBeenCalledOnce();
+    home.setLaneHintsEnabled(false);
+    expect(laneHints.textContent).toBe('LANE HINTS OFF');
+    expect(laneHints.getAttribute('aria-pressed')).toBe('false');
+    home.setLaneHintsAvailable(false);
+    expect(laneHints.hidden).toBe(true);
     closeMenuButton.click();
 
     restartButton.click();

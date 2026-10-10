@@ -14,11 +14,14 @@ export const MAX_ZOOM = 2.5;
 
 export interface UserSettings {
   advancedHud: boolean;
+  /** Ration's per-lane break previews: the markers above the board and the cursor-lane result on the card. */
+  laneHints: boolean;
   zoomLevel: number;
 }
 
 const DEFAULT_SETTINGS: UserSettings = {
   advancedHud: false,
+  laneHints: true,
   zoomLevel: MIN_ZOOM,
 };
 
@@ -38,6 +41,11 @@ export class UserSettingsStore {
 
   setAdvancedHud(enabled: boolean): void {
     this.settings = { ...this.load(this.settings), advancedHud: enabled };
+    this.persist();
+  }
+
+  setLaneHints(enabled: boolean): void {
+    this.settings = { ...this.load(this.settings), laneHints: enabled };
     this.persist();
   }
 
@@ -75,6 +83,7 @@ export class UserSettingsStore {
       const v = value as Record<string, unknown>;
       return {
         advancedHud: typeof v.advancedHud === 'boolean' ? v.advancedHud : fallback.advancedHud,
+        laneHints: typeof v.laneHints === 'boolean' ? v.laneHints : fallback.laneHints,
         zoomLevel: typeof v.zoomLevel === 'number' && Number.isFinite(v.zoomLevel)
           && v.zoomLevel >= MIN_ZOOM && v.zoomLevel <= MAX_ZOOM
           ? v.zoomLevel : fallback.zoomLevel,

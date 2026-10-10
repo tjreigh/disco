@@ -70,6 +70,7 @@
   letter-spacing: .08em;
   cursor: pointer;
 }
+.game-menu-button[hidden] { display: none; }
 .game-menu-button:hover { border-color: var(--color-accent); background: var(--color-surface-alt); }
 .game-menu-button:disabled,
 .game-menu-close:disabled {

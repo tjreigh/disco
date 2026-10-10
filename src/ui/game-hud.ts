@@ -73,6 +73,8 @@ export interface GameHudState {
     dropsUntilCheck: number;
     /** `locked` already exceeds the band, so the next check cannot pass. */
     doomed: boolean;
+    /** Per-lane hints are on; when off the lane markers, the cursor-lane result and their control hints are hidden. */
+    laneHints: boolean;
     /** What a drop in the cursor lane would do; null when that lane cannot take a drop. */
     laneResult: {
       kind: 'open' | 'doomed' | 'pass' | 'miss-low' | 'miss-high';
@@ -658,8 +660,10 @@ function controlHintsFor(
   ];
   if (state.ration) {
     hints.push({ controls: 'X', action: 'Purge lane' });
-    hints.push({ controls: '#', action: 'Lane breaks' });
-    hints.push({ controls: '▼ ▲', action: 'Check: too few / too many' });
+    if (state.ration.laneHints) {
+      hints.push({ controls: '#', action: 'Lane breaks' });
+      hints.push({ controls: '▼ ▲', action: 'Check: too few / too many' });
+    }
   }
   if (state.hasRewind) hints.push({ controls: 'Z', action: 'Rewind' });
   if (state.hasRestart !== false) hints.push({ controls: 'R', action: 'New game' });
@@ -685,7 +689,7 @@ function hintFor(state: GameHudState, needsTilt = false, confirmReady = false): 
   }
   if (state.ration) {
     return touch
-      ? '# = breaks · ▼ too few · ▲ too many'
+      ? (state.ration.laneHints ? '# = breaks · ▼ too few · ▲ too many' : 'Tap column to drop')
       : '← → move  ↓ / click drop  X purge lane top  R restart';
   }
   return touch ? 'Tap column to drop' : '← → move  ↓ / click drop  R restart';
