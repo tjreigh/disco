@@ -640,40 +640,72 @@ describe('drawDisc', () => {
 });
 
 describe('Ration lane markers', () => {
-  const lanes: RationLaneMarker[] = [
-    { lane: 0, kind: 'drop', breaks: 0, status: 'under' },
-    { lane: 1, kind: 'drop', breaks: 3, status: 'in-band' },
-    { lane: 2, kind: 'drop', breaks: 7, status: 'over' },
+  const drop = (
+    lane: number,
+    breaks: number,
+    outcome: Extract<RationLaneMarker, { kind: 'drop' }>['outcome'],
+    entropyDelta = 0,
+  ): RationLaneMarker => ({ lane, kind: 'drop', breaks, outcome, entropyDelta, endsRun: false });
+  // Before the check: neutral open lanes, and a lane that is already lost.
+  const beforeCheck: RationLaneMarker[] = [
+    drop(0, 0, 'open'),
+    drop(1, 3, 'open'),
+    drop(2, 7, 'doomed'),
     { lane: 3, kind: 'blocked' },
-    { lane: 4, kind: 'drop', breaks: 0, status: 'pending' },
+    drop(4, 2, 'open'),
+  ];
+  // On the checking drop: every lane passes or misses, with an entropy change.
+  const onCheck: RationLaneMarker[] = [
+    drop(0, 0, 'miss-low', 1),
+    drop(1, 3, 'pass', -2),
+    drop(2, 9, 'miss-high', 1),
+    { lane: 3, kind: 'blocked' },
+    drop(4, 4, 'pass', 0),
   ];
   const labels = (): string[] => ctx.calls
     .filter(c => c.method === 'fillText')
     .map(c => String(c.args[0]));
+  const strokeColors = (): Set<unknown> =>
+    new Set(ctx.calls.filter(c => c.method === 'stroke').map(c => c.strokeStyle));
 
-  test('labels each lane with its break count and which side of the band it lands on', () => {
-    callDraw(renderer, makeState(), undefined, { rationLanes: lanes });
-    expect(labels()).toEqual(expect.arrayContaining(['0▼', '3', '7▲', '×']));
+  test('before the check, lanes show a plain count and only a lost lane gets a glyph', () => {
+    callDraw(renderer, makeState({ cursorCol: 4 }), undefined, { rationLanes: beforeCheck });
+    expect(labels()).toEqual(expect.arrayContaining(['0', '3', '7▲', '×', '2']));
+    const strokes = strokeColors();
+    expect(strokes).toContain(COLOR_RATION_PENDING);
+    expect(strokes).toContain(COLOR_RATION_OVER);
+    expect(strokes).not.toContain(COLOR_RATION_UNDER);
+    expect(strokes).not.toContain(COLOR_RATION_IN_BAND);
+  });
+
+  test('on the checking drop, lanes are pass (green) or miss (red) with a direction glyph', () => {
+    callDraw(renderer, makeState({ cursorCol: 4 }), undefined, { rationLanes: onCheck });
+    // Inactive lanes keep the count only; the cursor lane (4, a pass at 0 entropy) adds nothing.
+    expect(labels()).toEqual(expect.arrayContaining(['0▼', '3', '9▲', '×', '4']));
+    const strokes = strokeColors();
+    expect(strokes).toContain(COLOR_RATION_IN_BAND);
+    expect(strokes).toContain(COLOR_RATION_OVER);
+    expect(strokes).not.toContain(COLOR_RATION_PENDING);
+    expect(strokes).not.toContain(COLOR_RATION_UNDER);
+  });
+
+  test('only the cursor lane spells out the entropy change', () => {
+    callDraw(renderer, makeState({ cursorCol: 1 }), undefined, { rationLanes: onCheck });
+    expect(labels()).toEqual(expect.arrayContaining(['3 −2', '0▼', '9▲']));
+    ctx.calls.length = 0;
+    callDraw(renderer, makeState({ cursorCol: 2 }), undefined, { rationLanes: onCheck });
+    expect(labels()).toEqual(expect.arrayContaining(['9▲ +1', '0▼', '3']));
   });
 
   test('draws each marker above its own column, in the entry strip over the board', () => {
-    callDraw(renderer, makeState(), undefined, { rationLanes: lanes });
+    callDraw(renderer, makeState({ cursorCol: 4 }), undefined, { rationLanes: beforeCheck });
     const text = ctx.calls.find(c => c.method === 'fillText' && c.args[0] === '7▲')!;
     expect(text.args[1]).toBe(cellCenterX(2));
     expect(text.args[2] as number).toBeLessThan(gridOriginY());
   });
 
-  test('colors markers by status', () => {
-    callDraw(renderer, makeState(), undefined, { rationLanes: lanes });
-    const strokes = new Set(ctx.calls.filter(c => c.method === 'stroke').map(c => c.strokeStyle));
-    expect(strokes).toContain(COLOR_RATION_UNDER);
-    expect(strokes).toContain(COLOR_RATION_IN_BAND);
-    expect(strokes).toContain(COLOR_RATION_OVER);
-    expect(strokes).toContain(COLOR_RATION_PENDING);
-  });
-
-  test('tints only the cursor lane with its status color', () => {
-    callDraw(renderer, makeState({ cursorCol: 2 }), undefined, { rationLanes: lanes });
+  test('tints only the cursor lane with its outcome color', () => {
+    callDraw(renderer, makeState({ cursorCol: 2 }), undefined, { rationLanes: beforeCheck });
     const washes = ctx.calls.filter(c => c.method === 'fillRect' && c.fillStyle === COLOR_RATION_OVER);
     expect(washes).toHaveLength(1);
     expect(washes[0]!.args[0]).toBe(gridOriginX() + 2 * cellSize());
@@ -684,7 +716,7 @@ describe('Ration lane markers', () => {
     expect(labels()).not.toContain('×');
 
     ctx.calls.length = 0;
-    callDraw(renderer, makeState({ phase: GamePhase.Animating }), undefined, { rationLanes: lanes });
+    callDraw(renderer, makeState({ phase: GamePhase.Animating }), undefined, { rationLanes: beforeCheck });
     expect(labels()).not.toContain('7▲');
   });
 });

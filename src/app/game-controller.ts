@@ -1,6 +1,6 @@
 import type { SoloModeDefinition } from '../game/modes/mode.js';
 import {
-  rationBreakBand, rationForecast, rationLaneOutcome, rationLaneProjection, rationRules, rewindModifier, turnCostForInstability,
+  rationBreakBand, rationForecast, rationLaneOutcome, rationRules, rewindModifier, turnCostForInstability,
 } from '../game/modes/mode.js';
 import type { GameState } from '../game/state.js';
 import { GamePhase } from '../game/state.js';
@@ -1081,20 +1081,28 @@ export class SoloSessionController {
     return this.rationMarkerCache.breaks;
   }
 
-  /** Per-lane Ration markers. */
+  /** Per-lane Ration markers. Outcomes depend on entropy, so they are rebuilt from the cached counts. */
   private rationLaneMarkers(): readonly RationLaneMarker[] | null {
     const ration = rationRules(this.mode.rules);
     const lanes = this.rationLaneBreaks();
     if (!ration || !lanes) return null;
+    const forecast = rationForecast(
+      ration,
+      this.state.level,
+      this.state.rationBreakHistory,
+      this.state.dropCount,
+    );
     return lanes.map((breaks, lane): RationLaneMarker => {
       if (breaks === null) return { lane, kind: 'blocked' };
-      const { status } = rationLaneProjection(
-        ration,
-        this.state.level,
-        this.state.rationBreakHistory,
+      const outcome = rationLaneOutcome(ration, forecast, breaks, this.state.entropy);
+      return {
+        lane,
+        kind: 'drop',
         breaks,
-      );
-      return { lane, kind: 'drop', breaks, status };
+        outcome: outcome.kind,
+        entropyDelta: outcome.entropyAfter - this.state.entropy,
+        endsRun: outcome.endsRun,
+      };
     });
   }
 

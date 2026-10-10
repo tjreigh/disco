@@ -659,7 +659,7 @@ function controlHintsFor(
   if (state.ration) {
     hints.push({ controls: 'X', action: 'Purge lane' });
     hints.push({ controls: '#', action: 'Lane breaks' });
-    hints.push({ controls: '▼ ▲', action: 'Under / over band' });
+    hints.push({ controls: '▼ ▲', action: 'Check: too few / too many' });
   }
   if (state.hasRewind) hints.push({ controls: 'Z', action: 'Rewind' });
   if (state.hasRestart !== false) hints.push({ controls: 'R', action: 'New game' });
@@ -685,7 +685,7 @@ function hintFor(state: GameHudState, needsTilt = false, confirmReady = false): 
   }
   if (state.ration) {
     return touch
-      ? '# = breaks · ▼ low · ▲ high'
+      ? '# = breaks · ▼ too few · ▲ too many'
       : '← → move  ↓ / click drop  X purge lane top  R restart';
   }
   return touch ? 'Tap column to drop' : '← → move  ↓ / click drop  R restart';

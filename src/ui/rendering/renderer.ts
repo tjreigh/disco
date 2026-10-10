@@ -14,7 +14,7 @@ import {
   COLOR_TEXT, COLOR_TEXT_DIM, COLOR_GHOST, COLOR_COL_HOVER,
   COLOR_GAMEOVER_BG, COLOR_SCORE_POPUP, COLOR_GRAVITY_LANE,
   COLOR_OPPONENT_GHOST,
-  COLOR_RATION_PENDING, COLOR_RATION_UNDER, COLOR_RATION_IN_BAND, COLOR_RATION_OVER,
+  COLOR_RATION_PENDING, COLOR_RATION_IN_BAND, COLOR_RATION_OVER,
 } from './theme.js';
 import {
   cellCenterX, cellCenterY, gridOriginX, gridOriginY,
@@ -33,21 +33,39 @@ export interface TutorialVisualState {
   needsTilt: boolean;
 }
 
-/** One lane's Ration preview: a column that can't take a drop, or what a drop there would do to the balance. */
+/**
+ * One lane's Ration preview: a column that can't take a drop, or what a drop
+ * there does to the next check. Before the check, lanes are only neutral
+ * (`open`) or already lost (`doomed`); on the checking drop every lane is a
+ * pass or a miss, and `entropyDelta` is how much entropy the drop changes.
+ */
 export type RationLaneMarker =
   | { lane: number; kind: 'blocked' }
-  | { lane: number; kind: 'drop'; breaks: number; status: 'pending' | 'under' | 'in-band' | 'over' };
+  | {
+    lane: number;
+    kind: 'drop';
+    breaks: number;
+    outcome: 'open' | 'doomed' | 'pass' | 'miss-low' | 'miss-high';
+    entropyDelta: number;
+    /** The drop is the check and the miss reaches the entropy threshold. */
+    endsRun: boolean;
+  };
 
-const RATION_STATUS_COLORS = {
-  pending: COLOR_RATION_PENDING,
-  under: COLOR_RATION_UNDER,
-  'in-band': COLOR_RATION_IN_BAND,
-  over: COLOR_RATION_OVER,
+const RATION_OUTCOME_COLORS = {
+  open: COLOR_RATION_PENDING,
+  doomed: COLOR_RATION_OVER,
+  pass: COLOR_RATION_IN_BAND,
+  'miss-low': COLOR_RATION_OVER,
+  'miss-high': COLOR_RATION_OVER,
 } as const;
 
 // Redundant with color so the markers stay readable without it: an arrow
-// points at which side of the band the drop would leave the ledger on.
-const RATION_STATUS_GLYPHS = { pending: '', under: '▼', 'in-band': '', over: '▲' } as const;
+// points at which way a losing drop misses (too many or too few breaks).
+const RATION_OUTCOME_GLYPHS = {
+  open: '', doomed: '▲', pass: '', 'miss-low': '▼', 'miss-high': '▲',
+} as const;
+
+const formatEntropyDelta = (delta: number): string => (delta < 0 ? `−${-delta}` : `+${delta}`);
 
 export interface RewindVisualState {
   targets: ReadonlyArray<{
@@ -666,8 +684,8 @@ export class Renderer {
   }
 
   // Ration only: one marker per lane in the entry strip above the board,
-  // showing how many discs a drop there would break, colored by where that
-  // leaves the rolling balance window. The lane under the cursor (a finger
+  // showing how many discs a drop there would break, colored by what that
+  // does to the next balance check. The lane under the cursor (a finger
   // held on a column, on touch) gets a larger marker and a tinted lane wash,
   // since a fingertip hides everything underneath it.
   private drawRationLaneMarkers(markers: readonly RationLaneMarker[], cursorLane: number): void {
@@ -695,14 +713,17 @@ export class Renderer {
         continue;
       }
 
-      const color = RATION_STATUS_COLORS[marker.status];
+      const color = RATION_OUTCOME_COLORS[marker.outcome];
       if (active) {
         ctx.globalAlpha = touch ? 0.2 : 0.1;
         ctx.fillStyle = color;
         ctx.fillRect(gridOriginX() + marker.lane * cs, gridOriginY(), cs, gridH());
       }
 
-      const label = `${marker.breaks}${RATION_STATUS_GLYPHS[marker.status]}`;
+      // Only the lane under the cursor spells out the entropy change; the
+      // others keep to the count so the strip stays readable.
+      const delta = active && marker.entropyDelta !== 0 ? ` ${formatEntropyDelta(marker.entropyDelta)}` : '';
+      const label = `${marker.breaks}${RATION_OUTCOME_GLYPHS[marker.outcome]}${delta}`;
       const pillW = Math.max(cs * (active ? 0.8 : 0.6), ctx.measureText(label).width + 12);
       const y = active && touch ? stripY - cs * 0.06 : stripY;
       ctx.globalAlpha = 1;

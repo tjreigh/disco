@@ -12,7 +12,6 @@ import {
   rationEntropyGain,
   rationForecast,
   rationLaneOutcome,
-  rationLaneProjection,
   rationLevelJudgment,
 } from '../../game/modes/mode.js';
 import type { RationRules } from '../../game/modes/mode.js';
@@ -536,27 +535,6 @@ describe('Ration lane preview', () => {
     }
     expect(full.previewRationBreaks(0)).toBeNull();
     expect(full.previewRationBreaks(1)).not.toBeNull();
-  });
-
-  test('projects the rolling window and classifies it against the band', () => {
-    const ration = RATION_RULES.ration!;
-    // A full window drops its oldest entry: 12 + 4 - 1 = 15, inside 12-19.
-    expect(rationLaneProjection(ration, 1, Array(12).fill(1), 4)).toEqual({
-      breaks: 4, projectedTotal: 15, status: 'in-band',
-    });
-    expect(rationLaneProjection(ration, 1, Array(11).fill(1), 0).status).toBe('under');
-    expect(rationLaneProjection(ration, 1, Array(12).fill(2), 4).status).toBe('over');
-  });
-
-  test('a window that is still filling is pro-rated, and only too much is called out', () => {
-    const ration = RATION_RULES.ration!;
-    // Two drops in: 1 + 1 = 2 against a pro-rated band of 2-3.
-    expect(rationLaneProjection(ration, 1, [1], 1).status).toBe('in-band');
-    expect(rationLaneProjection(ration, 1, [1], 5).status).toBe('over');
-    // Falling short this early can still be made up, so it is not "under".
-    expect(rationLaneProjection(ration, 1, [1], 0).status).toBe('pending');
-    expect(rationLaneProjection(ration, 1, [], 0).status).toBe('pending');
-    expect(rationLaneProjection(ration, 1, [], 1).status).toBe('in-band');
   });
 });
 
