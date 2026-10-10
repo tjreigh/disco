@@ -1,6 +1,6 @@
 import type { SoloModeDefinition } from '../game/modes/mode.js';
 import {
-  rationBreakBand, rationLaneProjection, rationRules, rewindModifier, turnCostForInstability,
+  rationBreakBand, rationForecast, rationLaneProjection, rationRules, rewindModifier, turnCostForInstability,
 } from '../game/modes/mode.js';
 import type { GameState } from '../game/state.js';
 import { GamePhase } from '../game/state.js';
@@ -959,13 +959,12 @@ export class SoloSessionController {
         const ration = rationRules(this.mode.rules);
         if (!ration) return {};
         const windowProgress = this.state.rationBreakHistory.length;
-        const buildingWindow = windowProgress < ration.rollingWindowDrops;
-        const dropsSinceCheckpoint = this.state.dropCount % ration.checkpointDrops;
-        const dropsUntilCheckpoint = buildingWindow
-          ? ration.rollingWindowDrops - windowProgress
-          : dropsSinceCheckpoint === 0
-            ? ration.checkpointDrops
-            : ration.checkpointDrops - dropsSinceCheckpoint;
+        const { dropsUntilCheck: dropsUntilCheckpoint } = rationForecast(
+          ration,
+          this.state.level,
+          this.state.rationBreakHistory,
+          this.state.dropCount,
+        );
         return {
           ration: {
             recentBreaks: this.state.rationBreakHistory.reduce((total, breaks) => total + breaks, 0),

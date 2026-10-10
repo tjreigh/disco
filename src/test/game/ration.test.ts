@@ -10,6 +10,8 @@ import {
   rationBandForLevel,
   rationBreakBand,
   rationEntropyGain,
+  rationForecast,
+  rationLaneOutcome,
   rationLaneProjection,
   rationLevelJudgment,
 } from '../../game/modes/mode.js';
@@ -555,5 +557,113 @@ describe('Ration lane preview', () => {
     expect(rationLaneProjection(ration, 1, [1], 0).status).toBe('pending');
     expect(rationLaneProjection(ration, 1, [], 0).status).toBe('pending');
     expect(rationLaneProjection(ration, 1, [], 1).status).toBe('in-band');
+  });
+});
+
+describe('Ration next-check forecast', () => {
+  const ration = RATION_RULES.ration!; // window 12, check every 6, band 12-19
+
+  test('counts drops to the next check, building the window first', () => {
+    expect(rationForecast(ration, 1, [], 0).dropsUntilCheck).toBe(12);
+    expect(rationForecast(ration, 1, Array(5).fill(1), 5).dropsUntilCheck).toBe(7);
+    expect(rationForecast(ration, 1, Array(11).fill(1), 11).dropsUntilCheck).toBe(1);
+    expect(rationForecast(ration, 1, Array(12).fill(1), 12).dropsUntilCheck).toBe(6);
+    expect(rationForecast(ration, 1, Array(12).fill(1), 13).dropsUntilCheck).toBe(5);
+    expect(rationForecast(ration, 1, Array(12).fill(1), 17).dropsUntilCheck).toBe(1);
+    expect(rationForecast(ration, 1, [], 0).building).toBe(true);
+    expect(rationForecast(ration, 1, Array(12).fill(1), 12).building).toBe(false);
+  });
+
+  test('splits the window into breaks that stay and breaks that roll off', () => {
+    const history = [3, 0, 1, 2, 0, 0, 4, 1, 0, 2, 2, 1]; // total 16
+    const forecast = rationForecast(ration, 1, history, 12);
+    // 6 drops to the check: only the newest 6 entries (4+1+0+2+2+1) stay.
+    expect(forecast.locked).toBe(10);
+    expect(forecast.leaving).toBe(6);
+    expect(forecast.need).toEqual({ min: 2, max: 9 });
+    expect(forecast.doomed).toBe(false);
+    // One drop before the check, 11 entries stay.
+    const next = rationForecast(ration, 1, history, 17);
+    expect(next.dropsUntilCheck).toBe(1);
+    expect(next.locked).toBe(16 - 3);
+  });
+
+  test('a filling window locks everything it holds, and a lost check is doomed', () => {
+    const filling = rationForecast(ration, 1, [2, 2, 2], 3);
+    expect(filling.locked).toBe(6);
+    expect(filling.leaving).toBe(0);
+    expect(filling.need).toEqual({ min: 6, max: 13 });
+    const doomed = rationForecast(ration, 1, [5, 5, 5, 5], 4);
+    expect(doomed.need.max).toBe(-1);
+    expect(doomed.doomed).toBe(true);
+    expect(rationForecast(ration, 1, [], 0).need.min).toBe(12);
+  });
+
+  test('mid-interval drops hold entropy and only flag lanes that can no longer pass', () => {
+    const forecast = rationForecast(ration, 1, Array(12).fill(1), 12); // locked 6, need 6-13
+    expect(rationLaneOutcome(ration, forecast, 0, 3)).toEqual({ kind: 'open', entropyAfter: 3, endsRun: false });
+    expect(rationLaneOutcome(ration, forecast, 13, 3).kind).toBe('open');
+    expect(rationLaneOutcome(ration, forecast, 14, 3)).toEqual({ kind: 'doomed', entropyAfter: 3, endsRun: false });
+  });
+
+  test('the checking drop passes, or misses high or low, against the rules entropy figures', () => {
+    const forecast = rationForecast(ration, 1, Array(12).fill(1), 17); // 1 drop left, locked 11, need 1-8
+    expect(forecast.dropsUntilCheck).toBe(1);
+    expect(rationLaneOutcome(ration, forecast, 1, 5)).toEqual({ kind: 'pass', entropyAfter: 3, endsRun: false });
+    expect(rationLaneOutcome(ration, forecast, 8, 1)).toEqual({ kind: 'pass', entropyAfter: 0, endsRun: false });
+    expect(rationLaneOutcome(ration, forecast, 0, 0)).toEqual({ kind: 'miss-low', entropyAfter: 1, endsRun: false });
+    expect(rationLaneOutcome(ration, forecast, 9, 2)).toEqual({ kind: 'miss-high', entropyAfter: 3, endsRun: false });
+    const last = ration.entropyThreshold - 1;
+    expect(rationLaneOutcome(ration, forecast, 0, last)).toEqual({
+      kind: 'miss-low', entropyAfter: ration.entropyThreshold, endsRun: true,
+    });
+    expect(rationLaneOutcome(ration, forecast, 0, ration.entropyThreshold).entropyAfter).toBe(ration.entropyThreshold);
+  });
+
+  test('predicts the engine exactly: whether a check ran, its result, and the entropy change', () => {
+    let checks = 0;
+    let passes = 0;
+    let misses = 0;
+    let doomedLanes = 0;
+    for (let seed = 1; seed <= 60; seed++) {
+      const engine = new GameEngine({ rules: RATION_RULES, seed });
+      for (let turn = 0; turn < 80 && engine.state.phase === GamePhase.WaitingForDrop; turn++) {
+        const open = [...Array(RATION_RULES.board.cols).keys()]
+          .filter(lane => engine.previewRationBreaks(lane) !== null);
+        if (open.length === 0) break;
+        const lane = open[(seed * 7 + turn * 3) % open.length]!;
+        const breaks = engine.previewRationBreaks(lane)!;
+        const forecast = rationForecast(ration, engine.state.level, engine.state.rationBreakHistory, engine.state.dropCount);
+        const entropyBefore = engine.state.entropy;
+        const balancedBefore = engine.state.balancedLevels;
+        const outcome = rationLaneOutcome(ration, forecast, breaks, entropyBefore);
+        const result = engine.drop(lane);
+        expect(result.accepted).toBe(true);
+        if (result.gameOverReason === 'push-overflow') break; // no check runs; see design doc §7
+        if (forecast.dropsUntilCheck > 1) {
+          expect(engine.state.entropy).toBe(entropyBefore);
+          expect(engine.state.balancedLevels).toBe(balancedBefore);
+          // A doomed lane stays doomed: the next forecast cannot be recoverable.
+          if (outcome.kind === 'doomed') {
+            doomedLanes++;
+            const after = rationForecast(ration, engine.state.level, engine.state.rationBreakHistory, engine.state.dropCount);
+            expect(after.need.max).toBeLessThan(0);
+          }
+          continue;
+        }
+        checks++;
+        expect(engine.state.entropy).toBe(outcome.entropyAfter);
+        const passed = engine.state.balancedLevels === balancedBefore + 1;
+        expect(passed).toBe(outcome.kind === 'pass');
+        if (passed) passes++; else misses++;
+        const endedByImbalance = result.gameOverReason === 'imbalance';
+        if (!result.gameOverReason || endedByImbalance) expect(endedByImbalance).toBe(outcome.endsRun);
+        if (result.gameOverReason) break;
+      }
+    }
+    expect(checks).toBeGreaterThan(40);
+    expect(passes).toBeGreaterThan(5);
+    expect(misses).toBeGreaterThan(5);
+    expect(doomedLanes).toBeGreaterThan(0);
   });
 });

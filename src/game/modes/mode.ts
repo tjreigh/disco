@@ -626,3 +626,98 @@ export function rationLaneProjection(
     status: projectedTotal < minBreaks ? short : projectedTotal > maxBreaks ? 'over' : 'in-band',
   };
 }
+
+/**
+ * What the next Ration check will judge, derived from state alone.
+ *
+ * @remarks
+ * A check runs on the first future drop where the window holds a full
+ * `rollingWindowDrops` entries and the running drop count is a multiple of
+ * `checkpointDrops`. `locked` is the part of today's window that is still in
+ * the window at that check; `leaving` rolls off before it. `need` is how many
+ * breaks the drops up to and including the check must supply together.
+ */
+export interface RationForecast {
+  /** Drops until the next check, counting the next drop as 1. */
+  readonly dropsUntilCheck: number;
+  /** The window is not yet full, so the first check is still being built toward. */
+  readonly building: boolean;
+  readonly locked: number;
+  readonly leaving: number;
+  readonly need: { readonly min: number; readonly max: number };
+  /** The level in force when the check runs. */
+  readonly level: number;
+  /** `locked` already exceeds the band's upper bound, so the next check cannot pass. */
+  readonly doomed: boolean;
+}
+
+export function rationForecast(
+  rules: RationRules,
+  level: number,
+  history: readonly number[],
+  dropCount: number,
+): RationForecast {
+  const window = rules.rollingWindowDrops;
+  const interval = rules.checkpointDrops;
+  const length = history.length;
+  let dropsUntilCheck = 1;
+  while (length + dropsUntilCheck < window || (dropCount + dropsUntilCheck) % interval !== 0) {
+    dropsUntilCheck++;
+  }
+  const keep = Math.max(0, window - dropsUntilCheck);
+  const total = history.reduce((sum, breaks) => sum + breaks, 0);
+  const locked = keep === 0 ? 0 : history.slice(-keep).reduce((sum, breaks) => sum + breaks, 0);
+  const { minBreaks, maxBreaks } = rationBreakBand(rules, level, window);
+  return {
+    dropsUntilCheck,
+    building: length < window,
+    locked,
+    leaving: total - locked,
+    need: { min: Math.max(0, minBreaks - locked), max: maxBreaks - locked },
+    level,
+    doomed: maxBreaks - locked < 0,
+  };
+}
+
+export type RationLaneOutcomeKind = 'open' | 'doomed' | 'pass' | 'miss-low' | 'miss-high';
+
+export interface RationLaneOutcome {
+  readonly kind: RationLaneOutcomeKind;
+  /** Entropy after the drop; unchanged unless the drop is itself the check. */
+  readonly entropyAfter: number;
+  readonly endsRun: boolean;
+}
+
+/** What a drop that breaks `breaks` discs does, given the forecast it is played into. */
+export function rationLaneOutcome(
+  rules: RationRules,
+  forecast: RationForecast,
+  breaks: number,
+  entropy: number,
+): RationLaneOutcome {
+  if (forecast.dropsUntilCheck > 1) {
+    return {
+      kind: breaks > forecast.need.max ? 'doomed' : 'open',
+      entropyAfter: entropy,
+      endsRun: false,
+    };
+  }
+  const total = forecast.locked + breaks;
+  const judgment = rationLevelJudgment(rules, forecast.level, total, rules.rollingWindowDrops);
+  if (judgment.balanced) {
+    return {
+      kind: 'pass',
+      entropyAfter: Math.max(0, entropy - rules.entropyRecoveryPerLevel),
+      endsRun: false,
+    };
+  }
+  const entropyAfter = Math.min(
+    rules.entropyThreshold,
+    entropy + rationEntropyGain(rules, judgment.deviation),
+  );
+  return {
+    kind: breaks < forecast.need.min ? 'miss-low' : 'miss-high',
+    entropyAfter,
+    endsRun: entropyAfter >= rules.entropyThreshold,
+  };
+}
