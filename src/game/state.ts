@@ -73,6 +73,8 @@ export interface GameState {
   entropy: number;
   /** Balanced Ration ledger checkpoints completed this run. */
   balancedLevels: number;
+  /** Consecutive balanced Ration checkpoints; a missed checkpoint resets it. */
+  balancedStreak: number;
   /** Only present for Gravity mode. */
   gravity?: GravityState | undefined;
   /** Only present for rewind-capable modes. */

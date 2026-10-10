@@ -45,7 +45,7 @@ const RATION_GENERATION = {
 
 export const RATION_RULES = defineGameRules({
   id: 'ration',
-  version: 2,
+  version: 3,
   board: SEVEN_BY_SEVEN,
   placement: DOWNWARD_DROP,
   clearing: ORTHOGONAL_COUNT_MATCH,
@@ -71,6 +71,10 @@ export const RATION_RULES = defineGameRules({
     entropyPerDeviationUnit: 0.2,
     maxEntropyGainPerLevel: 1,
     balancedLevelBonus: 750,
+    // Each further consecutive balanced checkpoint adds a step on top, up to the
+    // cap on what one checkpoint pays in total.
+    streakStep: 750,
+    streakCap: 3_500,
     purgeScorePenalty: 250,
   },
 });

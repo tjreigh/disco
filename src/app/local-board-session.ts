@@ -504,7 +504,9 @@ export class LocalBoardSession {
         ? 'LEVEL BONUS'
         : step.bonusKind === 'balanced'
           ? 'BALANCED'
-          : 'BOARD CLEAR';
+          : step.bonusKind === 'streak'
+            ? 'STREAK BONUS'
+            : 'BOARD CLEAR';
       this.scoreIndicators.push(spawnScoreIndicator(
         bonusLabel,
         `+${step.pointsAwarded.toLocaleString('en-US')}`,

@@ -157,6 +157,7 @@ describe('GameHud', () => {
       locked: 17, leaving: 6, minBreaks: 23, maxBreaks: 27, needMin: 6, needMax: 10,
       windowDrops: 29, windowProgress: 29, dropsUntilCheck: 3, doomed: false,
       laneHints: true,
+      streak: 0,
       laneResult: null,
       entropy: 1, entropyThreshold: 4,
       entropyRecoveryPerLevel: 1, entropyMissBase: 1, maxEntropyGainPerLevel: 3,
@@ -222,14 +223,14 @@ describe('GameHud', () => {
 
     // The checking drop: required breaks plus what the cursor lane would do.
     const check = { ...ration, dropsUntilCheck: 1, needMin: 0 };
-    hud.render({ ...base, ration: { ...check, needMin: 2, laneResult: { kind: 'pass', entropyDelta: -1, endsRun: false } } });
-    expect(line()).toBe('CHECK NEXT DROP · BREAK 2–10 · ✓ −1');
+    hud.render({ ...base, ration: { ...check, needMin: 2, laneResult: { kind: 'pass', entropyDelta: -1, endsRun: false, points: 750 } } });
+    expect(line()).toBe('CHECK NEXT DROP · BREAK 2–10 · ✓ −1 +750');
     expect(rationEl.getAttribute('aria-label')).toContain('passes and recovers 1 entropy');
-    hud.render({ ...base, ration: { ...check, laneResult: { kind: 'pass', entropyDelta: 0, endsRun: false } } });
-    expect(line()).toBe('CHECK NEXT DROP · BREAK 0–10 · ✓ HOLDS');
-    hud.render({ ...base, ration: { ...check, laneResult: { kind: 'miss-high', entropyDelta: 1, endsRun: false } } });
+    hud.render({ ...base, ration: { ...check, laneResult: { kind: 'pass', entropyDelta: 0, endsRun: false, points: 1_500 } } });
+    expect(line()).toBe('CHECK NEXT DROP · BREAK 0–10 · ✓ HOLDS +1,500');
+    hud.render({ ...base, ration: { ...check, laneResult: { kind: 'miss-high', entropyDelta: 1, endsRun: false, points: 0 } } });
     expect(line()).toBe('CHECK NEXT DROP · BREAK 0–10 · ✗ +1');
-    hud.render({ ...base, ration: { ...check, laneResult: { kind: 'miss-low', entropyDelta: 1, endsRun: true } } });
+    hud.render({ ...base, ration: { ...check, laneResult: { kind: 'miss-low', entropyDelta: 1, endsRun: true, points: 0 } } });
     expect(line()).toBe('CHECK NEXT DROP · BREAK 0–10 · ✗ ENDS RUN');
     expect(rationEl.getAttribute('aria-label')).toContain('misses and ends the run');
     hud.render({ ...base, ration: { ...check } });
@@ -248,12 +249,22 @@ describe('GameHud', () => {
     expect(rationEl.classList).toContain('game-hud__ration--recovered');
     expect(rationEl.classList).not.toContain('game-hud__ration--imbalanced');
 
+    // The streak shows on the entropy label and in the spoken summary.
+    const entropyLabel = (): string | null | undefined =>
+      rationEl.querySelector('[data-ui-ref="entropy-label"]')?.textContent;
+    expect(entropyLabel()).toBe('ENTROPY');
+    hud.render({ ...base, ration: { ...ration, streak: 3 } });
+    expect(entropyLabel()).toBe('ENTROPY · STREAK 3');
+    expect(rationEl.getAttribute('aria-label')).toContain('Balanced streak 3.');
+    hud.render({ ...base, ration });
+    expect(entropyLabel()).toBe('ENTROPY');
+
     // Hints on shows the lane-marker explanations; off drops them along with the cursor-lane result.
     const hints = (): (string | null)[] => Array.from(hud.root.querySelectorAll('.game-hud__hint-action'))
       .map(control => control.getAttribute('aria-label'));
-    hud.render({ ...base, ration: { ...ration, dropsUntilCheck: 1, laneResult: { kind: 'pass', entropyDelta: -1, endsRun: false } } });
+    hud.render({ ...base, ration: { ...ration, dropsUntilCheck: 1, laneResult: { kind: 'pass', entropyDelta: -1, endsRun: false, points: 750 } } });
     expect(hints()).toContain('#: Lane breaks');
-    expect(line()).toContain('✓ −1');
+    expect(line()).toContain('✓ −1 +750');
     hud.render({ ...base, ration: { ...ration, dropsUntilCheck: 1, laneHints: false, laneResult: null } });
     expect(hints()).toContain('X: Purge lane');
     expect(hints()).not.toContain('#: Lane breaks');

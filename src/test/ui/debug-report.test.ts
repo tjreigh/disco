@@ -38,6 +38,9 @@ describe('buildDebugReport', () => {
       breaksThisLevel: 0,
       entropy: 0,
       balancedLevels: 0,
+      rationBreakHistory: [],
+      rationPurgeUsed: false,
+      balancedStreak: 0,
     };
 
     const firstTurn: TurnResult = {
@@ -107,6 +110,9 @@ describe('buildDebugReport', () => {
       breaksThisLevel: 0,
       entropy: 0,
       balancedLevels: 0,
+      rationBreakHistory: [],
+      rationPurgeUsed: false,
+      balancedStreak: 0,
     };
 
     const history = Array.from({ length: 60 }, (_, index): TurnResult => ({

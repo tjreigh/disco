@@ -23,6 +23,9 @@ function gameState(phase = GamePhase.Menu): GameState {
     breaksThisLevel: 0,
     entropy: 0,
     balancedLevels: 0,
+    rationBreakHistory: [],
+    rationPurgeUsed: false,
+    balancedStreak: 0,
   };
 }
 

@@ -405,6 +405,7 @@ export class SharedBoardGame {
         rationPurgeUsed: false,
         entropy: 0,
         balancedLevels: 0,
+        balancedStreak: 0,
         gravity: undefined,
         paradox: undefined,
       };

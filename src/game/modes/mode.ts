@@ -138,6 +138,10 @@ export interface RationRules {
   readonly maxEntropyGainPerLevel: number;
   /** Points awarded for a balanced ledger checkpoint. */
   readonly balancedLevelBonus: number;
+  /** Extra points per additional consecutive balanced checkpoint. */
+  readonly streakStep: number;
+  /** Cap on the total points one balanced checkpoint pays, base bonus included. */
+  readonly streakCap: number;
   /** Score paid to remove the exposed disc in a selected lane once per level. */
   readonly purgeScorePenalty: number;
 }
@@ -394,11 +398,16 @@ export function defineGameRules(config: GameRulesConfig): GameRulesConfig {
       ['Ration entropy miss base', ration.entropyMissBase],
       ['Ration max entropy gain', ration.maxEntropyGainPerLevel],
       ['Ration balanced bonus', ration.balancedLevelBonus],
+      ['Ration streak step', ration.streakStep],
+      ['Ration streak cap', ration.streakCap],
       ['Ration purge score penalty', ration.purgeScorePenalty],
     ] as const) {
       if (!Number.isSafeInteger(value) || value < 0) {
         throw new Error(`${label} for ${config.id} must be a non-negative integer`);
       }
+    }
+    if (ration.streakCap < ration.balancedLevelBonus) {
+      throw new Error(`Ration streak cap for ${config.id} must cover the balanced bonus`);
     }
     if (ration.entropyThreshold < 1) {
       throw new Error(`Ration entropy threshold for ${config.id} must be at least 1`);
@@ -643,6 +652,24 @@ export function rationForecast(
   };
 }
 
+/**
+ * Points a balanced check pays when it is the `streak`-th consecutive one.
+ *
+ * @remarks
+ * `base` is the balanced bonus every pass earns; `extra` is the streak bonus on
+ * top, zero for the first pass. The two sum to at most `streakCap`.
+ */
+export function rationPassBonus(
+  rules: RationRules,
+  streak: number,
+): { readonly base: number; readonly extra: number } {
+  const total = Math.min(
+    rules.streakCap,
+    rules.balancedLevelBonus + rules.streakStep * Math.max(0, streak - 1),
+  );
+  return { base: rules.balancedLevelBonus, extra: Math.max(0, total - rules.balancedLevelBonus) };
+}
+
 export type RationLaneOutcomeKind = 'open' | 'doomed' | 'pass' | 'miss-low' | 'miss-high';
 
 export interface RationLaneOutcome {
@@ -650,6 +677,10 @@ export interface RationLaneOutcome {
   /** Entropy after the drop; unchanged unless the drop is itself the check. */
   readonly entropyAfter: number;
   readonly endsRun: boolean;
+  /** Total bonus points the drop pays; only a passing check pays any. */
+  readonly pointsAwarded: number;
+  /** The balanced streak after the drop. */
+  readonly streakAfter: number;
 }
 
 /** What a drop that breaks `breaks` discs does, given the forecast it is played into. */
@@ -658,21 +689,27 @@ export function rationLaneOutcome(
   forecast: RationForecast,
   breaks: number,
   entropy: number,
+  streak: number,
 ): RationLaneOutcome {
   if (forecast.dropsUntilCheck > 1) {
     return {
       kind: breaks > forecast.need.max ? 'doomed' : 'open',
       entropyAfter: entropy,
       endsRun: false,
+      pointsAwarded: 0,
+      streakAfter: streak,
     };
   }
   const total = forecast.locked + breaks;
   const judgment = rationLevelJudgment(rules, forecast.level, total, rules.rollingWindowDrops);
   if (judgment.balanced) {
+    const { base, extra } = rationPassBonus(rules, streak + 1);
     return {
       kind: 'pass',
       entropyAfter: Math.max(0, entropy - rules.entropyRecoveryPerLevel),
       endsRun: false,
+      pointsAwarded: base + extra,
+      streakAfter: streak + 1,
     };
   }
   const entropyAfter = Math.min(
@@ -683,5 +720,7 @@ export function rationLaneOutcome(
     kind: breaks < forecast.need.min ? 'miss-low' : 'miss-high',
     entropyAfter,
     endsRun: entropyAfter >= rules.entropyThreshold,
+    pointsAwarded: 0,
+    streakAfter: 0,
   };
 }

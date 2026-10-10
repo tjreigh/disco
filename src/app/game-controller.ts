@@ -984,7 +984,7 @@ export class SoloSessionController {
         const { minBreaks, maxBreaks } = rationBreakBand(ration, forecast.level, ration.rollingWindowDrops);
         const cursorBreaks = this.rationLaneBreaks()?.[this.state.cursorCol];
         const cursorOutcome = typeof cursorBreaks === 'number'
-          ? rationLaneOutcome(ration, forecast, cursorBreaks, this.state.entropy)
+          ? rationLaneOutcome(ration, forecast, cursorBreaks, this.state.entropy, this.state.balancedStreak)
           : null;
         return {
           ration: {
@@ -999,11 +999,13 @@ export class SoloSessionController {
             dropsUntilCheck: forecast.dropsUntilCheck,
             doomed: forecast.doomed,
             laneHints: this.laneHintsEnabled,
+            streak: this.state.balancedStreak,
             laneResult: cursorOutcome
               ? {
                   kind: cursorOutcome.kind,
                   entropyDelta: cursorOutcome.entropyAfter - this.state.entropy,
                   endsRun: cursorOutcome.endsRun,
+                  points: cursorOutcome.pointsAwarded,
                 }
               : null,
             entropy: this.state.entropy,
@@ -1113,7 +1115,7 @@ export class SoloSessionController {
     );
     return lanes.map((breaks, lane): RationLaneMarker => {
       if (breaks === null) return { lane, kind: 'blocked' };
-      const outcome = rationLaneOutcome(ration, forecast, breaks, this.state.entropy);
+      const outcome = rationLaneOutcome(ration, forecast, breaks, this.state.entropy, this.state.balancedStreak);
       return {
         lane,
         kind: 'drop',

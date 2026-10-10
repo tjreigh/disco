@@ -75,12 +75,16 @@ export interface GameHudState {
     doomed: boolean;
     /** Per-lane hints are on; when off the lane markers, the cursor-lane result and their control hints are hidden. */
     laneHints: boolean;
+    /** Consecutive balanced checks so far. */
+    streak: number;
     /** What a drop in the cursor lane would do; null when that lane cannot take a drop. */
     laneResult: {
       kind: 'open' | 'doomed' | 'pass' | 'miss-low' | 'miss-high';
       /** Entropy change if this drop is the check; 0 otherwise. */
       entropyDelta: number;
       endsRun: boolean;
+      /** Bonus points a passing check would pay; 0 for anything else. */
+      points: number;
     } | null;
     entropy: number;
     entropyThreshold: number;
@@ -139,6 +143,7 @@ export class GameHud {
   private readonly rationMarker: HTMLElement;
   private readonly rationCheckpoint: HTMLElement;
   private readonly entropyValue: HTMLElement;
+  private readonly entropyLabel: HTMLElement;
   private readonly entropyPips: HTMLElement;
   private readonly gravitySr: HTMLElement;
   private readonly gravityArc: SVGPathElement;
@@ -192,6 +197,7 @@ export class GameHud {
     this.rationMarker = mustQuery(fragment, '[data-ui-ref="ration-marker"]');
     this.rationCheckpoint = mustQuery(fragment, '[data-ui-ref="ration-checkpoint"]');
     this.entropyValue = mustQuery(fragment, '[data-ui-ref="entropy-value"]');
+    this.entropyLabel = mustQuery(fragment, '[data-ui-ref="entropy-label"]');
     this.entropyPips = mustQuery(fragment, '.game-hud__entropy-pips');
     this.hint = mustQuery(fragment, '.game-hud__hint');
     this.stackReceipt = mustQuery(fragment, '.game-hud__stack-receipt');
@@ -459,8 +465,12 @@ export class GameHud {
     if (checkNext && laneResult) {
       const delta = laneResult.entropyDelta;
       if (laneResult.kind === 'pass') {
-        laneText = delta < 0 ? `✓ −${-delta}` : '✓ HOLDS';
-        laneSpoken = delta < 0 ? `a drop in the selected lane passes and recovers ${-delta} entropy` : 'a drop in the selected lane passes and entropy stays at 0';
+        const points = laneResult.points.toLocaleString('en-US');
+        laneText = `${delta < 0 ? `✓ −${-delta}` : '✓ HOLDS'} +${points}`;
+        laneSpoken = `${delta < 0
+          ? `a drop in the selected lane passes and recovers ${-delta} entropy`
+          : 'a drop in the selected lane passes and entropy stays at 0'
+        }, paying ${points} points${ration.streak > 0 ? ` and extending the streak to ${ration.streak + 1}` : ''}`;
       } else {
         laneText = laneResult.endsRun ? '✗ ENDS RUN' : `✗ +${delta}`;
         laneSpoken = laneResult.endsRun
@@ -488,11 +498,12 @@ export class GameHud {
       spoken = `Check in ${dropsUntilCheck} drops. The drops until then must break ${needMin} to ${needMax} discs in total. Entropy holds until then.`;
     }
     this.rationCheckpoint.textContent = line;
+    this.entropyLabel.textContent = ration.streak > 0 ? `ENTROPY · STREAK ${ration.streak}` : 'ENTROPY';
     this.ration.dataset.status = status;
     this.ration.setAttribute(
       'aria-label',
       `${spoken} Of the ${windowDrops}-drop window, ${locked} breaks stay and ${leaving} roll off before the check; target ${minBreaks} to ${maxBreaks}.`
-      + ` Entropy ${entropy} of ${entropyThreshold}. A balanced checkpoint recovers ${
+      + `${ration.streak > 0 ? ` Balanced streak ${ration.streak}.` : ''} Entropy ${entropy} of ${entropyThreshold}. A balanced checkpoint recovers ${
         entropyRecoveryPerLevel
       }; a missed checkpoint adds ${entropyMissBase} to ${maxEntropyGainPerLevel} entropy.`,
     );

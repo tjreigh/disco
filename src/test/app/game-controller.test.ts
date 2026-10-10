@@ -1075,7 +1075,7 @@ describe('Ration lane hints', () => {
     renderer.draw.mock.calls.at(-1)![13];
 
   test('the setting hides the lane markers and the cursor-lane result, and is only offered in Ration', () => {
-    createGame();
+    const { game } = createGame();
     const homeScreen = lastOf(homeScreenInstances);
     const renderer = lastOf(rendererInstances);
 
@@ -1089,6 +1089,14 @@ describe('Ration lane hints', () => {
     const checkLine = (): string | null | undefined =>
       document.querySelector('[data-ui-ref="ration-checkpoint"]')?.textContent;
     expect(document.body.textContent).toContain('Lane breaks');
+
+    // The streak on the engine state reaches the card.
+    const entropyLabel = (): string | null | undefined =>
+      document.querySelector('[data-ui-ref="entropy-label"]')?.textContent;
+    expect(entropyLabel()).toBe('ENTROPY');
+    boardSession(game).state.balancedStreak = 2;
+    frame(1);
+    expect(entropyLabel()).toBe('ENTROPY · STREAK 2');
 
     homeScreen.onRequestToggleLaneHints?.();
     expect(homeScreen.setLaneHintsEnabled).toHaveBeenLastCalledWith(false);

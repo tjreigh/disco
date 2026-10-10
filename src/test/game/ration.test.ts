@@ -12,8 +12,10 @@ import {
   rationEntropyGain,
   rationForecast,
   rationLaneOutcome,
+  rationPassBonus,
   rationLevelJudgment,
 } from '../../game/modes/mode.js';
+import { defineGameRules } from '../../game/modes/mode.js';
 import type { RationRules } from '../../game/modes/mode.js';
 import { doubleCrackedFactory, testMode } from '../helpers.js';
 
@@ -41,6 +43,8 @@ function rationTestMode(overrides: {
     | 'entropyPerDeviationUnit'
     | 'maxEntropyGainPerLevel'
     | 'balancedLevelBonus'
+    | 'streakStep'
+    | 'streakCap'
   >>;
 } = {}) {
   const budget = overrides.budget ?? 1;
@@ -65,6 +69,8 @@ function rationTestMode(overrides: {
       entropyPerDeviationUnit: 0.1,
       maxEntropyGainPerLevel: 3,
       balancedLevelBonus: 2_500,
+      streakStep: 0,
+      streakCap: 2_500,
       purgeScorePenalty: 250,
       ...overrides.entropy,
     },
@@ -142,6 +148,11 @@ describe('Ration band math', () => {
         entropyPerDeviationUnit: 0.1,
         maxEntropyGainPerLevel: 3,
         balancedLevelBonus: 2_500,
+        streakStep: 0,
+        streakCap: 2_500,
+        rollingWindowDrops: 1,
+        checkpointDrops: 1,
+        purgeScorePenalty: 250,
       },
     }, RATION_RULES).ration!;
     expect(rationBreakBand(narrow, 1, 30)).toEqual({ minBreaks: 33, maxBreaks: 39 });
@@ -579,23 +590,31 @@ describe('Ration next-check forecast', () => {
 
   test('mid-interval drops hold entropy and only flag lanes that can no longer pass', () => {
     const forecast = rationForecast(ration, 1, Array(12).fill(1), 12); // locked 6, need 6-13
-    expect(rationLaneOutcome(ration, forecast, 0, 3)).toEqual({ kind: 'open', entropyAfter: 3, endsRun: false });
-    expect(rationLaneOutcome(ration, forecast, 13, 3).kind).toBe('open');
-    expect(rationLaneOutcome(ration, forecast, 14, 3)).toEqual({ kind: 'doomed', entropyAfter: 3, endsRun: false });
+    expect(rationLaneOutcome(ration, forecast, 0, 3, 0)).toEqual({ kind: 'open', entropyAfter: 3, endsRun: false, pointsAwarded: 0, streakAfter: 0 });
+    expect(rationLaneOutcome(ration, forecast, 13, 3, 0).kind).toBe('open');
+    expect(rationLaneOutcome(ration, forecast, 14, 3, 2)).toEqual({ kind: 'doomed', entropyAfter: 3, endsRun: false, pointsAwarded: 0, streakAfter: 2 });
   });
 
   test('the checking drop passes, or misses high or low, against the rules entropy figures', () => {
     const forecast = rationForecast(ration, 1, Array(12).fill(1), 17); // 1 drop left, locked 11, need 1-8
     expect(forecast.dropsUntilCheck).toBe(1);
-    expect(rationLaneOutcome(ration, forecast, 1, 5)).toEqual({ kind: 'pass', entropyAfter: 3, endsRun: false });
-    expect(rationLaneOutcome(ration, forecast, 8, 1)).toEqual({ kind: 'pass', entropyAfter: 0, endsRun: false });
-    expect(rationLaneOutcome(ration, forecast, 0, 0)).toEqual({ kind: 'miss-low', entropyAfter: 1, endsRun: false });
-    expect(rationLaneOutcome(ration, forecast, 9, 2)).toEqual({ kind: 'miss-high', entropyAfter: 3, endsRun: false });
-    const last = ration.entropyThreshold - 1;
-    expect(rationLaneOutcome(ration, forecast, 0, last)).toEqual({
-      kind: 'miss-low', entropyAfter: ration.entropyThreshold, endsRun: true,
+    expect(rationLaneOutcome(ration, forecast, 1, 5, 0)).toEqual({
+      kind: 'pass', entropyAfter: 3, endsRun: false, pointsAwarded: 750, streakAfter: 1,
     });
-    expect(rationLaneOutcome(ration, forecast, 0, ration.entropyThreshold).entropyAfter).toBe(ration.entropyThreshold);
+    expect(rationLaneOutcome(ration, forecast, 8, 1, 2)).toEqual({
+      kind: 'pass', entropyAfter: 0, endsRun: false, pointsAwarded: 2_250, streakAfter: 3,
+    });
+    expect(rationLaneOutcome(ration, forecast, 0, 0, 3)).toEqual({
+      kind: 'miss-low', entropyAfter: 1, endsRun: false, pointsAwarded: 0, streakAfter: 0,
+    });
+    expect(rationLaneOutcome(ration, forecast, 9, 2, 0)).toEqual({
+      kind: 'miss-high', entropyAfter: 3, endsRun: false, pointsAwarded: 0, streakAfter: 0,
+    });
+    const last = ration.entropyThreshold - 1;
+    expect(rationLaneOutcome(ration, forecast, 0, last, 0)).toEqual({
+      kind: 'miss-low', entropyAfter: ration.entropyThreshold, endsRun: true, pointsAwarded: 0, streakAfter: 0,
+    });
+    expect(rationLaneOutcome(ration, forecast, 0, ration.entropyThreshold, 0).entropyAfter).toBe(ration.entropyThreshold);
   });
 
   test('predicts the engine exactly: whether a check ran, its result, and the entropy change', () => {
@@ -603,6 +622,7 @@ describe('Ration next-check forecast', () => {
     let passes = 0;
     let misses = 0;
     let doomedLanes = 0;
+    let longestStreak = 0;
     for (let seed = 1; seed <= 60; seed++) {
       const engine = new GameEngine({ rules: RATION_RULES, seed });
       for (let turn = 0; turn < 80 && engine.state.phase === GamePhase.WaitingForDrop; turn++) {
@@ -614,7 +634,8 @@ describe('Ration next-check forecast', () => {
         const forecast = rationForecast(ration, engine.state.level, engine.state.rationBreakHistory, engine.state.dropCount);
         const entropyBefore = engine.state.entropy;
         const balancedBefore = engine.state.balancedLevels;
-        const outcome = rationLaneOutcome(ration, forecast, breaks, entropyBefore);
+        const streakBefore = engine.state.balancedStreak;
+        const outcome = rationLaneOutcome(ration, forecast, breaks, entropyBefore, streakBefore);
         const result = engine.drop(lane);
         expect(result.accepted).toBe(true);
         if (result.gameOverReason === 'push-overflow') break; // no check runs; see design doc §7
@@ -633,6 +654,16 @@ describe('Ration next-check forecast', () => {
         expect(engine.state.entropy).toBe(outcome.entropyAfter);
         const passed = engine.state.balancedLevels === balancedBefore + 1;
         expect(passed).toBe(outcome.kind === 'pass');
+        expect(engine.state.balancedStreak).toBe(outcome.streakAfter);
+        const bonusPoints = result.steps.reduce(
+          (total, step) => total + (
+            step.kind === StepKind.Bonus && (step.bonusKind === 'balanced' || step.bonusKind === 'streak')
+              ? step.pointsAwarded : 0
+          ),
+          0,
+        );
+        expect(bonusPoints).toBe(outcome.pointsAwarded);
+        if (outcome.streakAfter > longestStreak) longestStreak = outcome.streakAfter;
         if (passed) passes++; else misses++;
         const endedByImbalance = result.gameOverReason === 'imbalance';
         if (!result.gameOverReason || endedByImbalance) expect(endedByImbalance).toBe(outcome.endsRun);
@@ -643,5 +674,107 @@ describe('Ration next-check forecast', () => {
     expect(passes).toBeGreaterThan(5);
     expect(misses).toBeGreaterThan(5);
     expect(doomedLanes).toBeGreaterThan(0);
+    expect(longestStreak).toBeGreaterThan(1);
+  });
+});
+
+describe('Ration balanced streak bonus', () => {
+  const ration = RATION_RULES.ration!;
+
+  test('the first pass pays the base bonus and each further pass adds a step up to the cap', () => {
+    expect(ration.streakStep).toBe(750);
+    expect(ration.streakCap).toBe(3_500);
+    const paid = [1, 2, 3, 4, 5, 6, 40].map(streak => {
+      const { base, extra } = rationPassBonus(ration, streak);
+      return base + extra;
+    });
+    expect(paid).toEqual([750, 1_500, 2_250, 3_000, 3_500, 3_500, 3_500]);
+    expect(rationPassBonus(ration, 1)).toEqual({ base: 750, extra: 0 });
+    expect(rationPassBonus(ration, 0)).toEqual({ base: 750, extra: 0 });
+  });
+
+  test('rejects a cap below the base bonus', () => {
+    expect(() => defineGameRules({ ...RATION_RULES, ration: { ...ration, streakCap: ration.balancedLevelBonus - 1 } }))
+      .toThrow(/streak cap/);
+  });
+
+  /** One drop that is a check which a single break passes, entered with a given streak. */
+  function playPassingCheck(streak: number) {
+    const rules = rationTestMode({
+      budget: 10,
+      band: { center: 0.75, halfWidth: 0.25 },
+      entropy: { balancedLevelBonus: 750, streakStep: 750, streakCap: 3_500 },
+    });
+    const engine = new GameEngine({ rules });
+    const board = makeEmptyBoard();
+    placeDisc(board, 5, 6, makeDisc(9, DiscKind.DoubleCracked));
+    engine.loadScriptedState({
+      rules,
+      board,
+      currentDisc: makeDisc(1, DiscKind.Numbered),
+      nextDisc: makeDisc(7, DiscKind.Numbered),
+      balancedStreak: streak,
+      crackedDiscFactory: quietCrackedFactory(),
+    });
+    return { engine, result: engine.drop(0) };
+  }
+
+  test('a pass pays the base bonus alone at streak 0 and a separate streak step after that', () => {
+    const first = playPassingCheck(0);
+    expect(first.engine.state.balancedStreak).toBe(1);
+    expect(first.result.steps.filter(step => step.kind === StepKind.Bonus))
+      .toEqual([{ kind: StepKind.Bonus, bonusKind: 'balanced', pointsAwarded: 750 }]);
+
+    const fourth = playPassingCheck(3);
+    expect(fourth.engine.state.balancedStreak).toBe(4);
+    expect(fourth.result.steps).toContainEqual({ kind: StepKind.Bonus, bonusKind: 'balanced', pointsAwarded: 750 });
+    expect(fourth.result.steps).toContainEqual({ kind: StepKind.Bonus, bonusKind: 'streak', pointsAwarded: 2_250 });
+    expect(fourth.result.scoreAwarded).toBe(7 + 750 + 2_250);
+  });
+
+  test('the total stops growing at the cap', () => {
+    const capped = playPassingCheck(9);
+    expect(capped.engine.state.balancedStreak).toBe(10);
+    expect(capped.result.steps).toContainEqual({ kind: StepKind.Bonus, bonusKind: 'streak', pointsAwarded: 2_750 });
+    expect(capped.result.scoreAwarded).toBe(7 + 3_500);
+  });
+
+  test('a missed check resets the streak', () => {
+    const rules = rationTestMode({
+      budget: 10,
+      band: { center: 0.75, halfWidth: 0.25 },
+      entropy: { balancedLevelBonus: 750, streakStep: 750, streakCap: 3_500 },
+    });
+    const engine = new GameEngine({
+      rules,
+      discFactory: numberedFactory(7, 7, 7, 7),
+      crackedDiscFactory: quietCrackedFactory(),
+    });
+    engine.state.balancedStreak = 4;
+    const result = engine.drop(0);
+    expect(result.steps.some(step => step.kind === StepKind.Bonus && step.bonusKind === 'streak')).toBe(false);
+    expect(engine.state.balancedStreak).toBe(0);
+  });
+
+  test('a streak survives save and load, and a save without one starts at 0', () => {
+    const engine = new GameEngine({ rules: RATION_RULES, seed: 7 });
+    engine.state.balancedStreak = 3;
+    const save = engine.exportSave({ savedAt: 1 });
+    expect(save.state.balancedStreak).toBe(3);
+    const restored = new GameEngine({ rules: RATION_RULES, seed: 1 });
+    restored.loadSave(save, RATION_RULES);
+    expect(restored.state.balancedStreak).toBe(3);
+
+    delete save.state.balancedStreak;
+    const legacy = new GameEngine({ rules: RATION_RULES, seed: 1 });
+    legacy.loadSave(save, RATION_RULES);
+    expect(legacy.state.balancedStreak).toBe(0);
+  });
+
+  test('a new game starts without a streak', () => {
+    const engine = new GameEngine({ rules: RATION_RULES, seed: 7 });
+    engine.state.balancedStreak = 5;
+    engine.reconfigure(RATION_RULES);
+    expect(engine.state.balancedStreak).toBe(0);
   });
 });

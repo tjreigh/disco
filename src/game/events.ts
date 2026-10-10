@@ -70,7 +70,7 @@ export interface PushStep {
  * Every bonus a mode can award. Multiplayer carries only the subset its modes award
  * (`WIRE_BONUS_KINDS` in src/shared/multiplayer-contracts.ts); solo-only kinds stay off the wire.
  */
-export const BONUS_KINDS = ['level', 'board-clear', 'stack', 'balanced'] as const;
+export const BONUS_KINDS = ['level', 'board-clear', 'stack', 'balanced', 'streak'] as const;
 export type BonusKind = (typeof BONUS_KINDS)[number];
 
 export interface BonusStep {

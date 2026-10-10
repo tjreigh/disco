@@ -19,6 +19,7 @@ import { pointsForStack } from './scoring/formulas.js';
 import { CLASSIC_RULES } from './modes/index.js';
 import {
   rationEntropyGain,
+  rationPassBonus,
   rationLevelJudgment,
   rationRules,
   rewindModifier,
@@ -91,6 +92,7 @@ export interface ScriptedGameStateOptions {
   rationPurgeUsed?: boolean;
   entropy?: number;
   balancedLevels?: number;
+  balancedStreak?: number;
   /** Gravity-mode scripted scenarios only: starting angle, defaulting to the mode's initialAngleDeg (e.g. a tutorial step that wants the board pre-tilted). Ignored for modes without gravity. */
   gravityAngleDeg?: number;
 }
@@ -167,6 +169,7 @@ export class GameEngine {
       rationPurgeUsed: false,
       entropy: 0,
       balancedLevels: 0,
+      balancedStreak: 0,
       gravity: this.gravitySystem.initialState(),
       paradox: this.paradoxSystem.initialState(),
     };
@@ -210,6 +213,7 @@ export class GameEngine {
           rationPurgeUsed: this.state.rationPurgeUsed,
           entropy: this.state.entropy,
           balancedLevels: this.state.balancedLevels,
+          balancedStreak: this.state.balancedStreak,
         } : {}),
       },
       generation: {
@@ -291,6 +295,7 @@ export class GameEngine {
     this.state.rationPurgeUsed = save.state.rationPurgeUsed ?? false;
     this.state.entropy = save.state.entropy ?? 0;
     this.state.balancedLevels = save.state.balancedLevels ?? 0;
+    this.state.balancedStreak = save.state.balancedStreak ?? 0;
     this.state.gravity = this.gravitySystem.restoredState(save.state.gravity?.angle);
     this.state.paradox = save.paradox ? { instability: save.paradox.instability } : undefined;
     if (this.state.paradox) {
@@ -667,7 +672,17 @@ export class GameEngine {
         });
         this.state.entropy = Math.max(0, this.state.entropy - ration.entropyRecoveryPerLevel);
         this.state.balancedLevels++;
+        this.state.balancedStreak++;
+        const { extra } = rationPassBonus(ration, this.state.balancedStreak);
+        if (extra > 0) {
+          steps.push({
+            kind: StepKind.Bonus,
+            bonusKind: 'streak',
+            pointsAwarded: extra,
+          });
+        }
       } else {
+        this.state.balancedStreak = 0;
         const gained = rationEntropyGain(ration, judgment.deviation);
         this.state.entropy = Math.min(ration.entropyThreshold, this.state.entropy + gained);
         if (this.state.entropy >= ration.entropyThreshold) imbalanceGameOver = true;
@@ -834,6 +849,7 @@ export class GameEngine {
     this.state.rationPurgeUsed = options.rationPurgeUsed ?? false;
     this.state.entropy = options.entropy ?? 0;
     this.state.balancedLevels = options.balancedLevels ?? 0;
+    this.state.balancedStreak = options.balancedStreak ?? 0;
     // Re-derive gravity state for whichever mode is now active — a scripted
     // scenario can switch modes (e.g. a tutorial), and the previous mode's
     // gravity state (or lack of one) must not leak into this one.
@@ -1004,6 +1020,7 @@ export class GameEngine {
     this.state.rationPurgeUsed = false;
     this.state.entropy = 0;
     this.state.balancedLevels = 0;
+    this.state.balancedStreak = 0;
     this.state.gravity = checkpoint.gravity ? { ...checkpoint.gravity } : undefined;
     this.state.paradox = checkpoint.paradox ? { ...checkpoint.paradox } : undefined;
   }
@@ -1025,6 +1042,7 @@ export class GameEngine {
     this.state.rationPurgeUsed = false;
     this.state.entropy = 0;
     this.state.balancedLevels = 0;
+    this.state.balancedStreak = 0;
     this.state.gravity = this.gravitySystem.initialState();
     this.state.paradox = this.paradoxSystem.initialState();
   }

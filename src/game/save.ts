@@ -36,6 +36,7 @@ export interface SavedGameState {
   rationPurgeUsed?: boolean;
   entropy?: number;
   balancedLevels?: number;
+  balancedStreak?: number;
   gravity?: {
     angle: number;
   };
@@ -209,7 +210,7 @@ function parseState(value: unknown, rules: GameRulesConfig, allowGameOver = fals
   if (!isObject(value) || !hasOnlyKeys(value, [
     'phase', 'board', 'cursorCol', 'score', 'dropCount', 'level',
     'turnsPerLevel', 'turnsRemaining',
-  ], ['gravity', 'breaksThisLevel', 'rationBreakHistory', 'rationPurgeUsed', 'entropy', 'balancedLevels'])) return null;
+  ], ['gravity', 'breaksThisLevel', 'rationBreakHistory', 'rationPurgeUsed', 'entropy', 'balancedLevels', 'balancedStreak'])) return null;
   if ((value.phase !== 'waiting' && (!allowGameOver || value.phase !== 'game-over'))
     || !isNonNegativeInteger(value.cursorCol)
     || !isNonNegativeInteger(value.score)
@@ -224,7 +225,8 @@ function parseState(value: unknown, rules: GameRulesConfig, allowGameOver = fals
         || value.rationBreakHistory.some(item => !isNonNegativeInteger(item))))
     || (value.rationPurgeUsed !== undefined && typeof value.rationPurgeUsed !== 'boolean')
     || (value.entropy !== undefined && !isNonNegativeInteger(value.entropy))
-    || (value.balancedLevels !== undefined && !isNonNegativeInteger(value.balancedLevels))) return null;
+    || (value.balancedLevels !== undefined && !isNonNegativeInteger(value.balancedLevels))
+    || (value.balancedStreak !== undefined && !isNonNegativeInteger(value.balancedStreak))) return null;
 
   const expectedTurns = turnsForLevel(rules.progression, value.level);
   if (value.turnsPerLevel !== expectedTurns || value.turnsRemaining > value.turnsPerLevel) return null;
@@ -237,6 +239,7 @@ function parseState(value: unknown, rules: GameRulesConfig, allowGameOver = fals
     ...(value.rationPurgeUsed !== undefined ? { rationPurgeUsed: value.rationPurgeUsed } : {}),
     ...(value.entropy !== undefined ? { entropy: value.entropy } : {}),
     ...(value.balancedLevels !== undefined ? { balancedLevels: value.balancedLevels } : {}),
+    ...(value.balancedStreak !== undefined ? { balancedStreak: value.balancedStreak } : {}),
   };
 
   if (rules.placement.kind === 'stage-and-tilt@1') {
